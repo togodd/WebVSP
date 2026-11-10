@@ -5,6 +5,12 @@
 //     the model and the GUI.
 //   - The page calls in from the browser's main thread through a few thread-safe functions:
 //       call( id, op, a, b, value )   queue a request (the operations below)
+//       callGuarded( id, op, a, b, value, expectedEpoch ) queue one epoch-guarded job
+//         expectedEpoch is a canonical unsigned decimal uint64 string. Before dispatch, an
+//         invalid/mismatched epoch or missing Vehicle yields error/code STALE_MODEL and
+//         outcome not_written. model includes modelEpoch (decimal string; empty if no Vehicle)
+//         and modelEpochValid in its existing value object, captured in the same engine job.
+//         This is protocol groundwork only: not all development-time facade calls are guarded.
 //       mirrorEvent( json )           input for the mirrored GUI (WebMirror's event JSON)
 //       take()                        everything produced since the last take(), as JSON:
 //                                       {"out":[results and model events],"mirror":[GUI output]}
@@ -150,6 +156,8 @@ struct Job
     int id;
     string op, a, b;
     double value;
+    bool guarded;
+    string expected_epoch;
 };
 
 std::mutex g_Mutex;
@@ -931,16 +939,49 @@ void ScopedParmWrite( const Job &j, bool xsec )
     Result( j.id, "", "{\"actual\":" + Num( actual ) + "}" );
 }
 
+// Parse without locale, signs, leading zeroes, or unsigned wraparound. Never access the
+// Vehicle on the submitting thread; both this check and the operation run on its owner.
+bool ParseModelEpoch( const string &text, uint64_t &epoch )
+{
+    if ( text.empty() || ( text.size() > 1 && text[0] == '0' ) ) return false;
+    uint64_t n = 0;
+    for ( char c : text )
+    {
+        if ( c < '0' || c > '9' ) return false;
+        unsigned digit = static_cast< unsigned >( c - '0' );
+        if ( n > ( std::numeric_limits< uint64_t >::max() - digit ) / 10 ) return false;
+        n = n * 10 + digit;
+    }
+    epoch = n;
+    return true;
+}
+
 void Run( const Job &j )
 {
+    if ( j.guarded )
+    {
+        uint64_t expected;
+        Vehicle *veh = VehicleMgr.GetVehicle();
+        if ( !ParseModelEpoch( j.expected_epoch, expected ) || !veh ||
+             !veh->IsModelEpochValid() || veh->GetModelEpoch() != expected )
+        {
+            Emit( "{\"t\":\"result\",\"id\":" + std::to_string( j.id ) +
+                  ",\"ok\":false,\"error\":\"STALE_MODEL\",\"code\":\"STALE_MODEL\","
+                  "\"outcome\":\"not_written\",\"actual\":null}" );
+            return;
+        }
+    }
     TakeErrors();
     if ( j.op == "model" )
     {
         string m = ModelJson();
         // Add the engine's own bookkeeping, as session.tree() does.
         m.pop_back();
+        Vehicle *veh = VehicleMgr.GetVehicle();
         m += ",\"rev\":" + std::to_string( g_Rev ) + ",\"dirty\":" + ( g_Dirty ? "true" : "false" ) +
-             ",\"undo\":" + NO_UNDO + "}";
+             ",\"undo\":" + NO_UNDO +
+             ",\"modelEpoch\":" + Quote( veh ? std::to_string( veh->GetModelEpoch() ) : "" ) +
+             ",\"modelEpochValid\":" + ( veh && veh->IsModelEpochValid() ? "true" : "false" ) + "}";
         return Result( j.id, "", m );
     }
     if ( j.op == "fuselageLength" )
@@ -1208,7 +1249,15 @@ namespace
 void Call( int id, const string &op, const string &a, const string &b, double value )
 {
     std::lock_guard< std::mutex > lock( g_Mutex );
-    g_Jobs.push_back( { id, op, a, b, value } );
+    g_Jobs.push_back( { id, op, a, b, value, false, "" } );
+}
+
+void CallGuarded( int id, const string &op, const string &a, const string &b, double value,
+                  const string &expected_epoch )
+{
+    // The guard travels in the very same queued job as the operation, not a separate request.
+    std::lock_guard< std::mutex > lock( g_Mutex );
+    g_Jobs.push_back( { id, op, a, b, value, true, expected_epoch } );
 }
 
 void MirrorEvent( const string &json )
@@ -1270,6 +1319,7 @@ void RequestFull()
 EMSCRIPTEN_BINDINGS( openvsp )
 {
     emscripten::function( "call", &Call );
+    emscripten::function( "callGuarded", &CallGuarded );
     emscripten::function( "mirrorEvent", &MirrorEvent );
     emscripten::function( "take", &Take );
     emscripten::function( "takeBinary", &TakeBinary );

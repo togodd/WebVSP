@@ -20,6 +20,7 @@ import { onSolverEnded, solverExited, solverSpawned } from './solverRun'
 
 interface VspModule {
   call(id: number, op: string, a: string, b: string, value: number): void
+  callGuarded(id: number, op: string, a: string, b: string, value: number, expectedEpoch: string): void
   mirrorEvent(json: string): void
   take(): string
   takeBinary(id: number): Uint8Array | null
@@ -41,11 +42,13 @@ export class WasmEngineError extends Error {
   status: number
   readonly outcome?: 'not_written' | 'different' | 'unknown'
   readonly actual?: number | null
-  constructor(status: number, message: string, outcome?: 'not_written' | 'different' | 'unknown', actual?: number | null) {
+  readonly code?: string
+  constructor(status: number, message: string, outcome?: 'not_written' | 'different' | 'unknown', actual?: number | null, code?: string) {
     super(message)
     this.status = status
     this.outcome = outcome
     this.actual = actual
+    this.code = code
   }
 }
 
@@ -110,7 +113,8 @@ function drain(vsp: VspModule) {
       if (!m.ok) {
         const outcome = m.outcome === 'not_written' || m.outcome === 'different' || m.outcome === 'unknown' ? m.outcome : undefined
         const actual = typeof m.actual === 'number' && Number.isFinite(m.actual) ? m.actual : m.actual === null ? null : undefined
-        p.reject(new WasmEngineError(400, String(m.error), outcome, actual))
+        const code = typeof m.code === 'string' ? m.code : undefined
+        p.reject(new WasmEngineError(code === 'STALE_MODEL' ? 409 : 400, String(m.error), outcome, actual, code))
       }
       else if (m.bin) {
         const bytes = vsp.takeBinary(m.id as number)
@@ -144,6 +148,31 @@ async function call(op: string, a = '', b = '', value = 0): Promise<unknown> {
   return new Promise((resolve, reject) => {
     pending.set(id, { resolve, reject })
     vsp.call(id, op, a, b, value)
+  })
+}
+
+/** A model identity token is an opaque decimal string, never a JavaScript number. */
+export interface EngineModelEpoch {
+  modelEpoch: string
+  modelEpochValid: boolean
+}
+
+/** Submit against the engine's model identity, checked atomically on its owning thread. */
+export async function callGuarded<T = unknown>(op: string, a: string, b: string, value: number, expectedEpoch: string): Promise<T> {
+  if (typeof expectedEpoch !== 'string' || expectedEpoch.length === 0) {
+    throw new WasmEngineError(400, 'expectedEpoch is required', 'not_written')
+  }
+  const vsp = await load()
+  await readyPromise
+  const id = nextId++
+  return new Promise<T>((resolve, reject) => {
+    pending.set(id, { resolve: (result) => resolve(result as T), reject })
+    try {
+      vsp.callGuarded(id, op, a, b, value, expectedEpoch)
+    } catch (error) {
+      pending.delete(id)
+      reject(error)
+    }
   })
 }
 
@@ -190,7 +219,7 @@ export async function wasmRequest(method: string, path: string, body?: unknown):
 // For the browser console and tests: __webvspEngine.request('POST', '/geoms', { type: 'WING' })
 (window as unknown as Record<string, unknown>).__webvspEngine = {
   request: wasmRequest,
-  ...(import.meta.env.DEV ? { testCall: call } : {}),
+  ...(import.meta.env.DEV ? { testCall: call, testCallGuarded: callGuarded } : {}),
 }
 
 /** Stand-in for the WebSocket: "connected" once OpenVSP has started, then its events. */
