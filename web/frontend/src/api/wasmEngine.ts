@@ -454,6 +454,8 @@ interface ProcRequest {
 }
 
 const programs = new Map<number, Worker>()
+// Kill and worker events share the same once-only completion for each worker.
+const programFinishes = new WeakMap<Worker, (code: number, output?: string) => void>()
 /** The model VSPAERO last ran on: its path in the module's file system, without extension. */
 let solverBase = ''
 
@@ -499,11 +501,26 @@ export function runProgram(vsp: VspModule, r: ProcRequest, deps: ProgramSpawnDep
   let solverStarted = false
   let finished = false
   let cmd = ''
-  const exit = (code: number) => {
+  const finish = (initialCode: number, output?: string) => {
     if (finished) return
     finished = true // Even if processExit throws, do not try it twice.
+    let code = initialCode
+    if (worker && deps.programs.get(r.id) === worker) deps.programs.delete(r.id)
+    try { worker?.terminate() } catch { code = 127 }
+    if (output) try { vsp.processOutput(r.id, output) } catch { code = 127 }
+    if (cmd === 'vspaero') {
+      if (!solverStarted) {
+        try { deps.solverSpawned() } catch { code = 127 }
+      }
+      // The callback may have already recorded code before throwing; do not change it.
+      try { deps.solverExited(code) } catch (error) {
+        try { console.error('solverExited failed', error) } catch { /* best effort */ }
+      }
+    }
+    // processExit can itself throw; delivery to the engine cannot be guaranteed.
     vsp.processExit(r.id, code)
   }
+  const exit = (code: number) => finish(code)
   try {
     cmd = (r.cmd ?? '').split('/').pop()!.replace(/\.exe$/i, '')
     const args = r.args ?? []
@@ -525,6 +542,7 @@ export function runProgram(vsp: VspModule, r: ProcRequest, deps: ProgramSpawnDep
     worker = deps.createWorker()
     const spawnedWorker = worker
     deps.programs.set(r.id, spawnedWorker)
+    programFinishes.set(spawnedWorker, finish)
     if (cmd === 'vspaero') {
       solverStarted = true
       deps.solverSpawned()
@@ -532,55 +550,39 @@ export function runProgram(vsp: VspModule, r: ProcRequest, deps: ProgramSpawnDep
       const last = args[args.length - 1] ?? ''
       solverBase = last.startsWith('/') ? last : `${cwd === '/' ? '' : cwd}/${last}`
     }
-    const finish = (code: number) => {
-      if (finished || deps.programs.get(r.id) !== spawnedWorker) return
-      deps.programs.delete(r.id)
-      spawnedWorker.terminate()
-      if (cmd === 'vspaero') deps.solverExited(code)
-      exit(code)
-    }
     spawnedWorker.onmessage = ({ data }) => {
       if (finished || deps.programs.get(r.id) !== spawnedWorker) return
-      if (data.type === 'out') vsp.processOutput(r.id, data.text)
-      else if (data.type === 'exit') {
-        for (const f of data.files as { path: string; data: Uint8Array }[]) {
-          vsp.FS.mkdirTree(dirname(f.path))
-          vsp.FS.writeFile(f.path, f.data)
+      let code: number | undefined
+      try {
+        if (data.type === 'out') vsp.processOutput(r.id, data.text)
+        else if (data.type === 'exit') {
+          // A failure can leave earlier files written; this is not an atomic transaction.
+          for (const f of data.files as { path: string; data: Uint8Array }[]) {
+            vsp.FS.mkdirTree(dirname(f.path))
+            vsp.FS.writeFile(f.path, f.data)
+          }
+          code = data.code
         }
-        finish(data.code)
+      } catch {
+        code = 127
       }
+      if (code !== undefined) finish(code)
     }
     spawnedWorker.onerror = (e) => {
       if (finished || deps.programs.get(r.id) !== spawnedWorker) return
-      vsp.processOutput(r.id, `${cmd}: ${e.message || 'failed to start'}\n`)
-      finish(127)
+      finish(127, `${cmd}: ${e.message || 'failed to start'}\n`)
     }
     spawnedWorker.postMessage({ cmd, args, cwd, dirs, files }, files.map((f) => f.data.buffer))
   } catch (error) {
-    // Independent best-effort cleanup: none of these failures may prevent the exit attempt.
-    // processExit itself can throw; there is no guarantee the engine receives it.
     if (finished) throw error
-    finished = true
-    if (worker && deps.programs.get(r.id) === worker) deps.programs.delete(r.id)
-    try { worker?.terminate() } catch { /* best effort */ }
-    // A solver may fail before its worker exists; record that attempted run as failed too.
-    if (cmd === 'vspaero') {
-      if (!solverStarted) try { deps.solverSpawned() } catch { /* may already have taken effect */ }
-      try { deps.solverExited(127) } catch { /* best effort */ }
-    }
-    try { vsp.processOutput(r.id, `${cmd || 'program'}: failed to start\n`) } catch { /* best effort */ }
-    vsp.processExit(r.id, 127)
+    finish(127, `${cmd || 'program'}: failed to start\n`)
   }
 }
 
-function killProgram(vsp: VspModule, id: number) {
-  const worker = programs.get(id)
+export function killProgram(_vsp: VspModule, id: number, activePrograms = programs) {
+  const worker = activePrograms.get(id)
   if (!worker) return
-  programs.delete(id)
-  worker.terminate()
-  solverExited(143)
-  vsp.processOutput(id, 'Stopped.\n')
-  vsp.processExit(id, 143)
+  programFinishes.get(worker)?.(143, 'Stopped.\n')
 }
 
 /**

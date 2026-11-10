@@ -33,7 +33,7 @@ describe('synchronous program spawn failure', () => {
     const s = setup()
     s.deps.createWorker = () => { throw Error('worker') }
     runProgram(s.vsp, s.request, s.deps)
-    expect(s.events).toEqual(['spawn', 'solverExit', 'output', 'exit:127'])
+    expect(s.events).toEqual(['output', 'spawn', 'solverExit', 'exit:127'])
     expect(s.deps.programs.size).toBe(0)
   })
   it('records FS failure even when the solver notification throws', () => {
@@ -41,7 +41,7 @@ describe('synchronous program spawn failure', () => {
     s.vsp.FS.analyzePath = () => { throw Error('FS') }
     s.deps.solverSpawned = () => { s.events.push('spawn'); throw Error('notify') }
     runProgram(s.vsp, s.request, s.deps)
-    expect(s.events).toEqual(['spawn', 'solverExit', 'output', 'exit:127'])
+    expect(s.events).toEqual(['output', 'spawn', 'solverExit', 'exit:127'])
   })
   it('cleans up independently even if cleanup callbacks throw and ignores late events', () => {
     const s = setup()
@@ -50,7 +50,7 @@ describe('synchronous program spawn failure', () => {
     s.deps.solverExited = () => { s.events.push('solverExit'); throw Error() }
     s.vsp.processOutput = vi.fn(() => { s.events.push('output'); throw Error() })
     runProgram(s.vsp, s.request, s.deps)
-    expect(s.events).toEqual(['spawn', 'terminate', 'solverExit', 'output', 'exit:127'])
+    expect(s.events).toEqual(['spawn', 'terminate', 'output', 'solverExit', 'exit:127'])
     expect(s.deps.programs.size).toBe(0)
     s.worker.onmessage?.({ data: { type: 'exit', code: 0, files: [] } } as MessageEvent)
     s.worker.onerror?.({ message: 'late' } as ErrorEvent)
@@ -60,7 +60,7 @@ describe('synchronous program spawn failure', () => {
     const s = setup()
     s.deps.solverSpawned = () => { throw Error() }
     runProgram(s.vsp, s.request, s.deps)
-    expect(s.events).toEqual(['terminate', 'solverExit', 'output', 'exit:127'])
+    expect(s.events).toEqual(['terminate', 'output', 'solverExit', 'exit:127'])
   })
   it('covers viewer failure and reentrant completion', () => {
     const s = setup()
