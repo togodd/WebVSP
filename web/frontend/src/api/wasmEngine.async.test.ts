@@ -8,7 +8,7 @@ beforeAll(async () => {
   ;({ runProgram, killProgram } = await import('./wasmEngine'))
 })
 
-function setup() {
+function setup(cmd = 'vspaero') {
   const worker = { terminate: vi.fn(), postMessage: vi.fn(), onmessage: null, onerror: null } as unknown as Worker
   const vsp = {
     FS: { analyzePath: () => ({ exists: false }), mkdirTree: vi.fn(), writeFile: vi.fn() },
@@ -17,7 +17,7 @@ function setup() {
   const deps: ProgramSpawnDeps = {
     programs: new Map(), createWorker: () => worker, solverSpawned: vi.fn(), solverExited: vi.fn(), openViewer: vi.fn(),
   }
-  runProgram(vsp, { t: 'spawn', id: 42, cmd: 'vspaero' }, deps)
+  runProgram(vsp, { t: 'spawn', id: 42, cmd }, deps)
   const message = (data: unknown) => worker.onmessage?.({ data } as MessageEvent)
   const error = () => worker.onerror?.({ message: 'broken' } as ErrorEvent)
   const late = () => { message({ type: 'exit', code: 0, files: [] }); error() }
@@ -27,21 +27,44 @@ function setup() {
 describe('asynchronous worker completion', () => {
   it('writes all returned files before reporting a successful exit', () => {
     const s = setup()
-    const order: string[] = []
-    vi.mocked(s.vsp.FS.mkdirTree).mockImplementation(() => { order.push('mkdir') })
-    vi.mocked(s.vsp.FS.writeFile).mockImplementation(() => { order.push('write') })
-    vi.mocked(s.vsp.processExit).mockImplementation(() => { order.push('exit') })
-    s.message({ type: 'exit', code: 0, files: [{ path: '/a', data: new Uint8Array([1]) }, { path: '/b', data: new Uint8Array([2]) }] })
-    expect(order).toEqual(['mkdir', 'write', 'mkdir', 'write', 'exit'])
-    expect(s.vsp.processExit).toHaveBeenCalledWith(42, 0)
+    const order: unknown[] = []
+    const first = new Uint8Array([1, 0, 255])
+    const second = new Uint8Array([4, 5])
+    vi.mocked(s.vsp.FS.mkdirTree).mockImplementation((path) => { order.push(['mkdir', path]) })
+    vi.mocked(s.vsp.FS.writeFile).mockImplementation((path, data) => { order.push(['write', path, Array.from(data)]) })
+    vi.mocked(s.vsp.processExit).mockImplementation((id, code) => { order.push(['exit', id, code]) })
+    s.message({ type: 'exit', code: 0, files: [{ path: '/one/a', data: first }, { path: '/two/b', data: second }] })
+    expect(order).toEqual([
+      ['mkdir', '/one'], ['write', '/one/a', [1, 0, 255]],
+      ['mkdir', '/two'], ['write', '/two/b', [4, 5]], ['exit', 42, 0],
+    ])
+    expect(s.deps.solverExited).toHaveBeenCalledExactlyOnceWith(0)
+    expect(s.worker.terminate).toHaveBeenCalledTimes(1)
+    expect(s.deps.programs.has(42)).toBe(false)
   })
   it('reports a partial writeback failure and ignores late events', () => {
     const s = setup()
-    vi.mocked(s.vsp.FS.writeFile).mockImplementationOnce(() => {}).mockImplementationOnce(() => { throw Error('write') })
-    s.message({ type: 'exit', code: 0, files: [{ path: '/a', data: new Uint8Array() }, { path: '/b', data: new Uint8Array() }] })
+    const written = new Map<string, number[]>()
+    vi.mocked(s.vsp.FS.writeFile).mockImplementation((path, data) => {
+      if (path === '/b') throw Error('write')
+      written.set(path, Array.from(data))
+    })
+    s.message({ type: 'exit', code: 0, files: [
+      { path: '/a', data: new Uint8Array([1, 2]) },
+      { path: '/b', data: new Uint8Array([3]) },
+      { path: '/c', data: new Uint8Array([4]) },
+    ] })
+    expect([...written]).toEqual([['/a', [1, 2]]])
     expect(s.vsp.FS.writeFile).toHaveBeenCalledTimes(2)
-    expect(s.vsp.processExit).toHaveBeenCalledWith(42, 127)
+    expect(s.deps.solverExited).toHaveBeenCalledExactlyOnceWith(127)
+    expect(s.vsp.processExit).toHaveBeenCalledExactlyOnceWith(42, 127)
+    expect(s.worker.terminate).toHaveBeenCalledTimes(1)
+    expect(s.deps.programs.has(42)).toBe(false)
     s.late()
+    killProgram(s.vsp, 42, s.deps.programs)
+    expect(s.vsp.FS.writeFile).toHaveBeenCalledTimes(2)
+    expect(s.deps.solverExited).toHaveBeenCalledTimes(1)
+    expect(s.worker.terminate).toHaveBeenCalledTimes(1)
     expect(s.vsp.processExit).toHaveBeenCalledTimes(1)
   })
   it('fails on mkdir or output exceptions', () => {
@@ -91,6 +114,19 @@ describe('asynchronous worker completion', () => {
     expect(s.vsp.processExit).toHaveBeenCalledExactlyOnceWith(42, 143)
     expect(s.worker.terminate).toHaveBeenCalledTimes(1)
   })
+  it('kills a non-vspaero worker without notifying the solver', () => {
+    const s = setup('vsploads')
+    expect(s.deps.solverSpawned).not.toHaveBeenCalled()
+    killProgram(s.vsp, 42, s.deps.programs)
+    s.late()
+    killProgram(s.vsp, 42, s.deps.programs)
+    expect(s.deps.solverSpawned).not.toHaveBeenCalled()
+    expect(s.deps.solverExited).not.toHaveBeenCalled()
+    expect(s.vsp.processOutput).toHaveBeenCalledExactlyOnceWith(42, 'Stopped.\n')
+    expect(s.vsp.processExit).toHaveBeenCalledExactlyOnceWith(42, 143)
+    expect(s.worker.terminate).toHaveBeenCalledTimes(1)
+    expect(s.deps.programs.has(42)).toBe(false)
+  })
   it('uses the failure code for solver and process when kill output throws', () => {
     const s = setup()
     vi.mocked(s.vsp.processOutput).mockImplementation(() => { throw Error('output') })
@@ -105,6 +141,20 @@ describe('asynchronous worker completion', () => {
     expect(s.deps.solverExited).toHaveBeenCalledExactlyOnceWith(0)
     expect(s.vsp.processExit).toHaveBeenCalledExactlyOnceWith(42, 0)
     expect(s.worker.terminate).toHaveBeenCalledTimes(1)
+  })
+  it.each(['exit', 'kill'] as const)('does not reenter after processExit throws on %s', (kind) => {
+    const s = setup()
+    vi.mocked(s.vsp.processExit).mockImplementation(() => { throw Error('exit') })
+    const complete = () => kind === 'exit'
+      ? s.message({ type: 'exit', code: 0, files: [] })
+      : killProgram(s.vsp, 42, s.deps.programs)
+    expect(complete).toThrow('exit')
+    expect(s.deps.programs.has(42)).toBe(false)
+    s.late()
+    killProgram(s.vsp, 42, s.deps.programs)
+    expect(s.deps.solverExited).toHaveBeenCalledExactlyOnceWith(kind === 'exit' ? 0 : 143)
+    expect(s.worker.terminate).toHaveBeenCalledTimes(1)
+    expect(s.vsp.processExit).toHaveBeenCalledExactlyOnceWith(42, kind === 'exit' ? 0 : 143)
   })
   it('does not retry a throwing processExit', () => {
     const s = setup()
