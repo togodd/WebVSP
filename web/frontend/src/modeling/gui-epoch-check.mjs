@@ -105,6 +105,24 @@ try {
   assert.equal((await info()).geometries.length, 1)
   await stale(reopened)
 
+  // Insert is an incremental GUI operation, unlike Open: the old geometry and token
+  // must survive while the saved geometry is added under a distinct ID.
+  const beforeInsert = await info()
+  await setMode('good')
+  const opensBeforeInsert = await page.evaluate(() => window.__picker.opens)
+  await menu('Insert...')
+  await page.waitForFunction(count => window.__picker.opens > count, opensBeforeInsert, { timeout: 30000 })
+  await page.waitForFunction(() => window.__webvspEngine.testCall('model').then(m => m.geoms.length === 2), { timeout: 30000 })
+  const inserted = await page.evaluate(identity => window.__service.model.getInfo(identity), beforeInsert.identity)
+  assert.deepEqual(inserted.identity, beforeInsert.identity)
+  assert.equal(inserted.geometries.length, beforeInsert.geometries.length + saved.geometries.length)
+  for (const original of beforeInsert.geometries) {
+    assert.ok(inserted.geometries.some(geometry => geometry.id === original.id), `Insert removed original geometry ${original.id}`)
+  }
+  const added = inserted.geometries.filter(geometry => !beforeInsert.geometries.some(original => original.id === geometry.id))
+  assert.equal(added.length, saved.geometries.length)
+  assert.deepEqual(added.map(geometry => geometry.type).sort(), saved.geometries.map(geometry => geometry.type).sort())
+
   // An invalid file is destructive: the GUI renews before attempting the read.
   await open('bad')
   const afterBad = await changed(reopenedAgain)
@@ -113,5 +131,5 @@ try {
   assert.notEqual(afterBad.modelEpoch, reopenedAgain.modelEpoch)
   assert.deepEqual(errors, [])
   await page.evaluate(() => window.__service.close())
-  console.log('PASS: GUI New cancel/discard, Open cancel/same/invalid, epoch and stale guards')
+  console.log('PASS: GUI New cancel/discard, Open cancel/same/invalid, Insert incremental, epoch and stale guards')
 } finally { await browser.close() }
