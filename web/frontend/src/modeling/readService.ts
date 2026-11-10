@@ -51,16 +51,20 @@ export function createReadService(adapter: ModelingReadAdapter, sessionId: strin
   async function getModel(expectedIdentity?: ModelIdentity): Promise<ModelInfo> {
     checkOpen()
     if (expectedIdentity !== undefined) {
-      if (!expectedIdentity || typeof expectedIdentity.sessionId !== 'string' || !expectedIdentity.sessionId.trim() || !validEpoch(expectedIdentity.modelEpoch)) throw new ModelingError('INVALID_ARGUMENT', 'Expected identity is invalid')
-      if (expectedIdentity.sessionId !== sessionId) throw new ModelingError('STALE_MODEL', 'Model identity does not match this session')
-      // Copy the caller's token before the asynchronous read.
-      expectedIdentity = { sessionId: expectedIdentity.sessionId, modelEpoch: expectedIdentity.modelEpoch }
+      if (!expectedIdentity) throw new ModelingError('INVALID_ARGUMENT', 'Expected identity is invalid')
+      const { sessionId: tokenSessionId, modelEpoch } = expectedIdentity
+      if (typeof tokenSessionId !== 'string' || !tokenSessionId.trim() || !validEpoch(modelEpoch)) throw new ModelingError('INVALID_ARGUMENT', 'Expected identity is invalid')
+      if (tokenSessionId !== sessionId) throw new ModelingError('STALE_MODEL', 'Model identity does not match this session')
+      // Copy the validated values before the asynchronous read.
+      expectedIdentity = { sessionId: tokenSessionId, modelEpoch }
     }
     const info = await fromEngine(async () => {
       const model = expectedIdentity ? await adapter.model(expectedIdentity) : await adapter.model()
-      if (!model || model.modelEpochValid !== true || !validEpoch(model.modelEpoch)) throw new Error('Invalid model identity')
+      if (!model) throw new Error('Invalid model identity')
+      const modelEpoch = model.modelEpoch
+      if (model.modelEpochValid !== true || !validEpoch(modelEpoch)) throw new Error('Invalid model identity')
       return {
-        identity: { sessionId, modelEpoch: model.modelEpoch },
+        identity: { sessionId, modelEpoch },
         context: { sessionId, engineRevision: model.rev, engineVersion: model.version },
         fileName: model.fileName,
         geometries: model.geoms.map((g): Geometry => ({ id: g.id, name: g.name, type: g.type, parentId: g.parent, childIds: [...g.children], shown: g.shown })),

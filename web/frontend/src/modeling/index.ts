@@ -25,9 +25,11 @@ export function createBrowserModelingService() {
   const read = createReadService({ model: api.model, bbox: api.bbox }, sessionId)
   function identity(value: ModelIdentity): ModelIdentity {
     if (controller.signal.aborted) throw new ModelingError('SESSION_CLOSED', 'Modeling session is closed')
-    if (!value || typeof value.sessionId !== 'string' || !value.sessionId.trim() || typeof value.modelEpoch !== 'string' || !/^(0|[1-9][0-9]*)$/.test(value.modelEpoch) || value.modelEpoch.length > 20 || (value.modelEpoch.length === 20 && value.modelEpoch > '18446744073709551615')) throw new ModelingError('INVALID_ARGUMENT', 'A valid model identity is required')
-    if (value.sessionId !== sessionId) throw new ModelingError('STALE_MODEL', 'Model identity does not match this session')
-    return Object.freeze({ sessionId: value.sessionId, modelEpoch: value.modelEpoch })
+    if (!value) throw new ModelingError('INVALID_ARGUMENT', 'A valid model identity is required')
+    const { sessionId: tokenSessionId, modelEpoch } = value
+    if (typeof tokenSessionId !== 'string' || !tokenSessionId.trim() || typeof modelEpoch !== 'string' || !/^(0|[1-9][0-9]*)$/.test(modelEpoch) || modelEpoch.length > 20 || (modelEpoch.length === 20 && modelEpoch > '18446744073709551615')) throw new ModelingError('INVALID_ARGUMENT', 'A valid model identity is required')
+    if (tokenSessionId !== sessionId) throw new ModelingError('STALE_MODEL', 'Model identity does not match this session')
+    return Object.freeze({ sessionId: tokenSessionId, modelEpoch })
   }
   function scoped(token: ModelIdentity) {
     const call = <T>(op: Parameters<typeof callGuarded>[0], a = '', b = '', value = 0) => callGuarded<T>(op, a, b, value, token.modelEpoch)

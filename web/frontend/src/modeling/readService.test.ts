@@ -40,6 +40,28 @@ describe('browser-local read service', () => {
     expect(model).toHaveBeenCalledTimes(calls)
     expect((await service.geometry.get('w')).geometry.id).toBe('w')
   })
+  it('reads caller identity getters once and forwards the validated values', async () => {
+    const model = vi.fn(async () => fixture())
+    const service = createReadService({ model, bbox: async () => null }, 'tab')
+    let sessions = 0, epochs = 0
+    const token = {
+      get sessionId() { return ++sessions === 1 ? 'tab' : 'other' },
+      get modelEpoch() { return ++epochs === 1 ? '42' : '43' },
+    }
+    const pending = service.model.getInfo(token)
+    expect(pending).toBeInstanceOf(Promise)
+    expect((await pending).identity.modelEpoch).toBe('42')
+    expect(model).toHaveBeenCalledWith({ sessionId: 'tab', modelEpoch: '42' })
+    expect([sessions, epochs]).toEqual([1, 1])
+  })
+  it('uses the validated engine epoch when its getter changes', async () => {
+    const current = fixture()
+    let reads = 0
+    Object.defineProperty(current, 'modelEpoch', { get: () => ++reads === 1 ? '42' : 'invalid' })
+    const service = createReadService({ model: async () => current, bbox: async () => null }, 'tab')
+    expect((await service.model.getInfo({ sessionId: 'tab', modelEpoch: '42' })).identity.modelEpoch).toBe('42')
+    expect(reads).toBe(1)
+  })
   it('rejects missing, invalid, noncanonical and overflowing snapshot epochs', async () => {
     const current = fixture()
     const model = vi.fn(async () => current)
