@@ -13,6 +13,7 @@
 #include <cmath>
 
 #include <filesystem>
+#include <limits>
 
 #include "Vehicle.h"
 
@@ -911,10 +912,26 @@ bool Vehicle::SetHelpPath( const string & path )
     return false;
 }
 
+void Vehicle::BumpModelEpoch()
+{
+    if ( m_ModelEpochValid )
+    {
+        if ( m_ModelEpoch == std::numeric_limits<std::uint64_t>::max() )
+        {
+            m_ModelEpochValid = false;
+        }
+        else
+        {
+            ++m_ModelEpoch;
+        }
+    }
+}
+
 //=== NewFile ===//
 // Reset VSP state to nearly that of startup.  Leave clipboard contents intact.
 void Vehicle::Renew()
 {
+    BumpModelEpoch();
     Wype();
     Init();
 }
@@ -3565,6 +3582,7 @@ static void PreRegisterNewObjectIDs( xmlNodePtr node )
 //==== Read File ====//
 int Vehicle::ReadXMLFile( const string & file_name )
 {
+    BumpModelEpoch();
     string lastreset = IDMgr.ResetRemapID();
 
     // Disable link updates when until all geoms are loaded

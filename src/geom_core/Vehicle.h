@@ -43,6 +43,7 @@
 #include "ResultsMgr.h"
 
 #include <cassert>
+#include <cstdint>
 
 #include <string>
 #include <vector>
@@ -74,6 +75,11 @@ public:
     void Init();
     static void RunTestScripts();
     void Renew();
+
+    // Identity counter for attempts through Renew and ReadXMLFile only; other replacement
+    // paths may exist. Once invalid, its value must not be used to establish identity.
+    std::uint64_t GetModelEpoch() const { return m_ModelEpoch; }
+    bool IsModelEpochValid() const { return m_ModelEpochValid; }
 
     void ParmChanged( Parm* parm_ptr, int type );
     static void UnDo();
@@ -737,6 +743,10 @@ protected:
     void AddDefaultAttributes();
 
 private:
+
+    void BumpModelEpoch();
+    std::uint64_t m_ModelEpoch = 0;
+    bool m_ModelEpochValid = true;
 
     // Erase and free a Geom without touching the hierarchy.  Only DeleteGeomVec calls this,
     // after RemoveGeomVecFromHierarchy has detached it.
