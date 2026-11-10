@@ -19,6 +19,7 @@ import { offerResults } from './solverResults'
 import { onSolverEnded, solverExited, solverSpawned } from './solverRun'
 import { submitPending } from './pendingCall'
 import { settleBridgeResult } from './settleBridgeResult'
+import { emitListeners } from './emitListeners'
 
 interface VspModule {
   call(id: number, op: string, a: string, b: string, value: number): void
@@ -74,7 +75,7 @@ let ready: (() => void) | null = null
 const readyPromise = new Promise<void>((r) => (ready = r))
 
 function emit(e: SocketMessage) {
-  listeners.forEach((fn) => fn(e))
+  emitListeners(listeners, e)
 }
 
 function load(): Promise<VspModule> {
