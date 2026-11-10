@@ -57,6 +57,15 @@ try {
       length: (await guarded('geomParm', body, length.id)).value,
       section: (await guarded('xsecParm', section, sectionParm.id)).value,
     })
+    // Bypass the TypeScript allowlist to exercise the engine's guarded bridge itself.
+    const invalidBefore = await snapshot()
+    const invalid = []
+    for (const op of ['newModel', 'notARealGuardedOperation']) {
+      invalid.push(await fail(() => callGuarded(op, '', '', 0, epoch)))
+    }
+    const unknownGeom = await fail(() => guarded('addGeom', 'NOT_A_REAL_GEOM_TYPE'))
+    const invalidAfter = await snapshot()
+    const staleToken = (BigInt(epoch) === 0n ? 1n : 0n).toString()
     const normal = {}
     normal.before = await snapshot()
     normal.add = await guarded('addGeom', 'BLANK')
@@ -80,7 +89,9 @@ try {
       for (let run = 0; run < 2; run++) {
         const adv = await fixture('advlink')
         const advRejected = await attempts()
-        const stale = await fail(() => guarded('addGeom', 'BLANK', '', 0, '99999999999999999999'))
+        const staleBefore = await snapshot()
+        const stale = await fail(() => guarded('addGeom', 'BLANK', '', 0, staleToken))
+        const staleAfter = await snapshot()
         const legacy = await call('addGeom', 'BLANK')
         const afterLegacy = await model()
         await fixture('cleanup')
@@ -88,12 +99,19 @@ try {
         const customRejected = await attempts()
         await fixture('cleanup')
         const recovered = await guarded('addGeom', 'BLANK')
-        cases.push({ adv, advRejected, stale, legacy, afterLegacy, custom, customRejected, recovered })
+        cases.push({ adv, advRejected, staleBefore, stale, staleAfter, legacy, afterLegacy, custom, customRejected, recovered })
       }
     } finally { await fixture('cleanup') }
-    return { first, length, sectionParm, normal, cases }
+    return { first, length, sectionParm, invalidBefore, invalid, unknownGeom, invalidAfter, normal, cases }
   })
   assert.equal(result.first.modelEpochValid, true)
+  assert.deepEqual(result.invalidAfter, result.invalidBefore)
+  for (const failure of result.invalid) {
+    assert.notEqual(failure.code, 'SUCCEEDED')
+    assert.equal(failure.outcome, 'not_written')
+    assert.equal(failure.actual, null)
+  }
+  assert.deepEqual(result.unknownGeom, { code: 'UNSAFE_SCRIPT_CONTEXT', outcome: 'not_written', actual: null })
   assert.ok(result.normal.add.id)
   assert.equal(result.normal.move.ok, true)
   assert.equal(result.normal.geom.actual, result.length.value + 1)
