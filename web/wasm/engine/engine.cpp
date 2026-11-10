@@ -28,7 +28,7 @@
 //     Non-finite numbers are null; errors are failed results, never default values.
 //     Scope is precisely GetGeomParmIDs / GetXSecParmIDs (including their nested containers),
 //     not every parm in the model. XSecs must be reachable from a current geom's XSec surfaces.
-//     These are engine ops only: no page-side routes are added here.
+//     Page-side routes are defined in wasmEngine.ts; this is not a remote API.
 //   newModel, readFile(a=path), writeFile(a=path)   (paths in the in-memory file system)
 //   pick(a=geom id, b="1" to toggle)    select as if picked in the 3D view (shift/ctrl-click)
 //   origin(a=geom id)                   [x,y,z] of the geom's origin
