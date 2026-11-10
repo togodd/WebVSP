@@ -40,6 +40,11 @@ try {
       const length = await p.getFuselageLength(body, token)
       const geometryParm = await p.getGeometryParameter(body, geomIds[0], token)
       const sectionParm = await p.getCrossSectionParameter(section, sectionIds[0], token)
+      const shared = sectionIds.find(id => geomIds.includes(id))
+      if (!shared) throw new Error('Expected a nested XSec parameter in the geometry linkable list')
+      const nestedGeomParm = await p.getGeometryParameter(body, shared, token)
+      const nestedSectionParm = await p.getCrossSectionParameter(section, shared, token)
+      if (nestedGeomParm.id !== shared || nestedSectionParm.id !== shared || nestedGeomParm.container !== nestedSectionParm.container) throw new Error('Nested parameter membership disagrees')
       // A geometry's linkable list can include parameters of its nested XSecs.
       // Pick IDs proven absent from the target owner's list for negative tests.
       const sectionOnly = sectionIds.find(id => !geomIds.includes(id))
