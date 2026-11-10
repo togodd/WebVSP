@@ -55,9 +55,7 @@
 #include "VehicleMgr.h"
 #include "WebProcess.h"
 #include <angelscript.h>
-#ifdef WEBVSP_SCRIPT_GUARD_TEST
 #include "ScriptMgr.h"
-#endif
 
 #include <sys/stat.h>
 
@@ -715,9 +713,16 @@ void EmitModelChanged( bool tree, const vector< string > &changed, const vector<
           ",\"undo\":" + NO_UNDO + "}" );
 }
 
+#ifdef WEBVSP_SCRIPT_GUARD_TEST
+void InjectGuardedWriteScript( const char *phase );
+#endif
+
 // Every ~150 ms, and right after each edit: report what the GUI or a request changed.
 void Watch( const string &label = "", bool force = false )
 {
+#ifdef WEBVSP_SCRIPT_GUARD_TEST
+    InjectGuardedWriteScript( "post" );
+#endif
     bool updated = vsp::GetAndResetUpdateCount() > 0;
     string sig = TreeSignature();
     bool tree_changed = sig != g_TreeSig;
@@ -734,21 +739,65 @@ void Watch( const string &label = "", bool force = false )
     }
     if ( !changed.empty() || !removed.empty() || tree_changed || force )
     {
+#ifdef WEBVSP_SCRIPT_GUARD_TEST
+        InjectGuardedWriteScript( "watch" );
+#endif
         EmitModelChanged( tree_changed, changed, removed, label );
     }
 }
 
 //==== Requests ====//
 
+// Only results are staged: watcher events must remain observable as they happen.
+struct GuardedWriteState
+{
+    ScriptMgrSingleton::ExecuteScriptGuard guard;
+    bool started = false;
+    string result;
+    GuardedWriteState() : guard( ScriptMgrSingleton::getInstance() ) {}
+};
+thread_local GuardedWriteState *g_GuardedWrite = nullptr;
+
+#ifdef WEBVSP_SCRIPT_GUARD_TEST
+string g_InjectionArmed, g_InjectionActive, g_InjectionModule;
+
+void InjectGuardedWriteScript( const char *phase )
+{
+    if ( g_GuardedWrite && g_InjectionActive == phase )
+    {
+        g_InjectionActive.clear();
+        ScriptMgrSingleton::getInstance().ExecuteScript( g_InjectionModule.c_str(), "int main()" );
+    }
+}
+#endif
+
+void PublishResult( const string &json )
+{
+    if ( g_GuardedWrite ) g_GuardedWrite->result = json;
+    else Emit( json );
+}
+
+// Called immediately before the first potentially mutating API call.
+bool BeginGuardedWrite()
+{
+    if ( !g_GuardedWrite ) return true;
+#ifdef WEBVSP_SCRIPT_GUARD_TEST
+    InjectGuardedWriteScript( "pre" );
+#endif
+    if ( g_GuardedWrite->guard.Attempted() ) return false;
+    g_GuardedWrite->started = true;
+    return true;
+}
+
 void Result( int id, const string &error, const string &value_json, bool binary = false )
 {
     if ( !error.empty() )
     {
-        Emit( "{\"t\":\"result\",\"id\":" + std::to_string( id ) + ",\"ok\":false,\"error\":" + Quote( error ) + "}" );
+        PublishResult( "{\"t\":\"result\",\"id\":" + std::to_string( id ) + ",\"ok\":false,\"error\":" + Quote( error ) + "}" );
     }
     else
     {
-        Emit( "{\"t\":\"result\",\"id\":" + std::to_string( id ) + ",\"ok\":true" +
+        PublishResult( "{\"t\":\"result\",\"id\":" + std::to_string( id ) + ",\"ok\":true" +
               ( binary ? ",\"bin\":true" : ",\"value\":" + ( value_json.empty() ? string( "null" ) : value_json ) ) + "}" );
     }
 }
@@ -892,7 +941,7 @@ bool FuselageLength( const string &geom, string &json, string &err )
 // error may follow side effects; readback is informative but cannot establish atomicity.
 void ParmWriteFailure( int id, const string &error, const string &outcome, const string &actual )
 {
-    Emit( "{\"t\":\"result\",\"id\":" + std::to_string( id ) +
+    PublishResult( "{\"t\":\"result\",\"id\":" + std::to_string( id ) +
           ",\"ok\":false,\"error\":" + Quote( error ) + ",\"outcome\":" + Quote( outcome ) +
           ",\"actual\":" + actual + "}" );
 }
@@ -944,6 +993,7 @@ void ScopedParmWrite( const Job &j, bool xsec )
         return ParmWriteFailure( j.id, "Unsupported parm type: " + std::to_string( type ), "not_written", Num( old ) );
     }
 
+    if ( !BeginGuardedWrite() ) return;
     vsp::SetParmValUpdate( j.b, j.value );
     string set_error = TakeErrors();
     double actual = vsp::GetParmVal( j.b );
@@ -1273,13 +1323,13 @@ bool SafeWriteContext( Vehicle *veh, const Job &j )
     return true;
 }
 
-void Run( const Job &j )
+void RunImpl( const Job &j )
 {
     if ( j.guarded )
     {
         if ( !GuardedOpAllowed( j.op ) )
         {
-            Emit( "{\"t\":\"result\",\"id\":" + std::to_string( j.id ) +
+            PublishResult( "{\"t\":\"result\",\"id\":" + std::to_string( j.id ) +
                   ",\"ok\":false,\"error\":\"Operation is not permitted by the guarded bridge\","
                   "\"outcome\":\"not_written\",\"actual\":null}" );
             return;
@@ -1289,14 +1339,14 @@ void Run( const Job &j )
         if ( !ParseModelEpoch( j.expected_epoch, expected ) || !veh ||
              !veh->IsModelEpochValid() || veh->GetModelEpoch() != expected )
         {
-            Emit( "{\"t\":\"result\",\"id\":" + std::to_string( j.id ) +
+            PublishResult( "{\"t\":\"result\",\"id\":" + std::to_string( j.id ) +
                   ",\"ok\":false,\"error\":\"STALE_MODEL\",\"code\":\"STALE_MODEL\","
                   "\"outcome\":\"not_written\",\"actual\":null}" );
             return;
         }
         if ( GuardedWrite( j.op ) && !SafeWriteContext( veh, j ) )
         {
-            Emit( "{\"t\":\"result\",\"id\":" + std::to_string( j.id ) +
+            PublishResult( "{\"t\":\"result\",\"id\":" + std::to_string( j.id ) +
                   ",\"ok\":false,\"error\":\"UNSAFE_SCRIPT_CONTEXT\",\"code\":\"UNSAFE_SCRIPT_CONTEXT\","
                   "\"outcome\":\"not_written\",\"actual\":null}" );
             return;
@@ -1304,6 +1354,22 @@ void Run( const Job &j )
     }
     TakeErrors();
 #ifdef WEBVSP_SCRIPT_GUARD_TEST
+    if ( j.op == "guardedWriteInjection" )
+    {
+        if ( j.a == "clear" )
+        {
+            g_InjectionArmed.clear();
+            return Result( j.id, "", "{\"ok\":true}" );
+        }
+        if ( j.a != "pre" && j.a != "post" && j.a != "watch" )
+            return Result( j.id, "Invalid injection phase", "" );
+        if ( g_InjectionModule.empty() )
+            g_InjectionModule = ScriptMgrSingleton::getInstance().ReadScriptFromMemory(
+                "WebVSP_GuardedWriteInjection", "int main() { AddGeom(\"BLANK\"); return 0; }" );
+        if ( g_InjectionModule.empty() ) return Result( j.id, "Could not compile injection script", "" );
+        g_InjectionArmed = j.a;
+        return Result( j.id, "", "{\"ok\":true}" );
+    }
     if ( j.op == "scriptPreflightFixture" ) return ScriptPreflightFixture( j );
     if ( j.op == "scriptGuardCheck" ) return ScriptGuardCheck( j.id );
     if ( j.op == "advLinkGuardCheck" ) return AdvLinkGuardCheck( j.id );
@@ -1410,10 +1476,13 @@ void Run( const Job &j )
     }
     if ( j.op == "addGeom" )
     {
+        if ( !BeginGuardedWrite() ) return;
         string id = vsp::AddGeom( j.a, j.b );
         vsp::Update();
         string err = TakeErrors();
         Watch( "Add " + j.a, true );
+        if ( j.guarded && ( !err.empty() || id.empty() ) )
+            return ParmWriteFailure( j.id, err.empty() ? "AddGeom returned an empty id" : err, "unknown", "null" );
         return Result( j.id, err, "{\"id\":" + Quote( id ) + "}" );
     }
     if ( j.op == "deleteGeoms" )
@@ -1454,7 +1523,7 @@ void Run( const Job &j )
             }
             if ( !valid )
             {
-                Emit( "{\"t\":\"result\",\"id\":" + std::to_string( j.id ) +
+                PublishResult( "{\"t\":\"result\",\"id\":" + std::to_string( j.id ) +
                       ",\"ok\":false,\"error\":\"INVALID_ARGUMENT\",\"code\":\"INVALID_ARGUMENT\","
                       "\"outcome\":\"not_written\",\"actual\":null}" );
                 return;
@@ -1468,9 +1537,12 @@ void Run( const Job &j )
             delta[2] = c.size() > 2 ? atof( c[2].c_str() ) : 0;
         }
         vec3d d( delta[0], delta[1], delta[2] );
-        vsp::MirrorMoveGeoms( SplitCsv( j.a ), d );
+        vector< string > ids = SplitCsv( j.a );
+        if ( !BeginGuardedWrite() ) return;
+        vsp::MirrorMoveGeoms( ids, d );
         string err = TakeErrors();
         Watch( "Move", true );
+        if ( j.guarded && !err.empty() ) return ParmWriteFailure( j.id, err, "unknown", "null" );
         return Result( j.id, err, "{\"ok\":true}" );
     }
     if ( j.op == "duplicate" )
@@ -1577,6 +1649,68 @@ void Run( const Job &j )
         return Result( j.id, TakeErrors(), "{\"ok\":true}" );
     }
     Result( j.id, "unknown request: " + j.op, "" );
+}
+
+// Keep the guard alive across preflight, mutation, readback and Watch. Publish only
+// after the guard has been removed and its final attempted state has been checked.
+void Run( const Job &j )
+{
+    if ( !j.guarded || !GuardedWrite( j.op ) )
+    {
+        // A nested legacy/read job must not stage its result in an outer write.
+        GuardedWriteState *previous = g_GuardedWrite;
+        struct RestoreState
+        {
+            GuardedWriteState *previous;
+            explicit RestoreState( GuardedWriteState *p ) : previous( p ) {}
+            ~RestoreState() { g_GuardedWrite = previous; }
+        } restore( previous );
+        g_GuardedWrite = nullptr;
+        return RunImpl( j );
+    }
+
+#ifdef WEBVSP_SCRIPT_GUARD_TEST
+    // Consume before any preflight, including stale-epoch and unsafe-context failures.
+    string previous_injection = std::move( g_InjectionActive );
+    g_InjectionActive = std::move( g_InjectionArmed );
+    g_InjectionArmed.clear();
+    struct RestoreInjection
+    {
+        string previous;
+        explicit RestoreInjection( string p ) : previous( std::move( p ) ) {}
+        ~RestoreInjection() { g_InjectionActive = std::move( previous ); }
+    } restore_injection( std::move( previous_injection ) );
+#endif
+    string result;
+    {
+        GuardedWriteState state;
+        struct ResetState
+        {
+            GuardedWriteState *previous;
+            explicit ResetState( GuardedWriteState *p ) : previous( p ) {}
+            ~ResetState() { g_GuardedWrite = previous; }
+        } reset( g_GuardedWrite );
+        g_GuardedWrite = &state;
+        bool threw = false;
+        try { RunImpl( j ); }
+        catch ( ... )
+        {
+            // Once mutation begins, preserve the engine's fail-stop behavior.
+            if ( state.started ) throw;
+            threw = true;
+        }
+
+        if ( state.guard.Attempted() )
+            PublishResult( "{\"t\":\"result\",\"id\":" + std::to_string( j.id ) +
+                ",\"ok\":false,\"error\":\"SCRIPT_REENTRY_BLOCKED\",\"code\":\"SCRIPT_REENTRY_BLOCKED\",\"outcome\":" +
+                Quote( state.started ? "unknown" : "not_written" ) + ",\"actual\":null}" );
+        else if ( threw )
+            ParmWriteFailure( j.id, "Write operation threw an exception", state.started ? "unknown" : "not_written", "null" );
+        else if ( state.result.empty() )
+            ParmWriteFailure( j.id, "Write operation produced no result", state.started ? "unknown" : "not_written", "null" );
+        result = std::move( state.result );
+    }
+    Emit( result );
 }
 
 bool g_Gui = false;
