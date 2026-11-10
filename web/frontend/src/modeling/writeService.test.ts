@@ -23,6 +23,12 @@ describe('modeling write service', () => {
     expect(adapter.addGeom).toHaveBeenCalledWith('Wing', 'p')
     expect(adapter.model).toHaveBeenCalledTimes(2)
   })
+  it('compares engine display type with creation type case-insensitively', async () => {
+    const { service, adapter, model } = fixture()
+    adapter.geomTypes.mockResolvedValue(['WING'])
+    adapter.addGeom.mockImplementation(async (_type, parent) => { model.geoms.push({ ...model.geoms[0], id: 'new', type: 'Wing', parent }); return { id: 'new' } })
+    await expect(service.create({ type: 'WING', parentId: 'p' })).resolves.toEqual({ geometryId: 'new' })
+  })
   it('supports explicit root', async () => {
     const { service, adapter } = fixture()
     await expect(service.create({ type: 'Wing', parentId: null })).resolves.toEqual({ geometryId: 'new' })

@@ -52,7 +52,7 @@ export function createWriteService(adapter: ModelingWriteAdapter) {
         if (!result || !validId(result.id) || before.has(result.id)) return unknown()
         const after = await readModel()
         const created = after.geoms.find((g) => g.id === result.id)
-        if (!created || created.type !== type || created.parent !== parentId) return unknown()
+        if (!created || created.type.toUpperCase() !== type.toUpperCase() || created.parent !== parentId) return unknown()
         return { geometryId: result.id }
       } catch { return unknown() }
     },
