@@ -479,54 +479,98 @@ function dirname(path: string) {
   return i <= 0 ? '/' : path.slice(0, i)
 }
 
-function runProgram(vsp: VspModule, r: ProcRequest) {
-  const cmd = (r.cmd ?? '').split('/').pop()!.replace(/\.exe$/i, '')
-  const args = r.args ?? []
-  if (cmd === 'vspviewer') return openViewer(vsp, r.id, args)
-  const cwd = r.cwd || '/'
-  // The folders the program reads and writes: the user's files, the working folder, and the
-  // folders of any paths among its arguments (VSPAERO gets the model's path).
-  const dirs = [...new Set([HOME, cwd, ...args.filter((a) => a.startsWith('/')).map(dirname)])]
-  const files: { path: string; data: Uint8Array }[] = []
-  for (const dir of dirs) {
-    if (!vsp.FS.analyzePath(dir).exists) continue
-    for (const name of vsp.FS.readdir(dir)) {
-      const path = (dir === '/' ? '' : dir) + '/' + name
-      if (name === '.' || name === '..' || !vsp.FS.isFile(vsp.FS.stat(path).mode)) continue
-      files.push({ path, data: new Uint8Array(vsp.FS.readFile(path)) }) // ordinary (not shared) copies
-    }
-  }
+// Inject the external spawn effects so failures in the actual spawn path can be tested.
+export interface ProgramSpawnDeps {
+  programs: Map<number, Worker>
+  createWorker: () => Worker
+  solverSpawned: () => void
+  solverExited: (code: number) => void
+  openViewer: (vsp: VspModule, id: number, args: string[], exit: (code: number) => void) => void
+}
 
-  const worker = new Worker(new URL(`${import.meta.env.BASE_URL}program.worker.js`, window.location.href), { type: 'module' })
-  programs.set(r.id, worker)
-  if (cmd === 'vspaero') {
-    solverSpawned()
-    // Its last argument is the model's path without extension (relative to its folder).
-    const last = args[args.length - 1] ?? ''
-    solverBase = last.startsWith('/') ? last : `${cwd === '/' ? '' : cwd}/${last}`
-  }
-  const finish = (code: number) => {
-    if (!programs.has(r.id)) return
-    programs.delete(r.id)
-    worker.terminate()
-    if (cmd === 'vspaero') solverExited(code)
+export function runProgram(vsp: VspModule, r: ProcRequest, deps: ProgramSpawnDeps = {
+  programs,
+  createWorker: () => new Worker(new URL(`${import.meta.env.BASE_URL}program.worker.js`, window.location.href), { type: 'module' }),
+  solverSpawned,
+  solverExited,
+  openViewer,
+}) {
+  let worker: Worker | undefined
+  let solverStarted = false
+  let finished = false
+  let cmd = ''
+  const exit = (code: number) => {
+    if (finished) return
+    finished = true // Even if processExit throws, do not try it twice.
     vsp.processExit(r.id, code)
   }
-  worker.onmessage = ({ data }) => {
-    if (data.type === 'out') vsp.processOutput(r.id, data.text)
-    else if (data.type === 'exit') {
-      for (const f of data.files as { path: string; data: Uint8Array }[]) {
-        vsp.FS.mkdirTree(dirname(f.path))
-        vsp.FS.writeFile(f.path, f.data)
+  try {
+    cmd = (r.cmd ?? '').split('/').pop()!.replace(/\.exe$/i, '')
+    const args = r.args ?? []
+    if (cmd === 'vspviewer') return deps.openViewer(vsp, r.id, args, exit)
+    const cwd = r.cwd || '/'
+    // The folders the program reads and writes: the user's files, the working folder, and the
+    // folders of any paths among its arguments (VSPAERO gets the model's path).
+    const dirs = [...new Set([HOME, cwd, ...args.filter((a) => a.startsWith('/')).map(dirname)])]
+    const files: { path: string; data: Uint8Array }[] = []
+    for (const dir of dirs) {
+      if (!vsp.FS.analyzePath(dir).exists) continue
+      for (const name of vsp.FS.readdir(dir)) {
+        const path = (dir === '/' ? '' : dir) + '/' + name
+        if (name === '.' || name === '..' || !vsp.FS.isFile(vsp.FS.stat(path).mode)) continue
+        files.push({ path, data: new Uint8Array(vsp.FS.readFile(path)) }) // ordinary (not shared) copies
       }
-      finish(data.code)
     }
+
+    worker = deps.createWorker()
+    const spawnedWorker = worker
+    deps.programs.set(r.id, spawnedWorker)
+    if (cmd === 'vspaero') {
+      solverStarted = true
+      deps.solverSpawned()
+      // Its last argument is the model's path without extension (relative to its folder).
+      const last = args[args.length - 1] ?? ''
+      solverBase = last.startsWith('/') ? last : `${cwd === '/' ? '' : cwd}/${last}`
+    }
+    const finish = (code: number) => {
+      if (finished || deps.programs.get(r.id) !== spawnedWorker) return
+      deps.programs.delete(r.id)
+      spawnedWorker.terminate()
+      if (cmd === 'vspaero') deps.solverExited(code)
+      exit(code)
+    }
+    spawnedWorker.onmessage = ({ data }) => {
+      if (finished || deps.programs.get(r.id) !== spawnedWorker) return
+      if (data.type === 'out') vsp.processOutput(r.id, data.text)
+      else if (data.type === 'exit') {
+        for (const f of data.files as { path: string; data: Uint8Array }[]) {
+          vsp.FS.mkdirTree(dirname(f.path))
+          vsp.FS.writeFile(f.path, f.data)
+        }
+        finish(data.code)
+      }
+    }
+    spawnedWorker.onerror = (e) => {
+      if (finished || deps.programs.get(r.id) !== spawnedWorker) return
+      vsp.processOutput(r.id, `${cmd}: ${e.message || 'failed to start'}\n`)
+      finish(127)
+    }
+    spawnedWorker.postMessage({ cmd, args, cwd, dirs, files }, files.map((f) => f.data.buffer))
+  } catch (error) {
+    // Independent best-effort cleanup: none of these failures may prevent the exit attempt.
+    // processExit itself can throw; there is no guarantee the engine receives it.
+    if (finished) throw error
+    finished = true
+    if (worker && deps.programs.get(r.id) === worker) deps.programs.delete(r.id)
+    try { worker?.terminate() } catch { /* best effort */ }
+    // A solver may fail before its worker exists; record that attempted run as failed too.
+    if (cmd === 'vspaero') {
+      if (!solverStarted) try { deps.solverSpawned() } catch { /* may already have taken effect */ }
+      try { deps.solverExited(127) } catch { /* best effort */ }
+    }
+    try { vsp.processOutput(r.id, `${cmd || 'program'}: failed to start\n`) } catch { /* best effort */ }
+    vsp.processExit(r.id, 127)
   }
-  worker.onerror = (e) => {
-    vsp.processOutput(r.id, `${cmd}: ${e.message || 'failed to start'}\n`)
-    finish(127)
-  }
-  worker.postMessage({ cmd, args, cwd, dirs, files }, files.map((f) => f.data.buffer))
 }
 
 function killProgram(vsp: VspModule, id: number) {
@@ -543,7 +587,7 @@ function killProgram(vsp: VspModule, id: number) {
  * VSPAERO's viewer: shown in the page (src/viewer) instead of a desktop program. OpenVSP sees
  * it running until it's closed. Its last argument is the model's base path (<base>.adb).
  */
-function openViewer(vsp: VspModule, id: number, args: string[]) {
+function openViewer(vsp: VspModule, id: number, args: string[], exit: (code: number) => void) {
   const base = (args[args.length - 1] ?? '').replace(/\.adb$/, '')
   const read = (path: string) => (vsp.FS.analyzePath(path).exists ? new Uint8Array(vsp.FS.readFile(path)) : null)
   const adb = read(`${base}.adb`)
@@ -551,10 +595,10 @@ function openViewer(vsp: VspModule, id: number, args: string[]) {
   const polar = read(`${base}.polar`)
   if (!adb) {
     vsp.processOutput(id, `vspviewer: ${base}.adb not found\n`)
-    vsp.processExit(id, 1)
+    exit(1)
     return
   }
   const name = base.split('/').pop() || base
   const text = (b: Uint8Array | null) => (b ? new TextDecoder().decode(b) : '')
-  useViewer.getState().show(name, adb.buffer, text(cases), text(polar), () => vsp.processExit(id, 0))
+  useViewer.getState().show(name, adb.buffer, text(cases), text(polar), () => exit(0))
 }
