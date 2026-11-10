@@ -18,6 +18,14 @@
 //   addGeom(a=type, b=parent)           {"id":...}
 //   deleteGeoms(a=comma-separated ids)
 //   setParm(a=parm id, value)
+//   geomXSecs(a=geom id)                [{id, xsecs:[ids]}] in XSec surface/index order
+//   geomParmIDs(a=geom id), xsecParmIDs(a=xsec id)   linkable parm IDs
+//   geomParm(a=geom id, b=parm id), xsecParm(a=xsec id, b=parm id)   parm metadata
+//     Metadata: {id,value,type,name,group,container,lowerLimit,upperLimit,active}.
+//     Non-finite numbers are null; errors are failed results, never default values.
+//     Scope is precisely GetGeomParmIDs / GetXSecParmIDs (including their nested containers),
+//     not every parm in the model. XSecs must be reachable from a current geom's XSec surfaces.
+//     These are engine ops only: no page-side routes are added here.
 //   newModel, readFile(a=path), writeFile(a=path)   (paths in the in-memory file system)
 //   pick(a=geom id, b="1" to toggle)    select as if picked in the 3D view (shift/ctrl-click)
 //   origin(a=geom id)                   [x,y,z] of the geom's origin
@@ -741,6 +749,81 @@ vector< string > SplitCsv( const string &s )
     return out;
 }
 
+// Enumerate only live XSecs reachable through a geom; a globally registered XSec may be a
+// clipboard or otherwise not part of the current model. Propagate errors even for empty lists.
+bool GeomXSecs( const string &geom, string &json, bool &found, const string &wanted, string &err )
+{
+    vector< string > surfaces = vsp::GetXSecSurfIDVec( geom );
+    if ( !( err = TakeErrors() ).empty() ) return false;
+    json = "[";
+    for ( size_t s = 0; s < surfaces.size(); ++s )
+    {
+        int count = vsp::GetNumXSec( surfaces[s] );
+        if ( !( err = TakeErrors() ).empty() ) return false;
+        vector< string > ids;
+        for ( int i = 0; i < count; ++i )
+        {
+            string id = vsp::GetXSec( surfaces[s], i );
+            if ( !( err = TakeErrors() ).empty() ) return false;
+            ids.push_back( id );
+            if ( !wanted.empty() && id == wanted ) found = true;
+        }
+        json += ( s ? "," : "" ) + string( "{\"id\":" ) + Quote( surfaces[s] ) +
+                ",\"xsecs\":" + StrArray( ids ) + "}";
+    }
+    json += "]";
+    return true;
+}
+
+bool ParmIDs( bool xsec, const string &owner, vector< string > &ids, string &err )
+{
+    if ( xsec )
+    {
+        vector< string > geoms = vsp::FindGeoms();
+        if ( !( err = TakeErrors() ).empty() ) return false;
+        bool found = false;
+        for ( const string &geom : geoms )
+        {
+            string unused;
+            if ( !GeomXSecs( geom, unused, found, owner, err ) ) return false;
+            if ( found ) break;
+        }
+        if ( !found )
+        {
+            err = "XSec not found in the current model: " + owner;
+            return false;
+        }
+        ids = vsp::GetXSecParmIDs( owner );
+    }
+    else
+    {
+        ids = vsp::GetGeomParmIDs( owner );
+    }
+    err = TakeErrors();
+    return err.empty();
+}
+
+// Error stack entries persist across successful API calls, so inspect it before accepting any
+// of the API's fallback values. Num renders NaN/infinity as JSON null, including for limits.
+bool ParmMetadata( const string &id, string &json, string &err )
+{
+    double value = vsp::GetParmVal( id );
+    int type = vsp::GetParmType( id );
+    string name = vsp::GetParmName( id );
+    string group = vsp::GetParmGroupName( id );
+    string container = vsp::GetParmContainer( id );
+    double lower = vsp::GetParmLowerLimit( id );
+    double upper = vsp::GetParmUpperLimit( id );
+    bool active = vsp::GetParmActiveFlag( id );
+    if ( !( err = TakeErrors() ).empty() ) return false;
+    json = "{\"id\":" + Quote( id ) + ",\"value\":" + Num( value ) +
+           ",\"type\":" + std::to_string( type ) + ",\"name\":" + Quote( name ) +
+           ",\"group\":" + Quote( group ) + ",\"container\":" + Quote( container ) +
+           ",\"lowerLimit\":" + Num( lower ) + ",\"upperLimit\":" + Num( upper ) +
+           ",\"active\":" + ( active ? "true" : "false" ) + "}";
+    return true;
+}
+
 void Run( const Job &j )
 {
     TakeErrors();
@@ -752,6 +835,27 @@ void Run( const Job &j )
         m += ",\"rev\":" + std::to_string( g_Rev ) + ",\"dirty\":" + ( g_Dirty ? "true" : "false" ) +
              ",\"undo\":" + NO_UNDO + "}";
         return Result( j.id, "", m );
+    }
+    if ( j.op == "geomXSecs" )
+    {
+        string json, err;
+        bool found = false;
+        GeomXSecs( j.a, json, found, "", err );
+        return Result( j.id, err, json );
+    }
+    if ( j.op == "geomParmIDs" || j.op == "xsecParmIDs" ||
+         j.op == "geomParm" || j.op == "xsecParm" )
+    {
+        bool xsec = j.op == "xsecParmIDs" || j.op == "xsecParm";
+        bool list = j.op == "geomParmIDs" || j.op == "xsecParmIDs";
+        vector< string > ids;
+        string err, json;
+        if ( !ParmIDs( xsec, j.a, ids, err ) ) return Result( j.id, err, "" );
+        if ( list ) return Result( j.id, "", StrArray( ids ) );
+        if ( std::find( ids.begin(), ids.end(), j.b ) == ids.end() )
+            return Result( j.id, "Parm is not linkable for the requested owner: " + j.b, "" );
+        if ( !ParmMetadata( j.b, json, err ) ) return Result( j.id, err, "" );
+        return Result( j.id, "", json );
     }
     if ( j.op == "geomTypes" )
     {

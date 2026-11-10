@@ -141,6 +141,12 @@ export async function wasmRequest(method: string, path: string, body?: unknown):
     // opened or saved is in HOME, so one actually called Unnamed.vsp3 still shows.
     return { ...tree, fileName: tree.fileName === 'Unnamed.vsp3' ? '' : displayName(tree.fileName) }
   }
+  if ((m = route.match(/^GET \/geoms\/([^/]+)\/xsecs$/))) return call('geomXSecs', decodeURIComponent(m[1]))
+  if ((m = route.match(/^GET \/(geoms|xsecs)\/([^/]+)\/parms(?:\/([^/]+))?$/))) {
+    const owner = decodeURIComponent(m[2])
+    const isXSec = m[1] === 'xsecs'
+    return call(m[3] ? (isXSec ? 'xsecParm' : 'geomParm') : (isXSec ? 'xsecParmIDs' : 'geomParmIDs'), owner, m[3] ? decodeURIComponent(m[3]) : '')
+  }
   if (route === 'GET /geom-types') return call('geomTypes')
   if (route === 'GET /bbox') return call('bbox')
   if (route === 'GET /bbox/all') return call('bbox', 'all')

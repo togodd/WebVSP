@@ -11,6 +11,6 @@ export default defineConfig({
     port: 5178,
     strictPort: true,
     headers: { 'Cross-Origin-Opener-Policy': 'same-origin', 'Cross-Origin-Embedder-Policy': 'require-corp' },
-    proxy: { '/wasm': { target: wasmOrigin, changeOrigin: true } },
+    proxy: { '/wasm': { target: wasmOrigin, changeOrigin: true, configure(proxy) { proxy.on('proxyRes', (res) => { res.headers['cross-origin-embedder-policy'] = 'require-corp'; res.headers['cross-origin-resource-policy'] = 'same-origin' }) } } },
   },
 })
