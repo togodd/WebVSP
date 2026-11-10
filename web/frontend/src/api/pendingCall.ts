@@ -12,11 +12,3 @@ export function submitPending(pending: Map<number, Pending>, id: number, submit:
     }
   })
 }
-
-/** Discard an orphaned binary result, which otherwise remains in the engine's result map. */
-export function takePending(pending: Map<number, Pending>, id: number, binary: boolean, discardBinary: (id: number) => unknown): Pending | undefined {
-  const entry = pending.get(id)
-  if (entry) pending.delete(id)
-  else if (binary) discardBinary(id)
-  return entry
-}
