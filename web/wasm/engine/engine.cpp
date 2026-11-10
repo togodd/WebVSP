@@ -1865,6 +1865,14 @@ void RunImpl( const Job &j )
     }
     if ( j.op == "addGeom" )
     {
+        // Match AddGeom's top-level parent sentinels, but reject stored clipboard
+        // copies as parents. Leave the legacy bridge's semantics unchanged.
+        Vehicle *veh = VehicleMgr.GetVehicle();
+        if ( j.guarded && !j.b.empty() && j.b != "NONE" && j.b != veh->GetID() )
+        {
+            string err;
+            if ( !CurrentModelGeom( j.b, err ) ) return ParmWriteFailure( j.id, err, "not_written", "null" );
+        }
         if ( !BeginGuardedWrite() ) return;
         string id = vsp::AddGeom( j.a, j.b );
         vsp::Update();
