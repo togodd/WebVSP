@@ -85,6 +85,7 @@ ScriptMgrSingleton::ScriptMgrSingleton()
 {
     m_SaveInt = 0;
     m_ExecuteScriptGuards = nullptr;
+    m_SourceBuildAttempted = false;
     m_ScriptEngine = nullptr;
     m_ScriptMessages = "";
 
@@ -246,6 +247,10 @@ string ScriptMgrSingleton::ReadScriptFromMemory( const string &  module_name, co
         for ( ExecuteScriptGuard * guard = m_ExecuteScriptGuards; guard; guard = guard->m_Next ) guard->m_Attempted = true;
         return string();
     }
+
+    // Diagnostic only: attempted source builds remain recorded even on failure.
+    // This is not a safety proof and does not cover other script engine entry points.
+    m_SourceBuildAttempted = true;
 
     //==== Start A New Module ====//
     r = m_ScriptBuilder.StartNewModule( m_ScriptEngine, updated_module_name.c_str() );

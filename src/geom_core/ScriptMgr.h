@@ -84,6 +84,8 @@ public:
 #ifdef WEBVSP_SCRIPT_GUARD_TEST
     // Only for isolated disposable test modules; never expose in production builds.
     asIScriptEngine * GetTestScriptEngine() const { return m_ScriptEngine; }
+    // Diagnostic only; false is not a safety or provenance guarantee.
+    bool TestSourceBuildAttempted() const { return m_SourceBuildAttempted; }
 #endif
 
     int ExecuteScript(  const char* module_name,  const char* function_name, bool arg_flag = false, double arg = 0.0, bool by_decl = true );
@@ -146,6 +148,8 @@ private:
 
     //==== Member Variables ====//
     ExecuteScriptGuard * m_ExecuteScriptGuards;
+    // Process-lifetime diagnostic for ScriptMgr source builds only; never reset on model changes.
+    bool m_SourceBuildAttempted;
     asIScriptEngine* m_ScriptEngine;
 //    map< string, CScriptBuilder > m_BuilderMap;
     CScriptBuilder m_ScriptBuilder;

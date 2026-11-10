@@ -1749,6 +1749,34 @@ void RunImpl( const Job &j )
         g_InjectionArmed = j.a;
         return Result( j.id, "", "{\"ok\":true}" );
     }
+    // Read-only observation; the fixture uses fixed sources and is test-build only.
+    if ( j.op == "scriptSourceBuildState" )
+        return Result( j.id, "", ScriptMgrSingleton::getInstance().TestSourceBuildAttempted() ? "true" : "false" );
+    if ( j.op == "scriptSourceBuildFixture" )
+    {
+        ScriptMgrSingleton &mgr = ScriptMgrSingleton::getInstance();
+        const string name = "WebVSP_SourceBuildDiagnostic";
+        if ( j.a == "blocked" )
+        {
+            ScriptMgrSingleton::ExecuteScriptGuard guard( mgr );
+            const string module = mgr.ReadScriptFromMemory( name, "int main() { return 0; } // blocked source probe" );
+            return Result( j.id, "", string( "{\"blocked\":" ) + ( module.empty() ? "true" : "false" ) +
+                ",\"attempted\":" + ( guard.Attempted() ? "true" : "false" ) + "}" );
+        }
+        if ( j.a == "failed" )
+        {
+            const string module = mgr.ReadScriptFromMemory( name, "int main( { invalid source probe" );
+            return Result( j.id, "", string( "{\"failed\":" ) + ( module.empty() ? "true" : "false" ) + "}" );
+        }
+        if ( j.a == "success" )
+        {
+            const string module = mgr.ReadScriptFromMemory( name, "int main() { return 0; } // successful source probe" );
+            const bool removed = !module.empty() && mgr.RemoveScript( module );
+            return Result( j.id, "", string( "{\"success\":" ) + ( !module.empty() ? "true" : "false" ) +
+                ",\"removed\":" + ( removed ? "true" : "false" ) + "}" );
+        }
+        return Result( j.id, "Invalid source build fixture", "" );
+    }
     if ( j.op == "scriptPreflightFixture" ) return ScriptPreflightFixture( j );
     if ( j.op == "scriptGuardCheck" ) return ScriptGuardCheck( j.id );
     if ( j.op == "scriptGcGuardCheck" ) return ScriptGcGuardCheck( j.id );
