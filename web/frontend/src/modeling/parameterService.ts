@@ -30,22 +30,43 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value)
 }
 function isId(value: unknown): value is string { return typeof value === 'string' && value.trim().length > 0 }
-function isNumberOrNull(value: unknown): boolean { return value === null || (typeof value === 'number' && Number.isFinite(value)) }
-function isParameter(value: unknown): value is EngineParameter {
-  return isRecord(value) && isId(value.id) && isNumberOrNull(value.value) &&
-    typeof value.type === 'number' && Number.isInteger(value.type) &&
-    typeof value.name === 'string' && typeof value.group === 'string' && typeof value.container === 'string' &&
-    isNumberOrNull(value.lowerLimit) && isNumberOrNull(value.upperLimit) && typeof value.active === 'boolean'
+function isNumberOrNull(value: unknown): value is number | null { return value === null || (typeof value === 'number' && Number.isFinite(value)) }
+function invalid(): never { throw new Error('Invalid parameter response') }
+function parameterSnapshot(value: unknown): EngineParameter {
+  if (!isRecord(value)) return invalid()
+  const { id, value: number, type, name, group, container, lowerLimit, upperLimit, active } = value
+  if (!isId(id) || !isNumberOrNull(number) || typeof type !== 'number' || !Number.isInteger(type) ||
+      typeof name !== 'string' || typeof group !== 'string' || typeof container !== 'string' ||
+      !isNumberOrNull(lowerLimit) || !isNumberOrNull(upperLimit) || typeof active !== 'boolean') return invalid()
+  return { id, value: number, type, name, group, container, lowerLimit, upperLimit, active }
 }
-function isIds(value: unknown): value is string[] { return Array.isArray(value) && value.every(isId) }
-function isSurfaces(value: unknown): value is CrossSectionSurface[] {
-  return Array.isArray(value) && value.every(surface => isRecord(surface) && isId(surface.id) && isIds(surface.xsecs))
+function arraySnapshot<T>(value: unknown, item: (value: unknown) => T): T[] {
+  if (!Array.isArray(value)) return invalid()
+  const length = value.length
+  if (!Number.isInteger(length) || length < 0 || length > 0xffffffff) return invalid()
+  const result: T[] = []
+  for (let i = 0; i < length; i++) {
+    if (!Object.prototype.hasOwnProperty.call(value, i)) return invalid()
+    result.push(item(value[i]))
+  }
+  return result
+}
+function idsSnapshot(value: unknown): string[] {
+  return arraySnapshot(value, item => isId(item) ? item : invalid())
+}
+function surfacesSnapshot(value: unknown): CrossSectionSurface[] {
+  return arraySnapshot(value, surface => {
+    if (!isRecord(surface)) return invalid()
+    const { id, xsecs } = surface
+    if (!isId(id)) return invalid()
+    return { id, xsecs: idsSnapshot(xsecs) }
+  })
 }
 export function createParameterService(adapter: ParameterReadAdapter, signal: AbortSignal = new AbortController().signal) {
   function checkOpen() { if (signal.aborted) throw new ModelingError('SESSION_CLOSED', 'Modeling session is closed') }
-  async function read<T>(fn: () => Promise<T>, valid: (result: unknown) => boolean, identity?: ModelIdentity): Promise<T> {
+  async function read<T>(fn: () => Promise<unknown>, snapshot: (result: unknown) => T, identity?: ModelIdentity): Promise<T> {
     checkOpen()
-    try { const result = await raceClose(signal, fn); checkOpen(); if (!valid(result)) throw new Error('Invalid parameter response'); return result } catch (error) {
+    try { const result = await raceClose(signal, fn); checkOpen(); return snapshot(result) } catch (error) {
       checkOpen()
       if (identity !== undefined && error instanceof WasmEngineError && error.code === 'STALE_MODEL') throw new ModelingError('STALE_MODEL', 'The model identity is stale')
       throw new ModelingError('ENGINE_ERROR', 'The OpenVSP parameter request failed')
@@ -53,13 +74,13 @@ export function createParameterService(adapter: ParameterReadAdapter, signal: Ab
   }
   return {
     /** Only surfaces and cross sections reachable through the current model's geometry. */
-    listSurfaces(geometryId: string, identity?: ModelIdentity) { checkOpen(); const owner = id(geometryId, 'geometryId'); return read(() => identity === undefined ? adapter.surfaces(owner) : adapter.surfaces(owner, identity), isSurfaces, identity) },
+    listSurfaces(geometryId: string, identity?: ModelIdentity) { checkOpen(); const owner = id(geometryId, 'geometryId'); return read(() => identity === undefined ? adapter.surfaces(owner) : adapter.surfaces(owner, identity), surfacesSnapshot, identity) },
     /** The engine resolves and checks the unique geometry-owned Design/Length parameter. */
-    getFuselageLength(geometryId: string, identity?: ModelIdentity) { checkOpen(); const owner = id(geometryId, 'geometryId'); return read(() => identity === undefined ? adapter.fuselageLength(owner) : adapter.fuselageLength(owner, identity), result => isParameter(result) && result.name === 'Length' && result.group === 'Design' && result.container === owner, identity) },
+    getFuselageLength(geometryId: string, identity?: ModelIdentity) { checkOpen(); const owner = id(geometryId, 'geometryId'); return read(() => identity === undefined ? adapter.fuselageLength(owner) : adapter.fuselageLength(owner, identity), result => { const parameter = parameterSnapshot(result); if (parameter.name !== 'Length' || parameter.group !== 'Design' || parameter.container !== owner) return invalid(); return parameter }, identity) },
     /** IDs returned by OpenVSP's linkable parameter list; not all internal parameters. */
-    listGeometryParameterIds(geometryId: string, identity?: ModelIdentity) { checkOpen(); const owner = id(geometryId, 'geometryId'); return read(() => identity === undefined ? adapter.list('geometry', owner) : adapter.list('geometry', owner, identity), isIds, identity) },
-    listCrossSectionParameterIds(sectionId: string, identity?: ModelIdentity) { checkOpen(); const owner = id(sectionId, 'sectionId'); return read(() => identity === undefined ? adapter.list('crossSection', owner) : adapter.list('crossSection', owner, identity), isIds, identity) },
-    getGeometryParameter(geometryId: string, parameterId: string, identity?: ModelIdentity) { checkOpen(); const owner = id(geometryId, 'geometryId'), parm = id(parameterId, 'parameterId'); return read(() => identity === undefined ? adapter.get('geometry', owner, parm) : adapter.get('geometry', owner, parm, identity), result => isParameter(result) && result.id === parm, identity) },
-    getCrossSectionParameter(sectionId: string, parameterId: string, identity?: ModelIdentity) { checkOpen(); const owner = id(sectionId, 'sectionId'), parm = id(parameterId, 'parameterId'); return read(() => identity === undefined ? adapter.get('crossSection', owner, parm) : adapter.get('crossSection', owner, parm, identity), result => isParameter(result) && result.id === parm, identity) },
+    listGeometryParameterIds(geometryId: string, identity?: ModelIdentity) { checkOpen(); const owner = id(geometryId, 'geometryId'); return read(() => identity === undefined ? adapter.list('geometry', owner) : adapter.list('geometry', owner, identity), idsSnapshot, identity) },
+    listCrossSectionParameterIds(sectionId: string, identity?: ModelIdentity) { checkOpen(); const owner = id(sectionId, 'sectionId'); return read(() => identity === undefined ? adapter.list('crossSection', owner) : adapter.list('crossSection', owner, identity), idsSnapshot, identity) },
+    getGeometryParameter(geometryId: string, parameterId: string, identity?: ModelIdentity) { checkOpen(); const owner = id(geometryId, 'geometryId'), parm = id(parameterId, 'parameterId'); return read(() => identity === undefined ? adapter.get('geometry', owner, parm) : adapter.get('geometry', owner, parm, identity), result => { const parameter = parameterSnapshot(result); if (parameter.id !== parm) return invalid(); return parameter }, identity) },
+    getCrossSectionParameter(sectionId: string, parameterId: string, identity?: ModelIdentity) { checkOpen(); const owner = id(sectionId, 'sectionId'), parm = id(parameterId, 'parameterId'); return read(() => identity === undefined ? adapter.get('crossSection', owner, parm) : adapter.get('crossSection', owner, parm, identity), result => { const parameter = parameterSnapshot(result); if (parameter.id !== parm) return invalid(); return parameter }, identity) },
   }
 }

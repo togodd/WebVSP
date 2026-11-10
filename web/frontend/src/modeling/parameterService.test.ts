@@ -113,6 +113,83 @@ describe('linkable parameter reads', () => {
       await expect(service.listCrossSectionParameterIds('x')).rejects.toMatchObject({ code: 'ENGINE_ERROR' })
     }
   })
+  it('snapshots each field and array element exactly once before identity checks', async () => {
+    const parameter = { id: 'p', value: 1, type: 0, name: 'Length', group: 'Design', container: 'g', lowerLimit: 0, upperLimit: 10, active: true }
+    const counts: Record<string, number> = {}
+    const observed = new Proxy(parameter, { get(target, key, receiver) {
+      if (typeof key === 'string' && key in target) {
+        counts[key] = (counts[key] ?? 0) + 1
+        if (counts[key] > 1) throw new Error('field read twice')
+      }
+      return Reflect.get(target, key, receiver)
+    } })
+    const idsReads: string[] = []
+    const ids = new Proxy(['x'], { get(target, key, receiver) {
+      if (key === 'length' || key === '0') idsReads.push(key)
+      return Reflect.get(target, key, receiver)
+    } })
+    let surfaceIdReads = 0, xsecsReads = 0
+    const surface = { get id() { surfaceIdReads++; return 's' }, get xsecs() { xsecsReads++; return ids } }
+    const service = createParameterService({ surfaces: async () => [surface], list: async () => ids, get: async () => observed, fuselageLength: async () => observed })
+    const result = await service.getFuselageLength('g')
+    expect(result).toEqual(parameter)
+    expect(Object.values(counts)).toEqual(Array(9).fill(1))
+    expect(result).not.toBe(parameter)
+    const surfaces = await service.listSurfaces('g')
+    expect(surfaces).toEqual([{ id: 's', xsecs: ['x'] }])
+    expect([surfaceIdReads, xsecsReads]).toEqual([1, 1])
+    expect(idsReads).toEqual(['length', '0'])
+    idsReads.length = 0
+    expect(await service.listGeometryParameterIds('g')).toEqual(['x'])
+    expect(idsReads).toEqual(['length', '0'])
+  })
+  it('rejects sparse arrays and ignores overridden every methods', async () => {
+    let response: unknown
+    const service = createParameterService({ surfaces: async () => response as never, list: async () => response as never, get: async () => { throw new Error() }, fuselageLength: async () => { throw new Error() } })
+    const fakeValid: unknown[] = [null]
+    Object.defineProperty(fakeValid, 'every', { value: () => true })
+    for (const invalid of [Array(1), fakeValid]) {
+      response = invalid
+      await expect(service.listGeometryParameterIds('g')).rejects.toMatchObject({ code: 'ENGINE_ERROR' })
+      await expect(service.listCrossSectionParameterIds('x')).rejects.toMatchObject({ code: 'ENGINE_ERROR' })
+      await expect(service.listSurfaces('g')).rejects.toMatchObject({ code: 'ENGINE_ERROR' })
+    }
+    for (const length of [NaN, -1, 1.5, Infinity, 0x100000000, '0']) {
+      response = new Proxy([], { get(target, key, receiver) { return key === 'length' ? length : Reflect.get(target, key, receiver) } })
+      await expect(service.listGeometryParameterIds('g')).rejects.toMatchObject({ code: 'ENGINE_ERROR' })
+      await expect(service.listSurfaces('g')).rejects.toMatchObject({ code: 'ENGINE_ERROR' })
+    }
+    response = [{ id: 's', xsecs: Array(1) }]
+    await expect(service.listSurfaces('g')).rejects.toMatchObject({ code: 'ENGINE_ERROR' })
+    response = [{ id: 's', xsecs: fakeValid }]
+    await expect(service.listSurfaces('g')).rejects.toMatchObject({ code: 'ENGINE_ERROR' })
+    const valid = ['x']
+    Object.defineProperty(valid, 'every', { value: () => { throw new Error('must not call every') } })
+    response = valid
+    await expect(service.listGeometryParameterIds('g')).resolves.toEqual(['x'])
+  })
+  it('does not leak adapter references and sanitizes throwing getters and proxies', async () => {
+    const parameter = { id: 'p', value: 1, type: 0, name: 'Length', group: 'Design', container: 'g', lowerLimit: 0, upperLimit: 10, active: true }
+    const ids = ['x']
+    const surfaces = [{ id: 's', xsecs: ids }]
+    let response: unknown
+    const service = createParameterService({ surfaces: async () => response as never, list: async () => response as never, get: async () => response as never, fuselageLength: async () => response as never })
+    response = parameter
+    const savedParameter = await service.getGeometryParameter('g', 'p')
+    parameter.value = 7
+    expect(savedParameter.value).toBe(1)
+    response = surfaces
+    const savedSurfaces = await service.listSurfaces('g')
+    response = ids
+    const savedIds = await service.listCrossSectionParameterIds('x')
+    surfaces[0].id = 'changed'; ids[0] = 'changed'; surfaces.push({ id: 'extra', xsecs: [] })
+    expect(savedSurfaces).toEqual([{ id: 's', xsecs: ['x'] }])
+    expect(savedIds).toEqual(['x'])
+    response = { ...parameter, get id(): string { throw new Error('secret') } }
+    await expect(service.getGeometryParameter('g', 'p')).rejects.toMatchObject({ code: 'ENGINE_ERROR', message: 'The OpenVSP parameter request failed' })
+    response = new Proxy(['x'], { getOwnPropertyDescriptor() { throw new Error('secret') } })
+    await expect(service.listGeometryParameterIds('g')).rejects.toMatchObject({ code: 'ENGINE_ERROR' })
+  })
   it('rejects invalid inputs and sanitizes backend errors', async () => {
     const service = createParameterService({ fuselageLength: async () => { throw new Error('secret') }, surfaces: async () => { throw new Error('secret') }, list: async () => [], get: async () => { throw new Error('secret') } })
     expect(() => service.listSurfaces('')).toThrowError(expect.objectContaining({ code: 'INVALID_ARGUMENT' }))
