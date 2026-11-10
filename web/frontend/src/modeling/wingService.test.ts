@@ -20,13 +20,20 @@ describe('wing read view', () => {
       { id: 'section1', index: 1, kind: 'wingSection' },
       { id: 'section2', index: 2, kind: 'wingSection' },
     ] }] })
-    expect(deps.geometry.get).toHaveBeenCalledWith('wing')
-    expect(deps.parameters.listSurfaces).toHaveBeenCalledWith('wing')
+    expect(deps.geometry.get).toHaveBeenCalledWith('wing', undefined)
+    expect(deps.parameters.listSurfaces).toHaveBeenCalledWith('wing', undefined)
     const verifyReadonly = () => {
       // @ts-expect-error Views are read-only at the type level.
       result.surfaces[0].stations[0].index = 9
     }
     expect(typeof verifyReadonly).toBe('function')
+  })
+  it('passes the exact identity to every read without refreshing it', async () => {
+    const deps = dependencies()
+    const identity = { sessionId: 's', modelEpoch: 'epoch' }
+    await createWingService(deps).get('wing', identity)
+    expect(vi.mocked(deps.geometry.get).mock.calls[0][1]).toBe(identity)
+    expect(vi.mocked(deps.parameters.listSurfaces).mock.calls[0][1]).toBe(identity)
   })
   it('accepts empty surface and station lists and restarts indices per surface', async () => {
     const deps = dependencies()

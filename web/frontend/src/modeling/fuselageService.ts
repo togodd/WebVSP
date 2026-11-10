@@ -1,14 +1,14 @@
 import { ModelingError } from './contracts'
-import type { Geometry, ModelContext } from './contracts'
+import type { Geometry, ModelContext, ModelIdentity } from './contracts'
 import type { EngineParameter, CrossSectionSurface } from './parameterService'
 
 /** Only the existing read operations are required; no engine or UI state is captured. */
 export interface FuselageGeometryReader {
-  get(geometryId: string): Promise<{ context: ModelContext; geometry: Geometry }>
+  get(geometryId: string, identity?: ModelIdentity): Promise<{ context: ModelContext; geometry: Geometry }>
 }
 export interface FuselageParameterReader {
-  getFuselageLength(geometryId: string): Promise<EngineParameter>
-  listSurfaces(geometryId: string): Promise<CrossSectionSurface[]>
+  getFuselageLength(geometryId: string, identity?: ModelIdentity): Promise<EngineParameter>
+  listSurfaces(geometryId: string, identity?: ModelIdentity): Promise<CrossSectionSurface[]>
 }
 export interface FuselageSection {
   id: string
@@ -38,20 +38,20 @@ function badData(message: string): never { throw new ModelingError('ENGINE_ERROR
  */
 export function createFuselageService(geometry: FuselageGeometryReader, parameter: FuselageParameterReader) {
   return {
-    async get(geometryId: string): Promise<FuselageSnapshot> {
+    async get(geometryId: string, identity?: ModelIdentity): Promise<FuselageSnapshot> {
       if (!validId(geometryId)) throw new ModelingError('INVALID_ARGUMENT', 'geometryId must be a nonempty string')
-      const info = await geometry.get(geometryId)
+      const info = await geometry.get(geometryId, identity)
       if (!info.geometry || info.geometry.id !== geometryId) badData('Geometry response does not match the requested ID')
       if (info.geometry.type !== 'Fuselage') throw new ModelingError('UNSUPPORTED_OPERATION', 'Geometry is not a Fuselage', { geometryId })
 
       // The engine enforces uniqueness; still validate the returned identity and metadata.
-      const length = await parameter.getFuselageLength(geometryId)
+      const length = await parameter.getFuselageLength(geometryId, identity)
       if (!length || !validId(length.id) || length.name !== 'Length' || length.group !== 'Design' || length.container !== geometryId) badData('Invalid Fuselage Design/Length parameter')
       if (typeof length.value !== 'number' || !Number.isFinite(length.value) ||
           typeof length.lowerLimit !== 'number' || !Number.isFinite(length.lowerLimit) ||
           typeof length.upperLimit !== 'number' || !Number.isFinite(length.upperLimit)) badData('Fuselage Length has a non-finite value or limit')
 
-      const raw = await parameter.listSurfaces(geometryId)
+      const raw = await parameter.listSurfaces(geometryId, identity)
       if (!Array.isArray(raw)) badData('Invalid XSec surfaces')
       const surfaceIds = new Set<string>(), sectionIds = new Set<string>()
       const surfaces = raw.map((surface, index): FuselageSurface => {

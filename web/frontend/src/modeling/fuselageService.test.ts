@@ -1,15 +1,16 @@
 import { describe, expect, it, vi } from 'vitest'
 import { createFuselageService } from './fuselageService'
 import { ModelingError } from './contracts'
+import type { ModelIdentity } from './contracts'
 import type { EngineParameter } from './parameterService'
 
 const length = (): EngineParameter => ({ id: 'p', name: 'Length', group: 'Design', container: 'g', value: 30, type: 0, lowerLimit: 1e-8, upperLimit: 1e12, active: true })
 function fixture() {
   const info = { context: { sessionId: 's', engineRevision: 4, engineVersion: 'v' }, geometry: { id: 'g', name: 'Body', type: 'Fuselage', parentId: null, childIds: [], shown: true } }
-  const geometry = { get: vi.fn(async (_id: string) => info) }
+  const geometry = { get: vi.fn(async (_id: string, _identity?: ModelIdentity) => info) }
   const parameter = {
-    getFuselageLength: vi.fn(async (_id: string): Promise<EngineParameter> => length()),
-    listSurfaces: vi.fn(async (_id: string) => [{ id: 'surface0', xsecs: ['a', 'b'] }, { id: 'surface1', xsecs: ['c'] }]),
+    getFuselageLength: vi.fn(async (_id: string, _identity?: ModelIdentity): Promise<EngineParameter> => length()),
+    listSurfaces: vi.fn(async (_id: string, _identity?: ModelIdentity) => [{ id: 'surface0', xsecs: ['a', 'b'] }, { id: 'surface1', xsecs: ['c'] }]),
   }
   return { info, geometry, parameter, service: createFuselageService(geometry, parameter) }
 }
@@ -22,8 +23,18 @@ describe('read-only fuselage service', () => {
       { id: 'surface0', index: 0, sections: [{ id: 'a', index: 0, shape: null }, { id: 'b', index: 1, shape: null }] },
       { id: 'surface1', index: 1, sections: [{ id: 'c', index: 0, shape: null }] },
     ] })
-    expect(f.parameter.getFuselageLength.mock.calls).toEqual([['g']])
+    expect(f.parameter.getFuselageLength.mock.calls).toEqual([['g', undefined]])
+    expect(f.geometry.get).toHaveBeenCalledWith('g', undefined)
+    expect(f.parameter.listSurfaces).toHaveBeenCalledWith('g', undefined)
     expect(Object.keys(f.service)).toEqual(['get'])
+  })
+  it('passes the exact identity to every read without refreshing it', async () => {
+    const f = fixture()
+    const identity = { sessionId: 's', modelEpoch: 'epoch' }
+    await f.service.get('g', identity)
+    expect(f.geometry.get.mock.calls[0][1]).toBe(identity)
+    expect(f.parameter.getFuselageLength.mock.calls[0][1]).toBe(identity)
+    expect(f.parameter.listSurfaces.mock.calls[0][1]).toBe(identity)
   })
   it('allows empty surfaces and empty section lists without inventing data', async () => {
     const f = fixture()

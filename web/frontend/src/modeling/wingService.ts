@@ -1,11 +1,11 @@
 import { ModelingError } from './contracts'
-import type { Geometry, ModelContext } from './contracts'
+import type { Geometry, ModelContext, ModelIdentity } from './contracts'
 import type { CrossSectionSurface } from './parameterService'
 
 /** The existing engine-backed read services, injected without owning their lifecycle. */
 export interface WingReadDependencies {
-  geometry: { get(geometryId: string): Promise<{ context: ModelContext; geometry: Geometry }> }
-  parameters: { listSurfaces(geometryId: string): Promise<CrossSectionSurface[]> }
+  geometry: { get(geometryId: string, identity?: ModelIdentity): Promise<{ context: ModelContext; geometry: Geometry }> }
+  parameters: { listSurfaces(geometryId: string, identity?: ModelIdentity): Promise<CrossSectionSurface[]> }
 }
 
 export interface WingStation {
@@ -37,14 +37,14 @@ export interface WingView {
  */
 export function createWingService(deps: WingReadDependencies) {
   return {
-    async get(geometryId: string): Promise<WingView> {
+    async get(geometryId: string, identity?: ModelIdentity): Promise<WingView> {
       if (typeof geometryId !== 'string' || !geometryId.trim()) throw new ModelingError('INVALID_ARGUMENT', 'geometryId must be a nonempty string')
-      const result = await deps.geometry.get(geometryId)
+      const result = await deps.geometry.get(geometryId, identity)
       if (!result || !result.context || typeof result.context.sessionId !== 'string' || typeof result.context.engineRevision !== 'number' || !Number.isFinite(result.context.engineRevision) || typeof result.context.engineVersion !== 'string') throw new ModelingError('ENGINE_ERROR', 'Invalid geometry response')
       const { context, geometry } = result
       if (!geometry || geometry.id !== geometryId || typeof geometry.type !== 'string' || !geometry.type.trim()) throw new ModelingError('ENGINE_ERROR', 'Invalid geometry response')
       if (geometry.type.toUpperCase() !== 'WING') throw new ModelingError('UNSUPPORTED_OPERATION', 'Geometry is not a wing', { geometryId })
-      const surfaces = await deps.parameters.listSurfaces(geometryId)
+      const surfaces = await deps.parameters.listSurfaces(geometryId, identity)
       const surfaceIds = new Set<string>(), stationIds = new Set<string>()
       const validId = (id: unknown): id is string => typeof id === 'string' && !!id.trim()
       if (!Array.isArray(surfaces)) throw new ModelingError('ENGINE_ERROR', 'Invalid wing surface response')
