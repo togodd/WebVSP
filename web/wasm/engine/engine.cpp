@@ -17,7 +17,10 @@
 //   mesh(a=geom id)                     binary "VSPM" mesh (format: web/frontend/src/api/mesh.ts)
 //   addGeom(a=type, b=parent)           {"id":...}
 //   deleteGeoms(a=comma-separated ids)
-//   setParm(a=parm id, value)
+//   setParm(a=parm id, value)           legacy unscoped write
+//   geomSetParm(a=geom id, b=parm id, value), xsecSetParm(a=xsec id, b=parm id, value)
+//     Single scoped write, not a transaction. Success value: {actual}; failure: error,
+//     outcome ("not_written", "different", or "unknown") and actual (null if unknown).
 //   geomXSecs(a=geom id)                [{id, xsecs:[ids]}] in XSec surface/index order
 //   geomParmIDs(a=geom id), xsecParmIDs(a=xsec id)   linkable parm IDs
 //   geomParm(a=geom id, b=parm id), xsecParm(a=xsec id, b=parm id)   parm metadata
@@ -61,6 +64,7 @@
 #include <deque>
 #include <functional>
 #include <map>
+#include <limits>
 #include <mutex>
 #include <set>
 #include <sstream>
@@ -824,6 +828,76 @@ bool ParmMetadata( const string &id, string &json, string &err )
     return true;
 }
 
+// Failures before the setter are known not to have written. After invoking it, even an API
+// error may follow side effects; readback is informative but cannot establish atomicity.
+void ParmWriteFailure( int id, const string &error, const string &outcome, const string &actual )
+{
+    Emit( "{\"t\":\"result\",\"id\":" + std::to_string( id ) +
+          ",\"ok\":false,\"error\":" + Quote( error ) + ",\"outcome\":" + Quote( outcome ) +
+          ",\"actual\":" + actual + "}" );
+}
+
+void ScopedParmWrite( const Job &j, bool xsec )
+{
+    vector< string > ids;
+    string err;
+    if ( !ParmIDs( xsec, j.a, ids, err ) )
+        return ParmWriteFailure( j.id, err, "not_written", "null" );
+    if ( std::find( ids.begin(), ids.end(), j.b ) == ids.end() )
+        return ParmWriteFailure( j.id, "Parm is not linkable for the requested owner: " + j.b, "not_written", "null" );
+
+    double old = vsp::GetParmVal( j.b );
+    int type = vsp::GetParmType( j.b );
+    double lower = vsp::GetParmLowerLimit( j.b );
+    double upper = vsp::GetParmUpperLimit( j.b );
+    bool active = vsp::GetParmActiveFlag( j.b );
+    if ( !( err = TakeErrors() ).empty() )
+        return ParmWriteFailure( j.id, "Cannot read parm metadata: " + err, "not_written", "null" );
+    if ( !std::isfinite( j.value ) )
+        return ParmWriteFailure( j.id, "Requested value must be finite", "not_written", Num( old ) );
+    if ( !std::isfinite( old ) || std::isnan( lower ) || std::isnan( upper ) || lower > upper )
+        return ParmWriteFailure( j.id, "Invalid parm value or limits", "not_written", Num( old ) );
+    if ( !active )
+        return ParmWriteFailure( j.id, "Parm is inactive", "not_written", Num( old ) );
+    if ( j.value < lower || j.value > upper )
+        return ParmWriteFailure( j.id, "Requested value is outside parm limits", "not_written", Num( old ) );
+
+    switch ( type )
+    {
+    case vsp::PARM_INT_TYPE:
+    case vsp::PARM_LIMITED_INT_TYPE:
+    case vsp::PARM_POWER_INT_TYPE:
+    case vsp::PARM_BOOL_TYPE:
+        if ( std::trunc( j.value ) != j.value ||
+             j.value < std::numeric_limits< int >::min() || j.value > std::numeric_limits< int >::max() ||
+             ( type == vsp::PARM_BOOL_TYPE && j.value != 0 && j.value != 1 ) )
+            return ParmWriteFailure( j.id, "Requested value is invalid for an integer or boolean parm", "not_written", Num( old ) );
+        break;
+    case vsp::PARM_DOUBLE_TYPE:
+    case vsp::PARM_FRACTION_TYPE:
+    case vsp::PARM_NOTEQ_TYPE:
+        break;
+    default:
+        return ParmWriteFailure( j.id, "Unsupported parm type: " + std::to_string( type ), "not_written", Num( old ) );
+    }
+
+    vsp::SetParmValUpdate( j.b, j.value );
+    string set_error = TakeErrors();
+    double actual = vsp::GetParmVal( j.b );
+    string read_error = TakeErrors();
+    Watch( "Parameter change", true );
+    if ( !set_error.empty() || !read_error.empty() || !std::isfinite( actual ) )
+    {
+        string message = set_error.empty() ? "" : "SetParmValUpdate failed: " + set_error;
+        if ( !read_error.empty() ) message += ( message.empty() ? "" : "; " ) + string( "Readback failed: " ) + read_error;
+        else if ( !std::isfinite( actual ) ) message += ( message.empty() ? "" : "; " ) + string( "Readback is non-finite" );
+        return ParmWriteFailure( j.id, message, "unknown", read_error.empty() ? Num( actual ) : "null" );
+    }
+    if ( actual != j.value )
+        return ParmWriteFailure( j.id, "Readback differs from requested value; update may have side effects", "different", Num( actual ) );
+    Result( j.id, "", "{\"actual\":" + Num( actual ) + "}" );
+}
+
 void Run( const Job &j )
 {
     TakeErrors();
@@ -889,6 +963,10 @@ void Run( const Job &j )
         string err = TakeErrors();
         Watch( "Delete", true );
         return Result( j.id, err, "{\"ok\":true}" );
+    }
+    if ( j.op == "geomSetParm" || j.op == "xsecSetParm" )
+    {
+        return ScopedParmWrite( j, j.op == "xsecSetParm" );
     }
     if ( j.op == "setParm" )
     {

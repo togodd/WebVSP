@@ -26,6 +26,22 @@ try {
   const sectionIds = await request('GET', `/xsecs/${section}/parms`)
   assert.ok(sectionIds.length)
   assert.equal((await request('GET', `/xsecs/${section}/parms/${sectionIds[0]}`)).id, sectionIds[0])
+  let length
+  for (const id of await request('GET', `/geoms/${fuselage}/parms`)) {
+    const candidate = await request('GET', `/geoms/${fuselage}/parms/${id}`)
+    if (candidate.name === 'Length' && candidate.group === 'Design' && candidate.active) { length = candidate; break }
+  }
+  assert.ok(length, 'Expected an active fuselage length parameter')
+  const path = `/geoms/${fuselage}/parms/${length.id}`
+  const actual = await request('PUT', path, { value: 20 })
+  assert.equal(actual.actual, 20)
+  assert.equal((await request('GET', path)).value, 20)
+  const failure = await page.evaluate(async ({path, value}) => {
+    try { await window.__webvspEngine.request('PUT', path, {value}); return null }
+    catch (error) { return {outcome: error.outcome, actual: error.actual} }
+  }, {path, value: length.upperLimit + 1})
+  assert.deepEqual(failure, {outcome: 'not_written', actual: 20})
+  assert.equal((await request('GET', path)).value, 20)
   await assert.rejects(() => request('GET', `/geoms/${fuselage}/parms/${ids[0]}`))
   await assert.rejects(() => request('GET', '/xsecs/NOTREAL/parms'))
   await assert.rejects(() => request('GET', '/geoms/NOTREAL/parms'))

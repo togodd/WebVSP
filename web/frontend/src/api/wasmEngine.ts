@@ -39,9 +39,13 @@ interface VspModule {
 
 export class WasmEngineError extends Error {
   status: number
-  constructor(status: number, message: string) {
+  readonly outcome?: 'not_written' | 'different' | 'unknown'
+  readonly actual?: number | null
+  constructor(status: number, message: string, outcome?: 'not_written' | 'different' | 'unknown', actual?: number | null) {
     super(message)
     this.status = status
+    this.outcome = outcome
+    this.actual = actual
   }
 }
 
@@ -103,7 +107,11 @@ function drain(vsp: VspModule) {
       const p = pending.get(m.id as number)
       if (!p) continue
       pending.delete(m.id as number)
-      if (!m.ok) p.reject(new WasmEngineError(400, String(m.error)))
+      if (!m.ok) {
+        const outcome = m.outcome === 'not_written' || m.outcome === 'different' || m.outcome === 'unknown' ? m.outcome : undefined
+        const actual = typeof m.actual === 'number' && Number.isFinite(m.actual) ? m.actual : m.actual === null ? null : undefined
+        p.reject(new WasmEngineError(400, String(m.error), outcome, actual))
+      }
       else if (m.bin) {
         const bytes = vsp.takeBinary(m.id as number)
         p.resolve(bytes ? bytes.buffer : new ArrayBuffer(0))
@@ -156,6 +164,10 @@ export async function wasmRequest(method: string, path: string, body?: unknown):
     const owner = decodeURIComponent(m[2])
     const isXSec = m[1] === 'xsecs'
     return call(m[3] ? (isXSec ? 'xsecParm' : 'geomParm') : (isXSec ? 'xsecParmIDs' : 'geomParmIDs'), owner, m[3] ? decodeURIComponent(m[3]) : '')
+  }
+  if ((m = route.match(/^PUT \/(geoms|xsecs)\/([^/]+)\/parms\/([^/]+)$/))) {
+    if (typeof b.value !== 'number' || !Number.isFinite(b.value)) throw new WasmEngineError(400, 'Parameter value must be finite', 'not_written')
+    return call(m[1] === 'geoms' ? 'geomSetParm' : 'xsecSetParm', decodeURIComponent(m[2]), decodeURIComponent(m[3]), b.value)
   }
   if (route === 'GET /geom-types') return call('geomTypes')
   if (route === 'GET /bbox') return call('bbox')
