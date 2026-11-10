@@ -3,7 +3,7 @@ import type { ModelTree } from '../api/types'
 import { createReadService } from './readService'
 
 function fixture(): ModelTree {
-  return { geoms: [{ id: 'f', name: 'Body', type: 'Fuselage', parent: null, children: ['w'], shown: true, drawType: 1, color: [0, 0, 1], numXSecSurfs: 1 }, { id: 'w', name: 'Wing', type: 'Wing', parent: 'f', children: [], shown: false, drawType: 0, color: [0, 0, 1], numXSecSurfs: 1 }], active: ['w'], vehicleId: 'v', fileName: '', version: 'OpenVSP 3.55.0', rev: 7, dirty: false, undo: { canUndo: false, canRedo: false, undoLabel: null, redoLabel: null } }
+  return { geoms: [{ id: 'f', name: 'Body', type: 'Fuselage', parent: null, children: ['w'], shown: true, drawType: 1, color: [0, 0, 1], numXSecSurfs: 1 }, { id: 'w', name: 'Wing', type: 'Wing', parent: 'f', children: [], shown: false, drawType: 0, color: [0, 0, 1], numXSecSurfs: 1 }], active: ['w'], vehicleId: 'v', fileName: '', version: 'OpenVSP 3.55.0', rev: 7, modelEpoch: '42', modelEpochValid: true, dirty: false, undo: { canUndo: false, canRedo: false, undoLabel: null, redoLabel: null } }
 }
 
 describe('browser-local read service', () => {
@@ -12,6 +12,7 @@ describe('browser-local read service', () => {
     const adapter = { model: vi.fn(async () => current), bbox: vi.fn(async () => ({ min: [0, 0, 0] as [number, number, number], max: [1, 2, 3] as [number, number, number] })) }
     const service = createReadService(adapter, 'tab-1')
     const first = await service.model.getInfo()
+    expect(first.identity).toEqual({ sessionId: 'tab-1', modelEpoch: '42' })
     expect(first.context).toEqual({ sessionId: 'tab-1', engineRevision: 7, engineVersion: 'OpenVSP 3.55.0' })
     expect(first.geometries[0]).toEqual({ id: 'f', name: 'Body', type: 'Fuselage', parentId: null, childIds: ['w'], shown: true })
     expect((await service.geometry.get('w')).geometry.parentId).toBe('f')
@@ -22,6 +23,36 @@ describe('browser-local read service', () => {
     current.geoms[0].name = 'Updated'; current.rev++
     expect((await service.geometry.list()).geometries[0].name).toBe('Updated')
     expect(adapter.model).toHaveBeenCalledTimes(4)
+  })
+  it('binds geometry reads to the explicit identity and forwards it to the adapter', async () => {
+    const current = fixture()
+    const model = vi.fn(async (_expected?: { sessionId: string; modelEpoch: string }) => current)
+    const service = createReadService({ model, bbox: async () => null }, 'tab')
+    const identity = (await service.model.getInfo()).identity
+    expect(model).toHaveBeenCalledTimes(1)
+    expect((await service.geometry.get('w', identity)).geometry.id).toBe('w')
+    expect(model).toHaveBeenLastCalledWith(identity)
+    current.modelEpoch = '43'
+    await expect(service.geometry.get('missing', identity)).rejects.toMatchObject({ code: 'STALE_MODEL' })
+    const calls = model.mock.calls.length
+    await expect(service.geometry.get('w', { sessionId: 'other', modelEpoch: '42' })).rejects.toMatchObject({ code: 'STALE_MODEL' })
+    await expect(service.geometry.get('w', { sessionId: 'tab', modelEpoch: '01' })).rejects.toMatchObject({ code: 'INVALID_ARGUMENT' })
+    expect(model).toHaveBeenCalledTimes(calls)
+    expect((await service.geometry.get('w')).geometry.id).toBe('w')
+  })
+  it('rejects missing, invalid, noncanonical and overflowing snapshot epochs', async () => {
+    const current = fixture()
+    const model = vi.fn(async () => current)
+    const service = createReadService({ model, bbox: async () => null }, 'tab')
+    for (const epoch of [undefined, '', '01', '-1', '18446744073709551616']) {
+      current.modelEpoch = epoch
+      await expect(service.model.getInfo()).rejects.toMatchObject({ code: 'ENGINE_ERROR' })
+    }
+    current.modelEpoch = '18446744073709551615'
+    current.modelEpochValid = false
+    await expect(service.model.getInfo()).rejects.toMatchObject({ code: 'ENGINE_ERROR' })
+    current.modelEpochValid = true
+    expect((await service.model.getInfo()).identity.modelEpoch).toBe('18446744073709551615')
   })
   it('reports invalid and missing geometry and hides engine errors', async () => {
     const adapter = { model: vi.fn(async () => fixture()), bbox: vi.fn(async () => { throw new Error('internal details') }) }

@@ -26,6 +26,9 @@ export interface ModelTree {
   fileName: string
   version: string
   rev: number
+  /** Captured with this snapshot. Optional for compatibility with older adapters. */
+  modelEpoch?: string
+  modelEpochValid?: boolean
   dirty: boolean
   undo: UndoState
 }

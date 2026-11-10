@@ -1,10 +1,11 @@
 import type { BBox, ModelTree } from '../api/types'
 import { MODELING_CONTRACT_VERSION, ModelingError } from './contracts'
-import type { Bounds, Capability, Geometry, ModelInfo } from './contracts'
+import type { Bounds, Capability, Geometry, ModelIdentity, ModelInfo } from './contracts'
 
 /** Minimal read interface. Implementations must read the engine, not cached UI state. */
 export interface ModelingReadAdapter {
-  model(): Promise<ModelTree>
+  /** Implementations may use expectedIdentity for an engine-guarded snapshot. */
+  model(expectedIdentity?: ModelIdentity): Promise<ModelTree>
   bbox(): Promise<BBox | null>
 }
 
@@ -39,21 +40,35 @@ export function createReadService(adapter: ModelingReadAdapter, sessionId: strin
       const result = await raceClose(controller.signal, read)
       checkOpen()
       return result
-    } catch {
+    } catch (error) {
       checkOpen()
+      if (error instanceof ModelingError && error.code === 'STALE_MODEL') throw error
       throw new ModelingError('ENGINE_ERROR', 'The OpenVSP engine request failed')
     }
   }
-  async function getModel(): Promise<ModelInfo> {
-    return fromEngine(async () => {
-      const model = await adapter.model()
+  // Match the engine's canonical uint64 representation without losing precision.
+  const validEpoch = (epoch: unknown): epoch is string => typeof epoch === 'string' && /^(0|[1-9][0-9]*)$/.test(epoch) && (epoch.length < 20 || (epoch.length === 20 && epoch <= '18446744073709551615'))
+  async function getModel(expectedIdentity?: ModelIdentity): Promise<ModelInfo> {
+    checkOpen()
+    if (expectedIdentity !== undefined) {
+      if (!expectedIdentity || typeof expectedIdentity.sessionId !== 'string' || !expectedIdentity.sessionId.trim() || !validEpoch(expectedIdentity.modelEpoch)) throw new ModelingError('INVALID_ARGUMENT', 'Expected identity is invalid')
+      if (expectedIdentity.sessionId !== sessionId) throw new ModelingError('STALE_MODEL', 'Model identity does not match this session')
+      // Copy the caller's token before the asynchronous read.
+      expectedIdentity = { sessionId: expectedIdentity.sessionId, modelEpoch: expectedIdentity.modelEpoch }
+    }
+    const info = await fromEngine(async () => {
+      const model = expectedIdentity ? await adapter.model(expectedIdentity) : await adapter.model()
+      if (!model || model.modelEpochValid !== true || !validEpoch(model.modelEpoch)) throw new Error('Invalid model identity')
       return {
+        identity: { sessionId, modelEpoch: model.modelEpoch },
         context: { sessionId, engineRevision: model.rev, engineVersion: model.version },
         fileName: model.fileName,
         geometries: model.geoms.map((g): Geometry => ({ id: g.id, name: g.name, type: g.type, parentId: g.parent, childIds: [...g.children], shown: g.shown })),
         selectedGeometryIds: [...model.active],
       }
     })
+    if (expectedIdentity && info.identity.modelEpoch !== expectedIdentity.modelEpoch) throw new ModelingError('STALE_MODEL', 'Model identity does not match the snapshot')
+    return info
   }
   return {
     capabilities(): { contractVersion: string; features: Capability[] } {
@@ -76,10 +91,11 @@ export function createReadService(adapter: ModelingReadAdapter, sessionId: strin
         const info = await getModel()
         return { context: info.context, geometries: info.geometries }
       },
-      async get(geometryId: string): Promise<{ context: ModelInfo['context']; geometry: Geometry }> {
+      /** Optional identity compares this snapshot only; it does not guard later operations. */
+      async get(geometryId: string, expectedIdentity?: ModelIdentity): Promise<{ context: ModelInfo['context']; geometry: Geometry }> {
         checkOpen()
         if (typeof geometryId !== 'string' || !geometryId.trim()) throw new ModelingError('INVALID_ARGUMENT', 'geometryId must be a nonempty string')
-        const info = await getModel()
+        const info = await getModel(expectedIdentity)
         const geometry = info.geometries.find((g) => g.id === geometryId)
         if (!geometry) throw new ModelingError('GEOMETRY_NOT_FOUND', 'Geometry does not exist', { geometryId })
         return { context: info.context, geometry }

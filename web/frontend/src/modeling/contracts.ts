@@ -1,6 +1,12 @@
 /** Browser-local modeling contracts. These types contain no MCP or UI dependencies. */
 export const MODELING_CONTRACT_VERSION = '0.1' as const
 
+/** Identifies a model within an engine session; not a revision or persistence indicator. */
+export interface ModelIdentity {
+  sessionId: string
+  modelEpoch: string
+}
+
 /** An engine event sequence, not a compare-and-set token or persistence indicator. */
 export interface ModelContext {
   sessionId: string
@@ -19,6 +25,7 @@ export interface Geometry {
 }
 
 export interface ModelInfo {
+  identity: ModelIdentity
   context: ModelContext
   fileName: string
   geometries: Geometry[]
@@ -39,7 +46,7 @@ export interface Capability {
   reason?: string
 }
 
-export type ModelingErrorCode = 'INVALID_ARGUMENT' | 'GEOMETRY_NOT_FOUND' | 'UNSUPPORTED_OPERATION' | 'ENGINE_ERROR' | 'SESSION_CLOSED' | 'OUTCOME_UNKNOWN'
+export type ModelingErrorCode = 'INVALID_ARGUMENT' | 'GEOMETRY_NOT_FOUND' | 'UNSUPPORTED_OPERATION' | 'ENGINE_ERROR' | 'SESSION_CLOSED' | 'OUTCOME_UNKNOWN' | 'STALE_MODEL'
 
 export class ModelingError extends Error {
   readonly code: ModelingErrorCode
