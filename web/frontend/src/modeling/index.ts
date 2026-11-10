@@ -96,7 +96,7 @@ export function createBrowserModelingService() {
       create: async (_input: CreateGeometryInput, token: ModelIdentity): Promise<{ geometryId: string }> => { identity(token); throw new ModelingError('UNSUPPORTED_OPERATION', 'Geometry creation is disabled pending reentrancy safety review') },
       move: async (_input: MoveGeometryInput, token: ModelIdentity): Promise<{ geometryId: string; origin: [number, number, number] }> => { identity(token); throw new ModelingError('UNSUPPORTED_OPERATION', 'Geometry movement is disabled pending reentrancy safety review') },
     },
-    wing: { get: (id: string, token: ModelIdentity) => { const t = identity(token); return scoped(t).wing.get(id, t) } },
-    fuselage: { get: (id: string, token: ModelIdentity) => { const t = identity(token); return scoped(t).fuselage.get(id, t) } },
+    wing: { get: (id: string, token: ModelIdentity) => run(token, (s, t) => s.wing.get(id, t)) },
+    fuselage: { get: (id: string, token: ModelIdentity) => run(token, (s, t) => s.fuselage.get(id, t)) },
   }
 }
