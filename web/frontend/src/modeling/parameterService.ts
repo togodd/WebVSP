@@ -23,9 +23,11 @@ function id(value: string, field: string): string {
   if (typeof value !== 'string' || !value.trim()) throw new ModelingError('INVALID_ARGUMENT', `${field} must be a nonempty string`)
   return value
 }
-export function createParameterService(adapter: ParameterReadAdapter) {
+export function createParameterService(adapter: ParameterReadAdapter, isClosed: () => boolean = () => false) {
+  function checkOpen() { if (isClosed()) throw new ModelingError('SESSION_CLOSED', 'Modeling session is closed') }
   async function read<T>(fn: () => Promise<T>): Promise<T> {
-    try { return await fn() } catch { throw new ModelingError('ENGINE_ERROR', 'The OpenVSP parameter request failed') }
+    checkOpen()
+    try { const result = await fn(); checkOpen(); return result } catch { checkOpen(); throw new ModelingError('ENGINE_ERROR', 'The OpenVSP parameter request failed') }
   }
   return {
     /** Only surfaces and cross sections reachable through the current model's geometry. */

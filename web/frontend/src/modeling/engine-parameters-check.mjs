@@ -11,10 +11,14 @@ try {
   await page.goto(process.env.WEBVSP_TEST_PAGE ?? 'http://127.0.0.1:5178/')
   await page.waitForSelector('[data-ready="1"]', { timeout: 120000 })
   const request = (method, path, body) => page.evaluate(({ method, path, body }) => window.__webvspEngine.request(method, path, body), { method, path, body })
+  await page.evaluate(async () => { const m = await import('/src/modeling/index.ts'); window.testModeling = m.createBrowserModelingService() })
   const wing = (await request('POST', '/geoms', { type: 'WING' })).id
   const fuselage = (await request('POST', '/geoms', { type: 'FUSELAGE' })).id
   const surfaces = await request('GET', `/geoms/${wing}/xsecs`)
   const ids = await request('GET', `/geoms/${wing}/parms`)
+  const facadeIds = await page.evaluate(wing => window.testModeling.parameter.listGeometryParameterIds(wing), wing)
+  assert.deepEqual(facadeIds, ids)
+  assert.equal((await page.evaluate(() => window.testModeling.capabilities())).features.find(x => x.name === 'parameter.read').status, 'supported')
   assert.ok(surfaces.length && surfaces[0].xsecs.length && ids.length)
   const parameter = await request('GET', `/geoms/${wing}/parms/${ids[0]}`)
   assert.equal(parameter.id, ids[0]); assert.equal(typeof parameter.value, 'number')
