@@ -8,20 +8,35 @@ export interface ModelingReadAdapter {
   bbox(): Promise<BBox | null>
 }
 
+// Attach handlers to the engine promise even after close, so late rejections are consumed.
+export function raceClose<T>(signal: AbortSignal, fn: () => Promise<T>): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const closed = () => reject(new ModelingError('SESSION_CLOSED', 'Modeling session is closed'))
+    if (signal.aborted) { closed(); return }
+    signal.addEventListener('abort', closed, { once: true })
+    try {
+      Promise.resolve(fn()).then(resolve, reject).finally(() => signal.removeEventListener('abort', closed))
+    } catch (error) {
+      signal.removeEventListener('abort', closed)
+      reject(error)
+    }
+  })
+}
+
 const supported = new Set(['model.read', 'geometry.read'])
 const capabilityNames: Capability['name'][] = ['model.read', 'geometry.read', 'geometry.create', 'geometry.move', 'parameter.read', 'parameter.write', 'wing.edit', 'fuselage.edit', 'assembly.attach']
 
 /** A service belongs to one live engine instance. Revision is an event counter, not a lock. */
 export function createReadService(adapter: ModelingReadAdapter, sessionId: string) {
   if (typeof sessionId !== 'string' || !sessionId.trim()) throw new ModelingError('INVALID_ARGUMENT', 'sessionId must not be empty')
-  let closed = false
+  const controller = new AbortController()
   function checkOpen() {
-    if (closed) throw new ModelingError('SESSION_CLOSED', 'Modeling session is closed')
+    if (controller.signal.aborted) throw new ModelingError('SESSION_CLOSED', 'Modeling session is closed')
   }
   async function fromEngine<T>(read: () => Promise<T>): Promise<T> {
     checkOpen()
     try {
-      const result = await read()
+      const result = await raceClose(controller.signal, read)
       checkOpen()
       return result
     } catch {
@@ -70,6 +85,6 @@ export function createReadService(adapter: ModelingReadAdapter, sessionId: strin
         return { context: info.context, geometry }
       },
     },
-    close() { closed = true },
+    close() { controller.abort() },
   }
 }

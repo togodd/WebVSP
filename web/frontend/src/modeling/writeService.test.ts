@@ -17,6 +17,47 @@ function fixture() {
 const move = { geometryId: 'p', frame: 'world' as const, units: 'model-native' as const, delta: [1, 2, 3] as [number, number, number] }
 
 describe('modeling write service', () => {
+  it('closes pending preflight without dispatching and consumes late failures', async () => {
+    for (const op of ['create', 'move'] as const) {
+      const { adapter } = fixture()
+      const controller = new AbortController()
+      let reject!: (e: Error) => void
+      adapter.model.mockImplementation(() => new Promise((_, r) => { reject = r }))
+      const service = createWriteService(adapter, controller.signal)
+      const pending = op === 'create' ? service.create({ type: 'Wing', parentId: null }) : service.move(move)
+      controller.abort()
+      await expect(pending).rejects.toMatchObject({ code: 'SESSION_CLOSED' })
+      reject(new Error('late'))
+      expect(adapter.addGeom).not.toHaveBeenCalled(); expect(adapter.moveGeoms).not.toHaveBeenCalled()
+      await expect(service.move(move)).rejects.toMatchObject({ code: 'SESSION_CLOSED' })
+    }
+  })
+  it('reports unknown after dispatch, including pending readback, without further requests', async () => {
+    for (const op of ['create', 'move'] as const) {
+      for (const stage of ['write', 'readback'] as const) {
+        const { adapter, model } = fixture()
+        const controller = new AbortController()
+        let reject!: (e: Error) => void
+        let started!: () => void
+        const ready = new Promise<void>((resolve) => { started = resolve })
+        const hang = () => new Promise<never>((_, r) => { reject = r; started() })
+        if (stage === 'write') {
+          if (op === 'create') adapter.addGeom.mockImplementation(hang)
+          else adapter.moveGeoms.mockImplementation(hang)
+        } else {
+          adapter.model.mockResolvedValueOnce(structuredClone(model)).mockImplementationOnce(hang)
+        }
+        const service = createWriteService(adapter, controller.signal)
+        const pending = op === 'create' ? service.create({ type: 'Wing', parentId: null }) : service.move(move)
+        await ready
+        const calls = adapter.model.mock.calls.length + adapter.geomOrigin.mock.calls.length
+        controller.abort()
+        await expect(pending).rejects.toMatchObject({ code: 'OUTCOME_UNKNOWN' })
+        reject(new Error('late'))
+        expect(adapter.model.mock.calls.length + adapter.geomOrigin.mock.calls.length).toBe(calls)
+      }
+    }
+  })
   it('checks type and explicit parent and reads back new identity', async () => {
     const { service, adapter } = fixture()
     await expect(service.create({ type: 'Wing', parentId: 'p' })).resolves.toEqual({ geometryId: 'new' })

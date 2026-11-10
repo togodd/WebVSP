@@ -20,17 +20,16 @@ export function createBrowserModelingService() {
     list: async (owner, ownerId) => await wasmRequest('GET', path(owner, ownerId)) as string[],
     get: async (owner, ownerId, parameterId) => await wasmRequest('GET', `${path(owner, ownerId)}/${encodeURIComponent(parameterId)}`) as EngineParameter,
   }
-  let closed = false
-  const ensureOpen = () => { if (closed) throw new Error('Session closed') }
+  const controller = new AbortController()
   const write = createWriteService({
-    model: () => { ensureOpen(); return api.model() },
-    geomTypes: () => { ensureOpen(); return api.geomTypes() },
-    addGeom: async (type, parentId) => { ensureOpen(); return await wasmRequest('POST', '/geoms', { type, parent: parentId }) as { id: string } },
-    geomOrigin: (id) => { ensureOpen(); return api.geomOrigin(id) },
-    moveGeoms: async (ids, delta) => { ensureOpen(); return await api.moveGeoms(ids, delta) as { ok: boolean } },
-  })
-  return { ...read, close: () => { closed = true; read.close() }, capabilities: () => {
+    model: () => api.model(),
+    geomTypes: () => api.geomTypes(),
+    addGeom: async (type, parentId) => await wasmRequest('POST', '/geoms', { type, parent: parentId }) as { id: string },
+    geomOrigin: (id) => api.geomOrigin(id),
+    moveGeoms: async (ids, delta) => await api.moveGeoms(ids, delta) as { ok: boolean },
+  }, controller.signal)
+  return { ...read, close: () => { controller.abort(); read.close() }, capabilities: () => {
     const result = read.capabilities()
     return { ...result, features: result.features.map((c) => ['parameter.read', 'geometry.create', 'geometry.move'].includes(c.name) ? { name: c.name, status: 'supported' as const } : c) }
-  }, parameter: createParameterService(adapter, () => closed), write }
+  }, parameter: createParameterService(adapter, controller.signal), write }
 }

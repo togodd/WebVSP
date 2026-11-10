@@ -11,6 +11,19 @@ describe('linkable parameter reads', () => {
     expect(adapter.list.mock.calls).toEqual([['geometry', 'geom'], ['crossSection', 'xs']])
     expect(adapter.get.mock.calls).toEqual([['geometry', 'geom', 'parm'], ['crossSection', 'xs', 'parm']])
   })
+  it('races every pending parameter read with close and consumes late rejections', async () => {
+    const controller = new AbortController()
+    const rejects: ((e: Error) => void)[] = []
+    const pendingRequest = () => new Promise<never>((_, reject) => { rejects.push(reject) })
+    const adapter = { surfaces: vi.fn(pendingRequest), list: vi.fn(pendingRequest), get: vi.fn(pendingRequest) }
+    const service = createParameterService(adapter, controller.signal)
+    const pending = [service.listSurfaces('g'), service.listGeometryParameterIds('g'), service.listCrossSectionParameterIds('x'), service.getGeometryParameter('g', 'p'), service.getCrossSectionParameter('x', 'p')]
+    controller.abort()
+    await Promise.all(pending.map((p) => expect(p).rejects.toMatchObject({ code: 'SESSION_CLOSED' })))
+    rejects.forEach((reject) => reject(new Error('late')))
+    expect(() => service.listSurfaces('')).toThrowError(expect.objectContaining({ code: 'SESSION_CLOSED' }))
+    expect(adapter.surfaces).toHaveBeenCalledTimes(1)
+  })
   it('rejects invalid inputs and sanitizes backend errors', async () => {
     const service = createParameterService({ surfaces: async () => { throw new Error('secret') }, list: async () => [], get: async () => { throw new Error('secret') } })
     expect(() => service.listSurfaces('')).toThrowError(expect.objectContaining({ code: 'INVALID_ARGUMENT' }))

@@ -49,6 +49,19 @@ describe('browser-local read service', () => {
     await expect(pending).rejects.toMatchObject({ code: 'SESSION_CLOSED' })
     await expect(service.geometry.get('')).rejects.toMatchObject({ code: 'SESSION_CLOSED' })
   })
+  it('settles hanging model and bounds reads on close and consumes late rejections', async () => {
+    let rejectModel!: (error: Error) => void
+    let rejectBounds!: (error: Error) => void
+    const model = vi.fn(() => new Promise<ModelTree>((_, reject) => { rejectModel = reject }))
+    const bbox = vi.fn(() => new Promise<null>((_, reject) => { rejectBounds = reject }))
+    const service = createReadService({ model, bbox }, 'tab')
+    const pending = [service.model.getInfo(), service.model.getVisibleSurfaceBounds()]
+    service.close(); service.close()
+    await Promise.all(pending.map((p) => expect(p).rejects.toMatchObject({ code: 'SESSION_CLOSED' })))
+    rejectModel(new Error('late')); rejectBounds(new Error('late'))
+    await expect(service.model.getInfo()).rejects.toMatchObject({ code: 'SESSION_CLOSED' })
+    expect(model).toHaveBeenCalledTimes(1); expect(bbox).toHaveBeenCalledTimes(1)
+  })
   it('does not return a response after close during a pending request', async () => {
     let resolve!: (m: ModelTree) => void
     const service = createReadService({ model: () => new Promise((r) => { resolve = r }), bbox: async () => null }, 'tab')
