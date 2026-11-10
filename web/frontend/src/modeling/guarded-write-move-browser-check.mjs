@@ -32,13 +32,14 @@ try {
       const identity = (await facade.model.getInfo()).identity
       if (identity.modelEpoch !== initial.modelEpoch) throw new Error('Model identity changed')
       const writes = []
+      const checkIdentity = token => { if (token?.sessionId !== identity.sessionId || token?.modelEpoch !== identity.modelEpoch || token === identity) throw new Error('Identity snapshot not forwarded') }
       const adapter = {
-        model: token => { if (token !== identity) throw new Error('Identity not forwarded'); return guarded('model') },
+        model: token => { checkIdentity(token); return guarded('model') },
         geomTypes: () => guarded('geomTypes'),
         addGeom: (type, parent) => guarded('addGeom', type, parent ?? ''),
-        geomOrigin: (geomId, token) => { if (token !== identity) throw new Error('Identity not forwarded'); return guarded('origin', geomId) },
+        geomOrigin: (geomId, token) => { checkIdentity(token); return guarded('origin', geomId) },
         moveGeoms: async (ids, delta, token) => {
-          if (token !== identity) throw new Error('Identity not forwarded')
+          checkIdentity(token)
           const response = await guarded('move', ids.join(','), delta.join(','))
           writes.push({ ids, delta, response })
           return response
