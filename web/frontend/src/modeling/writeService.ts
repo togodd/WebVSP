@@ -33,11 +33,25 @@ export function createWriteService(adapter: ModelingWriteAdapter, signal: AbortS
     return [x, y, z]
   }
   const invalid = (message: string): never => { throw new ModelingError('INVALID_ARGUMENT', message) }
+  const snapshotIdentity = (identity: ModelIdentity | undefined): ModelIdentity | undefined => {
+    if (identity === undefined) return undefined
+    try {
+      if (!identity || typeof identity !== 'object') return invalid('Invalid model identity')
+      const sessionId = identity.sessionId, modelEpoch = identity.modelEpoch
+      checkOpen()
+      if (typeof sessionId !== 'string' || !sessionId.trim() || typeof modelEpoch !== 'string' || !modelEpoch.trim()) return invalid('Invalid model identity')
+      return { sessionId, modelEpoch }
+    } catch {
+      checkOpen()
+      return invalid('Invalid model identity')
+    }
+  }
+  const identityArgs = (identity: ModelIdentity | undefined): [] | [ModelIdentity] => identity === undefined ? [] : [{ sessionId: identity.sessionId, modelEpoch: identity.modelEpoch }]
   const unknown = (): never => { throw new ModelingError('OUTCOME_UNKNOWN', 'Write may have taken effect; readback could not verify the outcome. Do not automatically retry.') }
   const stale = (): never => { throw new ModelingError('STALE_MODEL', 'The model identity is stale') }
   const isStale = (e: unknown): e is WasmEngineError => e instanceof WasmEngineError && e.code === 'STALE_MODEL'
   async function readModel(identity?: ModelIdentity): Promise<{ geoms: { id: string; type: string; parent: string | null }[] }> {
-    const m = await request(() => adapter.model(...(identity === undefined ? [] : [identity])))
+    const m = await request(() => adapter.model(...identityArgs(identity)))
     const source = m?.geoms
     if (!Array.isArray(source)) throw new Error('Invalid model')
     const geoms: { id: string; type: string; parent: string | null }[] = []
@@ -63,8 +77,9 @@ export function createWriteService(adapter: ModelingWriteAdapter, signal: AbortS
     }
   }
   return {
-    async create(input: CreateGeometryInput, identity?: ModelIdentity): Promise<{ geometryId: string }> {
+    async create(input: CreateGeometryInput, inputIdentity?: ModelIdentity): Promise<{ geometryId: string }> {
       checkOpen()
+      const identity = snapshotIdentity(inputIdentity)
       let type: string, parentId: string | null
       try {
         if (!input || typeof input !== 'object' || !Object.hasOwn(input, 'parentId')) return invalid('type and explicit parentId are required')
@@ -73,7 +88,7 @@ export function createWriteService(adapter: ModelingWriteAdapter, signal: AbortS
         type = t; parentId = p
       } catch { return invalid('type and explicit parentId are required') }
       const before = await preflight(async () => {
-        const [model, types] = await Promise.all([readModel(identity), request(() => adapter.geomTypes(...(identity === undefined ? [] : [identity])))])
+        const [model, types] = await Promise.all([readModel(identity), request(() => adapter.geomTypes(...identityArgs(identity)))])
         if (!Array.isArray(types)) throw new Error('Invalid geometry types')
         const length = types.length
         if (!Number.isInteger(length) || length < 0 || length > 0xffffffff) throw new Error('Invalid geometry types')
@@ -91,7 +106,7 @@ export function createWriteService(adapter: ModelingWriteAdapter, signal: AbortS
       checkOpen()
       let result: { id: string }
       try {
-        result = await request(() => adapter.addGeom(type, parentId, ...(identity === undefined ? [] : [identity])))
+        result = await request(() => adapter.addGeom(type, parentId, ...identityArgs(identity)))
       } catch (e) {
         if (!signal.aborted && isStale(e) && e.outcome === 'not_written') return stale()
         return unknown()
@@ -106,8 +121,9 @@ export function createWriteService(adapter: ModelingWriteAdapter, signal: AbortS
         return { geometryId: resultId }
       } catch { return unknown() }
     },
-    async move(input: MoveGeometryInput, identity?: ModelIdentity): Promise<{ geometryId: string; origin: [number, number, number] }> {
+    async move(input: MoveGeometryInput, inputIdentity?: ModelIdentity): Promise<{ geometryId: string; origin: [number, number, number] }> {
       checkOpen()
+      const identity = snapshotIdentity(inputIdentity)
       let id: string, delta: [number, number, number]
       try {
         if (!input || typeof input !== 'object') return invalid('Invalid move input')
@@ -121,7 +137,7 @@ export function createWriteService(adapter: ModelingWriteAdapter, signal: AbortS
         const model = await readModel(identity)
         const geom = model.geoms.find((g) => g.id === id)
         if (!geom) throw new ModelingError('GEOMETRY_NOT_FOUND', 'Geometry does not exist')
-        const origin = await request(() => adapter.geomOrigin(id, ...(identity === undefined ? [] : [identity])))
+        const origin = await request(() => adapter.geomOrigin(id, ...identityArgs(identity)))
         const snapshot = snapshotVector(origin)
         const expected: [number, number, number] = [snapshot[0] + delta[0], snapshot[1] + delta[1], snapshot[2] + delta[2]]
         for (let i = 0; i < 3; i++) {
@@ -132,7 +148,7 @@ export function createWriteService(adapter: ModelingWriteAdapter, signal: AbortS
       checkOpen()
       let result: { ok: boolean }
       try {
-        result = await request(() => adapter.moveGeoms([id], [delta[0], delta[1], delta[2]], ...(identity === undefined ? [] : [identity])))
+        result = await request(() => adapter.moveGeoms([id], [delta[0], delta[1], delta[2]], ...identityArgs(identity)))
       } catch (e) {
         if (!signal.aborted && isStale(e) && e.outcome === 'not_written') return stale()
         return unknown()
@@ -142,7 +158,7 @@ export function createWriteService(adapter: ModelingWriteAdapter, signal: AbortS
         const model = await readModel(identity)
         const geom = model.geoms.find((g) => g.id === id)
         if (!geom || geom.type !== before.type || geom.parent !== before.parent) return unknown()
-        const origin = snapshotVector(await request(() => adapter.geomOrigin(id, ...(identity === undefined ? [] : [identity]))))
+        const origin = snapshotVector(await request(() => adapter.geomOrigin(id, ...identityArgs(identity))))
         for (let i = 0; i < 3; i++) {
           const n = origin[i]
           const requested = delta[i]

@@ -1,7 +1,8 @@
 import { describe, expect, it, vi } from 'vitest'
 import type { ModelTree } from '../api/types'
 import { WasmEngineError } from '../api/wasmEngine'
-import { createWriteService } from './writeService'
+import { createWriteService, type ModelingWriteAdapter } from './writeService'
+import type { ModelIdentity } from './contracts'
 
 vi.mock('../api/wasmEngine', () => ({
   WasmEngineError: class WasmEngineError extends Error {
@@ -40,6 +41,66 @@ describe('modeling write service', () => {
     expect(moved.adapter.model.mock.calls).toEqual([[identity], [identity]])
     expect(moved.adapter.geomOrigin.mock.calls).toEqual([['p', identity], ['p', identity]])
     expect(moved.adapter.moveGeoms).toHaveBeenCalledWith(['p'], move.delta, identity)
+  })
+  it('isolates identity from caller and adapter mutations across all stages', async () => {
+    for (const op of ['create', 'move'] as const) {
+      const { adapter } = fixture()
+      const seen: ModelIdentity[] = []
+      const original = { sessionId: 'session', modelEpoch: 'epoch' }
+      let release!: () => void
+      let started!: () => void
+      const ready = new Promise<void>((resolve) => { started = resolve })
+      const gate = new Promise<void>((resolve) => { release = resolve })
+      const capture = (identity?: ModelIdentity) => {
+        expect(identity).toEqual({ sessionId: 'session', modelEpoch: 'epoch' })
+        expect(identity).not.toBe(original)
+        expect(seen).not.toContain(identity)
+        seen.push(identity!)
+        identity!.sessionId = 'adapter-mutated'
+        identity!.modelEpoch = 'adapter-mutated'
+      }
+      const wrapped: ModelingWriteAdapter = {
+        model: async (identity) => { capture(identity); if (seen.length === 1) { started(); await gate }; return adapter.model() },
+        geomTypes: async (identity) => { capture(identity); return adapter.geomTypes() },
+        addGeom: async (type, parent, identity) => { capture(identity); return adapter.addGeom(type, parent) },
+        geomOrigin: async (id, identity) => { capture(identity); return adapter.geomOrigin(id) },
+        moveGeoms: async (ids, delta, identity) => { capture(identity); return adapter.moveGeoms(ids, delta) },
+      }
+      const service = createWriteService(wrapped)
+      const pending = op === 'create' ? service.create({ type: 'Wing', parentId: 'p' }, original) : service.move(move, original)
+      await ready
+      original.sessionId = 'caller-mutated'; original.modelEpoch = 'caller-mutated'
+      release()
+      await expect(pending).resolves.toMatchObject({ geometryId: op === 'create' ? 'new' : 'p' })
+      expect(seen).toHaveLength(op === 'create' ? 4 : 5)
+    }
+  })
+  it('reads identity getters once, validates them and prioritizes closure', async () => {
+    for (const op of ['create', 'move'] as const) {
+      const invoke = (service: ReturnType<typeof createWriteService>, identity: unknown) => op === 'create' ? service.create({ type: 'Wing', parentId: null }, identity as ModelIdentity) : service.move(move, identity as ModelIdentity)
+      const { service, adapter } = fixture()
+      const counts = { sessionId: 0, modelEpoch: 0 }
+      const identity = {
+        get sessionId() { if (++counts.sessionId > 1) throw Error('twice'); return 'session' },
+        get modelEpoch() { if (++counts.modelEpoch > 1) throw Error('twice'); return 'epoch' },
+      }
+      await expect(invoke(service, identity)).resolves.toBeDefined()
+      expect(counts).toEqual({ sessionId: 1, modelEpoch: 1 })
+      const invalid = [null, 1, {}, { sessionId: '', modelEpoch: 'epoch' }, { sessionId: 'session', modelEpoch: ' ' }, { sessionId: 'session', modelEpoch: 1 }]
+      for (const field of ['sessionId', 'modelEpoch']) {
+        const bad = { sessionId: 'session', modelEpoch: 'epoch' }
+        Object.defineProperty(bad, field, { get() { throw Error('private') } })
+        invalid.push(bad)
+      }
+      const calls = adapter.model.mock.calls.length
+      for (const bad of invalid) await expect(invoke(service, bad)).rejects.toMatchObject({ code: 'INVALID_ARGUMENT' })
+      expect(adapter.model).toHaveBeenCalledTimes(calls)
+      const controller = new AbortController()
+      const closed = createWriteService(adapter, controller.signal)
+      const aborting = { get sessionId() { controller.abort(); throw Error('private') }, modelEpoch: 'epoch' }
+      await expect(invoke(closed, aborting)).rejects.toMatchObject({ code: 'SESSION_CLOSED' })
+      await expect(invoke(closed, null)).rejects.toMatchObject({ code: 'SESSION_CLOSED' })
+    }
   })
   it('maps engine stale before writing, but never assumes a write succeeded or failed on readback', async () => {
     const identity = { sessionId: 'session', modelEpoch: 'epoch' }
