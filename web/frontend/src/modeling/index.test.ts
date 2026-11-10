@@ -29,6 +29,21 @@ describe('browser modeling identity', () => {
     service.close()
   })
 
+  it('sanitizes identity property access failures on parameter reads', async () => {
+    const service = createBrowserModelingService()
+    const engine = vi.mocked(callGuarded)
+    engine.mockClear()
+    const token = { get sessionId(): string { throw new Error('private getter detail') }, modelEpoch: '42' }
+    try {
+      await expect(service.parameter.listSurfaces('geom', token)).rejects.toMatchObject({
+        code: 'INVALID_ARGUMENT', message: 'A valid model identity is required',
+      })
+      expect(engine).not.toHaveBeenCalled()
+    } finally {
+      service.close()
+    }
+  })
+
   it('rejects invalid first getter values asynchronously without calling the engine', async () => {
     const service = createBrowserModelingService()
     const token = { get sessionId() { return 'other' }, get modelEpoch() { return '42' } }
