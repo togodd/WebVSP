@@ -1104,6 +1104,80 @@ void ScriptGcGuardCheck( int id )
     return Result( id, err, json );
 }
 
+// Probe reference-count destruction, separately from cycle collection. Never run on a
+// user session: empty geometry alone does not establish that a model is disposable.
+void ScriptReleaseGuardCheck( int id )
+{
+    static bool used = false;
+    Vehicle *veh = VehicleMgr.GetVehicle();
+    ScriptMgrSingleton &mgr = ScriptMgrSingleton::getInstance();
+    asIScriptEngine *engine = mgr.GetTestScriptEngine();
+    asUINT gc_objects = 0;
+    if ( engine ) engine->GetGCStatistics( &gc_objects );
+    if ( used || !veh || !veh->IsModelEpochValid() || !veh->GetGeomStoreVec().empty() ||
+         !vsp::FindGeoms().empty() || !AdvLinkMgr.GetLinks().empty() || !engine ||
+         asGetActiveContext() || gc_objects != 0 )
+        return Result( id, "Requires a fresh disposable empty test module", "" );
+    used = true;
+
+    struct Cleanup
+    {
+        asIScriptEngine *engine;
+        ScriptMgrSingleton &mgr;
+        asPWORD auto_gc;
+        string module, victim;
+        asITypeInfo *type = nullptr;
+        void *object = nullptr;
+        ~Cleanup()
+        {
+            if ( object ) engine->ReleaseScriptObject( object, type );
+            if ( !module.empty() ) mgr.RemoveScript( module );
+            if ( !victim.empty() )
+            {
+                Vehicle *v = VehicleMgr.GetVehicle();
+                if ( v && v->FindGeom( victim ) ) v->DeleteGeomVec( { victim } );
+            }
+            engine->SetEngineProperty( asEP_AUTO_GARBAGE_COLLECT, auto_gc );
+        }
+    } cleanup{ engine, mgr, engine->GetEngineProperty( asEP_AUTO_GARBAGE_COLLECT ), "", "" };
+
+    if ( engine->SetEngineProperty( asEP_AUTO_GARBAGE_COLLECT, 0 ) < 0 ||
+         engine->GetEngineProperty( asEP_AUTO_GARBAGE_COLLECT ) != 0 )
+        return Result( id, "Could not disable automatic GC", "" );
+    cleanup.victim = vsp::AddGeom( "BLANK" );
+    if ( cleanup.victim.empty() || !veh->FindGeom( cleanup.victim ) )
+        return Result( id, "Could not create victim", "" );
+    const string script = "int destroyed = 0; class Probe { ~Probe() { destroyed++; DeleteGeom(\"" +
+        cleanup.victim + "\"); } }";
+    cleanup.module = mgr.ReadScriptFromMemory( "WebVSP_ReleaseGuardProbe", script );
+    if ( cleanup.module.empty() ) return Result( id, "Could not build release fixture", "" );
+    asIScriptModule *module = engine->GetModule( cleanup.module.c_str() );
+    cleanup.type = module ? module->GetTypeInfoByDecl( "Probe" ) : nullptr;
+    int index = module ? module->GetGlobalVarIndexByName( "destroyed" ) : -1;
+    int *destroyed = index >= 0 ? static_cast< int * >( module->GetAddressOfGlobalVar( index ) ) : nullptr;
+    if ( !cleanup.type || !destroyed ) return Result( id, "Could not inspect release fixture", "" );
+    cleanup.object = engine->CreateScriptObject( cleanup.type );
+    if ( !cleanup.object ) return Result( id, "Could not create release fixture object", "" );
+    bool alive_before = veh->FindGeom( cleanup.victim ) != nullptr;
+    int before = *destroyed;
+    bool initial, attempted;
+    {
+        ScriptMgrSingleton::ExecuteScriptGuard guard( mgr );
+        initial = guard.Attempted();
+        void *object = cleanup.object;
+        cleanup.object = nullptr; // Ownership transfers to ReleaseScriptObject exactly once.
+        engine->ReleaseScriptObject( object, cleanup.type );
+        attempted = guard.Attempted();
+    }
+    int after = *destroyed;
+    bool alive_after = veh->FindGeom( cleanup.victim ) != nullptr;
+    auto boolean = []( bool value ) { return value ? "true" : "false"; };
+    string json = string( "{\"aliveBefore\":" ) + boolean( alive_before ) + ",\"aliveAfter\":" + boolean( alive_after ) +
+        ",\"destroyedBefore\":" + std::to_string( before ) + ",\"destroyedAfter\":" + std::to_string( after ) +
+        ",\"initial\":" + boolean( initial ) + ",\"attempted\":" + boolean( attempted ) + "}";
+    return Result( id, TakeErrors(), json );
+}
+
 // Test-only, fixed fixtures survive across jobs; never accepts user-supplied script.
 // Use only a disposable model and do not mutate fixtures between setup and cleanup.
 // Epoch, pointer/name and geom ID checks do not prevent ABA or ID reuse: cleanup
@@ -1500,6 +1574,7 @@ void RunImpl( const Job &j )
     if ( j.op == "scriptPreflightFixture" ) return ScriptPreflightFixture( j );
     if ( j.op == "scriptGuardCheck" ) return ScriptGuardCheck( j.id );
     if ( j.op == "scriptGcGuardCheck" ) return ScriptGcGuardCheck( j.id );
+    if ( j.op == "scriptReleaseGuardCheck" ) return ScriptReleaseGuardCheck( j.id );
     if ( j.op == "advLinkGuardCheck" ) return AdvLinkGuardCheck( j.id );
     if ( j.op == "storedGeomTypesCheck" ) return StoredGeomTypesCheck( j.id );
 #endif
