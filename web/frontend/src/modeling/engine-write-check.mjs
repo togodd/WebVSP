@@ -21,7 +21,7 @@ try {
   assert.equal(data.model.geometries.length, 2)
   assert.equal(data.model.geometries.find(g => g.id === data.wing.geometryId).parentId, data.body.geometryId)
   assert.ok(Number.isFinite(data.moved.origin[0]))
-  await page.waitForFunction(id => document.body.innerText.includes('WingGeom') && document.body.innerText.includes('FuselageGeom'), data.wing.geometryId)
+  await page.waitForFunction(() => document.body.innerText.includes('WingGeom') && document.body.innerText.includes('FuselageGeom'))
   assert.deepEqual(errors, [])
   console.log('PASS: modeled create and world move readback, parent hierarchy and GUI tree')
 } finally { await browser.close() }
