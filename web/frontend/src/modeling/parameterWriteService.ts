@@ -17,7 +17,7 @@ export interface ParameterWriteInput {
 }
 
 function validId(value: unknown): value is string {
-  if (typeof value !== 'string' || !value || /[\s\u0000-\u001f\u007f]/u.test(value)) return false
+  if (typeof value !== 'string' || !value || /\s/u.test(value) || Array.from(value).some(c => c.charCodeAt(0) < 32 || c.charCodeAt(0) === 127)) return false
   try { encodeURIComponent(value); return true } catch { return false }
 }
 

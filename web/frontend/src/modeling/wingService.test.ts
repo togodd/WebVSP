@@ -22,8 +22,11 @@ describe('wing read view', () => {
     ] }] })
     expect(deps.geometry.get).toHaveBeenCalledWith('wing')
     expect(deps.parameters.listSurfaces).toHaveBeenCalledWith('wing')
-    // @ts-expect-error Views are read-only at the type level.
-    if (false) result.surfaces[0].stations[0].index = 9
+    const verifyReadonly = () => {
+      // @ts-expect-error Views are read-only at the type level.
+      result.surfaces[0].stations[0].index = 9
+    }
+    expect(typeof verifyReadonly).toBe('function')
   })
   it('accepts empty surface and station lists and restarts indices per surface', async () => {
     const deps = dependencies()
