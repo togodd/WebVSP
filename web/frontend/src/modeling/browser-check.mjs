@@ -28,7 +28,7 @@ try {
   const first = await read()
   assert.equal(first.geometries[0].type, 'Fuselage')
   assert.deepEqual(first.selectedGeometryIds, [first.geometries[0].id])
-  const bounds = await page.evaluate(() => window.testModeling.model.getVisibleSurfaceBounds())
+  const bounds = await page.evaluate(identity => window.testModeling.model.getVisibleSurfaceBounds(identity), first.identity)
   assert.ok(bounds.max[0] > bounds.min[0])
   await select.selectOption({ label: 'WING' })
   await page.getByRole('button', { name: 'Add', exact: true }).first().click()

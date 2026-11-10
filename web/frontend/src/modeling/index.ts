@@ -1,10 +1,12 @@
 import { api } from '../api/client'
+import type { ModelTree } from '../api/types'
+import { callGuarded, getEngineSessionId, WasmEngineError } from '../api/wasmEngine'
+import { ModelingError, type ModelIdentity } from './contracts'
 import { createReadService } from './readService'
 import { createParameterService } from './parameterService'
 import type { CrossSectionSurface, EngineParameter, ParameterReadAdapter } from './parameterService'
-import { getEngineSessionId, wasmRequest } from '../api/wasmEngine'
-import { createWriteService } from './writeService'
-import { createParameterWriteService } from './parameterWriteService'
+import type { CreateGeometryInput, MoveGeometryInput } from './writeService'
+import type { ParameterWriteInput } from './parameterWriteService'
 import { createWingService } from './wingService'
 import { createFuselageService } from './fuselageService'
 
@@ -16,32 +18,85 @@ export { createParameterWriteService } from './parameterWriteService'
 export type { ParameterOwner, ParameterWriteAdapter, ParameterWriteInput } from './parameterWriteService'
 export type { CrossSectionSurface, EngineParameter, ParameterReadAdapter } from './parameterService'
 
-/** Create a handle for this browser engine. Closing a handle does not stop the engine. */
+/** Identity guarding detects replacement at each engine job, not concurrent edits or reentrancy. */
 export function createBrowserModelingService() {
-  const read = createReadService({ model: api.model, bbox: api.bbox }, getEngineSessionId())
-  const path = (owner: 'geometry' | 'crossSection', ownerId: string) => `/${owner === 'geometry' ? 'geoms' : 'xsecs'}/${encodeURIComponent(ownerId)}/parms`
-  const adapter: ParameterReadAdapter = {
-    surfaces: async (geometryId) => await wasmRequest('GET', `/geoms/${encodeURIComponent(geometryId)}/xsecs`) as CrossSectionSurface[],
-    fuselageLength: async (geometryId) => await wasmRequest('GET', `/geoms/${encodeURIComponent(geometryId)}/fuselage-length`) as EngineParameter,
-    list: async (owner, ownerId) => await wasmRequest('GET', path(owner, ownerId)) as string[],
-    get: async (owner, ownerId, parameterId) => await wasmRequest('GET', `${path(owner, ownerId)}/${encodeURIComponent(parameterId)}`) as EngineParameter,
-  }
+  const sessionId = getEngineSessionId()
   const controller = new AbortController()
-  const write = createWriteService({
-    model: () => api.model(),
-    geomTypes: () => api.geomTypes(),
-    addGeom: async (type, parentId) => await wasmRequest('POST', '/geoms', { type, parent: parentId }) as { id: string },
-    geomOrigin: (id) => api.geomOrigin(id),
-    moveGeoms: async (ids, delta) => await api.moveGeoms(ids, delta) as { ok: boolean },
-  }, controller.signal)
-  const parameter = {
-    ...createParameterService(adapter, controller.signal),
-    ...createParameterWriteService({
-      set: async (owner, ownerId, parameterId, value) => await wasmRequest('PUT', `${path(owner, ownerId)}/${encodeURIComponent(parameterId)}`, { value }) as { actual: number },
-    }, controller.signal),
+  const read = createReadService({ model: api.model, bbox: api.bbox }, sessionId)
+  function identity(value: ModelIdentity): ModelIdentity {
+    if (controller.signal.aborted) throw new ModelingError('SESSION_CLOSED', 'Modeling session is closed')
+    if (!value || typeof value.sessionId !== 'string' || !value.sessionId.trim() || typeof value.modelEpoch !== 'string' || !/^(0|[1-9][0-9]*)$/.test(value.modelEpoch) || value.modelEpoch.length > 20 || (value.modelEpoch.length === 20 && value.modelEpoch > '18446744073709551615')) throw new ModelingError('INVALID_ARGUMENT', 'A valid model identity is required')
+    if (value.sessionId !== sessionId) throw new ModelingError('STALE_MODEL', 'Model identity does not match this session')
+    return Object.freeze({ sessionId: value.sessionId, modelEpoch: value.modelEpoch })
   }
-  return { ...read, close: () => { controller.abort(); read.close() }, capabilities: () => {
-    const result = read.capabilities()
-    return { ...result, features: result.features.map((c) => ['parameter.read', 'parameter.write', 'geometry.create', 'geometry.move', 'wing.read', 'fuselage.read'].includes(c.name) ? { name: c.name, status: 'supported' as const } : c) }
-  }, parameter, wing: createWingService({ geometry: read.geometry, parameters: parameter }), fuselage: createFuselageService(read.geometry, parameter), write }
+  function scoped(token: ModelIdentity) {
+    const call = <T>(op: Parameters<typeof callGuarded>[0], a = '', b = '', value = 0) => callGuarded<T>(op, a, b, value, token.modelEpoch)
+    const model = async () => {
+      const tree = await call<ModelTree>('model')
+      // Match the public model route's file name presentation.
+      const name = tree.fileName
+      return { ...tree, fileName: name === 'Unnamed.vsp3' ? '' : name.startsWith('/home/web_user/') ? name.slice('/home/web_user/'.length) : name.replace(/^\//, '') }
+    }
+    const readScoped = createReadService({
+      model: async () => {
+        try { return await model() } catch (error) {
+          if (error instanceof WasmEngineError && error.code === 'STALE_MODEL') throw new ModelingError('STALE_MODEL', 'The model identity is stale')
+          throw error
+        }
+      },
+      bbox: async () => {
+        try { return await call<Awaited<ReturnType<typeof api.bbox>>>('bbox') } catch (error) {
+          if (error instanceof WasmEngineError && error.code === 'STALE_MODEL') throw new ModelingError('STALE_MODEL', 'The model identity is stale')
+          throw error
+        }
+      },
+    }, sessionId)
+    // Also close scoped reads when the parent handle closes.
+    const abort = () => readScoped.close()
+    controller.signal.addEventListener('abort', abort, { once: true })
+    const dispose = () => { controller.signal.removeEventListener('abort', abort); readScoped.close() }
+    const adapter: ParameterReadAdapter = {
+      surfaces: (id) => call<CrossSectionSurface[]>('geomXSecs', id),
+      fuselageLength: (id) => call<EngineParameter>('fuselageLength', id),
+      list: (owner, id) => call<string[]>(owner === 'geometry' ? 'geomParmIDs' : 'xsecParmIDs', id),
+      get: (owner, id, parm) => call<EngineParameter>(owner === 'geometry' ? 'geomParm' : 'xsecParm', id, parm),
+    }
+    const parameter = createParameterService(adapter, controller.signal)
+    return { read: readScoped, parameter, wing: createWingService({ geometry: readScoped.geometry, parameters: parameter }), fuselage: createFuselageService(readScoped.geometry, parameter), dispose }
+  }
+  function run<T>(token: ModelIdentity, fn: (scope: ReturnType<typeof scoped>, token: ModelIdentity) => Promise<T>): Promise<T> {
+    const t = identity(token), scope = scoped(t)
+    try { return Promise.resolve(fn(scope, t)).finally(scope.dispose) } catch (error) { scope.dispose(); throw error }
+  }
+  return {
+    close() { controller.abort(); read.close() },
+    capabilities() {
+      const result = read.capabilities()
+      return { ...result, features: result.features.map((c) => ['parameter.read', 'wing.read', 'fuselage.read'].includes(c.name) ? { name: c.name, status: 'supported' as const } : ['parameter.write', 'geometry.create', 'geometry.move'].includes(c.name) ? { name: c.name, status: 'unsupported' as const, reason: 'Disabled pending reentrancy safety review' } : c) }
+    },
+    model: {
+      getInfo: (token?: ModelIdentity) => token === undefined ? read.model.getInfo() : run(token, (s, t) => s.read.model.getInfo(t)),
+      getSelection: (token: ModelIdentity) => run(token, (s) => s.read.model.getSelection()),
+      getVisibleSurfaceBounds: (token: ModelIdentity) => run(token, (s) => s.read.model.getVisibleSurfaceBounds()),
+    },
+    geometry: {
+      list: (token: ModelIdentity) => run(token, (s) => s.read.geometry.list()),
+      get: (id: string, token: ModelIdentity) => run(token, (s, t) => s.read.geometry.get(id, t)),
+    },
+    parameter: {
+      listSurfaces: (id: string, token: ModelIdentity) => run(token, (s, t) => s.parameter.listSurfaces(id, t)),
+      getFuselageLength: (id: string, token: ModelIdentity) => run(token, (s, t) => s.parameter.getFuselageLength(id, t)),
+      listGeometryParameterIds: (id: string, token: ModelIdentity) => run(token, (s, t) => s.parameter.listGeometryParameterIds(id, t)),
+      listCrossSectionParameterIds: (id: string, token: ModelIdentity) => run(token, (s, t) => s.parameter.listCrossSectionParameterIds(id, t)),
+      getGeometryParameter: (id: string, parm: string, token: ModelIdentity) => run(token, (s, t) => s.parameter.getGeometryParameter(id, parm, t)),
+      getCrossSectionParameter: (id: string, parm: string, token: ModelIdentity) => run(token, (s, t) => s.parameter.getCrossSectionParameter(id, parm, t)),
+      set: async (_input: ParameterWriteInput, token: ModelIdentity): Promise<{ actual: number }> => { identity(token); throw new ModelingError('UNSUPPORTED_OPERATION', 'Parameter writes are disabled pending reentrancy safety review') },
+    },
+    write: {
+      create: async (_input: CreateGeometryInput, token: ModelIdentity): Promise<{ geometryId: string }> => { identity(token); throw new ModelingError('UNSUPPORTED_OPERATION', 'Geometry creation is disabled pending reentrancy safety review') },
+      move: async (_input: MoveGeometryInput, token: ModelIdentity): Promise<{ geometryId: string; origin: [number, number, number] }> => { identity(token); throw new ModelingError('UNSUPPORTED_OPERATION', 'Geometry movement is disabled pending reentrancy safety review') },
+    },
+    wing: { get: (id: string, token: ModelIdentity) => { const t = identity(token); return scoped(t).wing.get(id, t) } },
+    fuselage: { get: (id: string, token: ModelIdentity) => { const t = identity(token); return scoped(t).fuselage.get(id, t) } },
+  }
 }
