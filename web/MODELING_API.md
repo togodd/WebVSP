@@ -30,7 +30,7 @@ The existing `src/api/client.ts` provides model tree, geometry types, bounds, se
 
 ## Implemented interface and limits
 
-Import `createBrowserModelingService` from `web/frontend/src/modeling`. `capabilities()` reports supported model, geometry, parameter, wing and fuselage reads; it describes the facade, not engine readiness. The browser engine needs a secure context with `crypto.randomUUID`; handles share an engine-module session ID.
+Import `createBrowserModelingService` from `web/frontend/src/modeling`. `capabilities()` reports supported model, geometry, parameter, wing and fuselage reads; it describes the facade, not engine readiness. Wing reads expose XSec surface IDs and ordered station roles only: a non-root station is the outboard airfoil XSec of its inboard section, not a separate segment ID. Fuselage reads expose surface/XSec IDs and the top-level Design/Length parameter, with section shape currently unknown (`null`). Neither domain read implies full dimensions, airfoil shape, driver or editing support. The browser engine needs a secure context with `crypto.randomUUID`; handles share an engine-module session ID.
 
 Call `model.getInfo()` without an identity to obtain `identity: { sessionId, modelEpoch }` along with the model information. An optional identity can instead guard `getInfo` against replacement. Every other facade read (`model.getSelection/getVisibleSurfaceBounds`, `geometry.list/get`, parameter reads, `wing.get` and `fuselage.get`) requires an explicit identity. Retain and pass that identity with geometry and parameter IDs; reacquire it and discard old references after replacement. Invalid identities are rejected, and mismatched session or epoch is reported as `STALE_MODEL`.
 
