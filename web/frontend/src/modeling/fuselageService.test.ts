@@ -103,6 +103,66 @@ describe('read-only fuselage service', () => {
       await expect(f.service.get('g')).rejects.toMatchObject({ code: 'ENGINE_ERROR' })
     }
   })
+  it('snapshots changing getters before validating and before later reads', async () => {
+    const f = fixture()
+    let geometryReads = 0, lengthReads = 0, surfaceReads = 0
+    const originalGeometry = f.info.geometry
+    Object.defineProperty(f.info, 'geometry', { get: () => { geometryReads++; return geometryReads === 1 ? originalGeometry : null } })
+    const p = length()
+    Object.defineProperty(p, 'value', { enumerable: true, get: () => ++lengthReads === 1 ? 30 : NaN })
+    f.parameter.getFuselageLength.mockResolvedValue(p)
+    const surface = { get id() { return ++surfaceReads === 1 ? 's' : '' }, xsecs: ['a'] }
+    f.parameter.listSurfaces.mockResolvedValue([surface])
+    const result = await f.service.get('g')
+    expect([geometryReads, lengthReads, surfaceReads]).toEqual([1, 1, 1])
+    expect(result.length.value).toBe(30)
+    expect(result.surfaces[0].id).toBe('s')
+  })
+  it('captures validated values even if later reads mutate their sources', async () => {
+    const f = fixture(), p = length(), childIds: string[] = f.info.geometry.childIds
+    f.parameter.getFuselageLength.mockResolvedValue(p)
+    f.parameter.listSurfaces.mockImplementation(async () => {
+      f.info.geometry.id = 'changed'; childIds.push('later'); p.value = NaN
+      return []
+    })
+    const result = await f.service.get('g')
+    expect(result.geometry.id).toBe('g')
+    expect(result.geometry.childIds).toEqual([])
+    expect(result.length.value).toBe(30)
+  })
+  it('handles non-enumerable validated getters without rereading them', async () => {
+    const f = fixture(), p = length()
+    let reads = 0
+    Object.defineProperty(p, 'value', { enumerable: false, get: () => ++reads === 1 ? 30 : NaN })
+    f.parameter.getFuselageLength.mockResolvedValue(p)
+    expect((await f.service.get('g')).length.value).toBe(30)
+    expect(reads).toBe(1)
+  })
+  it('rejects sparse arrays and ignores user-defined array iterators', async () => {
+    for (const surfaces of [new Array(1), [{ id: 's', xsecs: new Array(1) }]]) {
+      const f = fixture(); f.parameter.listSurfaces.mockResolvedValue(surfaces)
+      await expect(f.service.get('g')).rejects.toMatchObject({ code: 'ENGINE_ERROR' })
+    }
+    const f = fixture()
+    const xsecs = ['a']; xsecs[Symbol.iterator] = () => { throw new Error('iterator') }
+    const surfaces = [{ id: 's', xsecs }]; surfaces[Symbol.iterator] = () => { throw new Error('iterator') }
+    f.parameter.listSurfaces.mockResolvedValue(surfaces)
+    expect((await f.service.get('g')).surfaces[0].sections[0].id).toBe('a')
+  })
+  it('converts throwing response getters to ENGINE_ERROR but preserves arbitrary dependency rejections', async () => {
+    for (const stage of ['geometry', 'length', 'surfaces'] as const) {
+      const f = fixture(), error = new Error('hostile')
+      if (stage === 'geometry') Object.defineProperty(f.info, 'geometry', { get: () => { throw error } })
+      if (stage === 'length') f.parameter.getFuselageLength.mockResolvedValue(Object.defineProperty(length(), 'value', { enumerable: true, get: () => { throw error } }))
+      if (stage === 'surfaces') f.parameter.listSurfaces.mockResolvedValue([{ get id(): string { throw error }, xsecs: [] }])
+      await expect(f.service.get('g')).rejects.toMatchObject({ code: 'ENGINE_ERROR' })
+      const g = fixture()
+      if (stage === 'geometry') g.geometry.get.mockRejectedValue(error)
+      if (stage === 'length') g.parameter.getFuselageLength.mockRejectedValue(error)
+      if (stage === 'surfaces') g.parameter.listSurfaces.mockRejectedValue(error)
+      await expect(g.service.get('g')).rejects.toBe(error)
+    }
+  })
   it('does not claim atomicity when replacement reuses IDs during asynchronous reads', async () => {
     const f = fixture()
     f.parameter.getFuselageLength.mockImplementation(async () => ({ ...length(), value: 55 }))

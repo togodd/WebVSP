@@ -29,6 +29,22 @@ export interface FuselageSnapshot {
 function validId(value: unknown): value is string { return typeof value === 'string' && value.trim().length > 0 }
 function badData(message: string): never { throw new ModelingError('ENGINE_ERROR', message) }
 
+// Only response inspection is guarded: dependency rejections must propagate unchanged.
+function inspect<T>(fn: () => T): T {
+  try { return fn() } catch { return badData('Invalid Fuselage response') }
+}
+function snapshotArray<T, U>(value: T[], item: (value: T, index: number) => U): U[] {
+  if (!Array.isArray(value)) return badData('Invalid array')
+  const length = value.length
+  if (!Number.isInteger(length) || length < 0 || length > 0xffffffff) return badData('Invalid array length')
+  const result: U[] = []
+  for (let i = 0; i < length; i++) {
+    if (!Object.prototype.hasOwnProperty.call(value, i)) return badData('Sparse array')
+    result.push(item(value[i], i))
+  }
+  return result
+}
+
 /**
  * Read-only, linkable-parameter view of a Fuselage. Requests are independent async
  * reads, not a transaction. ID/owner validation catches some inconsistent results,
@@ -41,30 +57,48 @@ export function createFuselageService(geometry: FuselageGeometryReader, paramete
     async get(geometryId: string, identity?: ModelIdentity): Promise<FuselageSnapshot> {
       if (!validId(geometryId)) throw new ModelingError('INVALID_ARGUMENT', 'geometryId must be a nonempty string')
       const info = await geometry.get(geometryId, identity)
-      if (!info.geometry || info.geometry.id !== geometryId) badData('Geometry response does not match the requested ID')
-      if (info.geometry.type !== 'FUSELAGE' && info.geometry.type !== 'Fuselage') throw new ModelingError('UNSUPPORTED_OPERATION', 'Geometry is not a Fuselage', { geometryId })
+      const initial = inspect(() => {
+        if (!info) return badData('Invalid geometry response')
+        const sourceGeometry = info.geometry, sourceContext = info.context
+        if (!sourceGeometry || !sourceContext) return badData('Invalid geometry response')
+        const context = { ...sourceContext }
+        const { id, type, childIds, ...otherGeometry } = sourceGeometry
+        const result = { ...otherGeometry, id, type, childIds: snapshotArray(childIds, id => id) }
+        if (result.id !== geometryId) return badData('Geometry response does not match the requested ID')
+        return { context, geometry: result }
+      })
+      if (initial.geometry.type !== 'FUSELAGE' && initial.geometry.type !== 'Fuselage') throw new ModelingError('UNSUPPORTED_OPERATION', 'Geometry is not a Fuselage', { geometryId })
 
       // The engine enforces uniqueness; still validate the returned identity and metadata.
-      const length = await parameter.getFuselageLength(geometryId, identity)
-      if (!length || !validId(length.id) || length.name !== 'Length' || length.group !== 'Design' || length.container !== geometryId) badData('Invalid Fuselage Design/Length parameter')
-      if (typeof length.value !== 'number' || !Number.isFinite(length.value) ||
-          typeof length.lowerLimit !== 'number' || !Number.isFinite(length.lowerLimit) ||
-          typeof length.upperLimit !== 'number' || !Number.isFinite(length.upperLimit)) badData('Fuselage Length has a non-finite value or limit')
+      const rawLength = await parameter.getFuselageLength(geometryId, identity)
+      const length = inspect(() => {
+        if (!rawLength) return badData('Invalid Fuselage Design/Length parameter')
+        const { id, name, group, container, value, lowerLimit, upperLimit, ...otherLength } = rawLength
+        const result = { ...otherLength, id, name, group, container, value, lowerLimit, upperLimit }
+        if (!validId(result.id) || result.name !== 'Length' || result.group !== 'Design' || result.container !== geometryId) return badData('Invalid Fuselage Design/Length parameter')
+        if (typeof result.value !== 'number' || !Number.isFinite(result.value) ||
+            typeof result.lowerLimit !== 'number' || !Number.isFinite(result.lowerLimit) ||
+            typeof result.upperLimit !== 'number' || !Number.isFinite(result.upperLimit)) return badData('Fuselage Length has a non-finite value or limit')
+        return result
+      })
 
       const raw = await parameter.listSurfaces(geometryId, identity)
-      if (!Array.isArray(raw)) badData('Invalid XSec surfaces')
-      const surfaceIds = new Set<string>(), sectionIds = new Set<string>()
-      const surfaces = raw.map((surface, index): FuselageSurface => {
-        if (!surface || !validId(surface.id) || surfaceIds.has(surface.id) || !Array.isArray(surface.xsecs)) badData('Invalid or ambiguous XSec surface')
-        surfaceIds.add(surface.id)
-        const sections = surface.xsecs.map((id, index): FuselageSection => {
-          if (!validId(id) || sectionIds.has(id)) badData('Invalid or ambiguous XSec ID')
-          sectionIds.add(id)
-          return { id, index, shape: null }
+      const surfaces = inspect(() => {
+        const surfaceIds = new Set<string>(), sectionIds = new Set<string>()
+        return snapshotArray(raw, (surface, index): FuselageSurface => {
+          if (!surface) return badData('Invalid or ambiguous XSec surface')
+          const id = surface.id, xsecs = surface.xsecs
+          if (!validId(id) || surfaceIds.has(id)) return badData('Invalid or ambiguous XSec surface')
+          surfaceIds.add(id)
+          const sections = snapshotArray(xsecs, (sectionId, index): FuselageSection => {
+            if (!validId(sectionId) || sectionIds.has(sectionId)) return badData('Invalid or ambiguous XSec ID')
+            sectionIds.add(sectionId)
+            return { id: sectionId, index, shape: null }
+          })
+          return { id, index, sections }
         })
-        return { id: surface.id, index, sections }
       })
-      return { context: info.context, geometry: info.geometry, length: { ...length }, surfaces }
+      return { ...initial, length, surfaces }
     },
   }
 }
