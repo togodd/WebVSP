@@ -181,14 +181,41 @@ void Emit( const string &json )
 
 //==== Model ====//
 
-string ModelJson()
+#ifdef WEBVSP_SCRIPT_GUARD_TEST
+// One-shot, serializer-local fault; never enabled in production builds.
+string g_SerializerFault;
+void SerializerFault( const string &point )
+{
+    if ( g_SerializerFault == point )
+    {
+        g_SerializerFault.clear();
+        vsp::ErrorMgrSingleton::getInstance().AddError( vsp::VSP_INVALID_PTR, "Injected serializer error: " + point );
+    }
+}
+#else
+void SerializerFault( const string & ) {}
+#endif
+
+// RunImpl clears the old stack at request entry. NoError only clears the flag,
+// not the accumulated stack, so examine it after all serializer API calls.
+// Concurrent/reentrant stack users and errors APIs never report are not covered.
+void SerializerErrors( string *err )
+{
+    bool had_errors = vsp::ErrorMgrSingleton::getInstance().GetNumTotalErrors() != 0;
+    string message = TakeErrors();
+    if ( err ) *err = had_errors && message.empty() ? "OpenVSP serializer API error (no message)" : message;
+}
+
+string ModelJson( string *err = nullptr )
 {
     string geoms = "[";
     vector< string > ids = vsp::FindGeoms();
+    SerializerFault( "model:early" );
     for ( size_t i = 0; i < ids.size(); i++ )
     {
         const string &id = ids[i];
         string parent = vsp::GetGeomParent( id );
+        SerializerFault( "model:middle" );
         vec3d color = vsp::GetGeomWireColor( id );
         geoms += i ? "," : "";
         geoms += "{\"id\":" + Quote( id ) +
@@ -209,7 +236,8 @@ string ModelJson()
                  ",\"vehicleId\":" + Quote( vsp::GetVehicleID() ) +
                  ",\"fileName\":" + Quote( file ) +
                  ",\"version\":" + Quote( vsp::GetVSPVersion() ) + "}";
-    TakeErrors();
+    SerializerFault( "model:late" );
+    SerializerErrors( err );
     return out;
 }
 
@@ -231,17 +259,20 @@ void Grow( double lo[3], double hi[3], double x, double y, double z )
 }
 
 // The shown geoms' bounding box, or every geom's (hidden ones too) when all is set.
-string BBoxJson( bool all = false )
+string BBoxJson( bool all = false, string *err = nullptr )
 {
     double lo[3] = { INFINITY, INFINITY, INFINITY }, hi[3] = { -INFINITY, -INFINITY, -INFINITY };
     bool any = false;
-    for ( const string &id : vsp::FindGeoms() )
+    vector< string > ids = vsp::FindGeoms();
+    SerializerFault( "bbox:early" );
+    for ( const string &id : ids )
     {
         if ( !all && !vsp::GetSetFlag( id, vsp::SET_SHOWN ) )
         {
             continue;
         }
         int nsurf = vsp::GetTotalNumSurfs( id );
+        SerializerFault( "bbox:middle" );
         for ( int s = 0; s < nsurf; s++ )
         {
             vec3d a = vsp::GetGeomBBoxMin( id, s, true ), b = vsp::GetGeomBBoxMax( id, s, true );
@@ -259,7 +290,8 @@ string BBoxJson( bool all = false )
             }
         }
     }
-    TakeErrors();
+    SerializerFault( "bbox:late" );
+    SerializerErrors( err );
     if ( !any )
     {
         return "null";
@@ -1617,6 +1649,14 @@ void RunImpl( const Job &j )
     }
     TakeErrors();
 #ifdef WEBVSP_SCRIPT_GUARD_TEST
+    if ( j.op == "serializerInjection" )
+    {
+        if ( j.a != "clear" && j.a != "model:early" && j.a != "model:middle" && j.a != "model:late" &&
+             j.a != "bbox:early" && j.a != "bbox:middle" && j.a != "bbox:late" )
+            return Result( j.id, "Invalid serializer injection", "" );
+        g_SerializerFault = j.a == "clear" ? "" : j.a;
+        return Result( j.id, "", "null" );
+    }
     if ( j.op == "guardedWriteInjection" )
     {
         if ( j.a == "clear" )
@@ -1652,7 +1692,9 @@ void RunImpl( const Job &j )
 #endif
     if ( j.op == "model" )
     {
-        string m = ModelJson();
+        string err;
+        string m = ModelJson( j.guarded ? &err : nullptr );
+        if ( !err.empty() ) return Result( j.id, err, "" );
         // Add the engine's own bookkeeping, as session.tree() does.
         m.pop_back();
         Vehicle *veh = VehicleMgr.GetVehicle();
@@ -1739,7 +1781,9 @@ void RunImpl( const Job &j )
     }
     if ( j.op == "bbox" )
     {
-        return Result( j.id, "", BBoxJson( j.a == "all" ) );
+        string err;
+        string box = BBoxJson( j.a == "all", j.guarded ? &err : nullptr );
+        return Result( j.id, err, box );
     }
     if ( j.op == "mesh" )
     {
