@@ -761,12 +761,17 @@ thread_local GuardedWriteState *g_GuardedWrite = nullptr;
 #ifdef WEBVSP_SCRIPT_GUARD_TEST
 string g_InjectionArmed, g_InjectionActive, g_InjectionModule;
 
+int ExecuteGuardedWriteInjection()
+{
+    return ScriptMgrSingleton::getInstance().ExecuteScript( g_InjectionModule.c_str(), "int main()" );
+}
+
 void InjectGuardedWriteScript( const char *phase )
 {
     if ( g_GuardedWrite && g_InjectionActive == phase )
     {
         g_InjectionActive.clear();
-        ScriptMgrSingleton::getInstance().ExecuteScript( g_InjectionModule.c_str(), "int main()" );
+        ExecuteGuardedWriteInjection();
     }
 }
 #endif
@@ -1575,12 +1580,22 @@ void RunImpl( const Job &j )
             g_InjectionArmed.clear();
             return Result( j.id, "", "{\"ok\":true}" );
         }
-        if ( j.a != "pre" && j.a != "post" && j.a != "watch" )
+        if ( j.a != "pre" && j.a != "post" && j.a != "watch" && j.a != "control" )
             return Result( j.id, "Invalid injection phase", "" );
         if ( g_InjectionModule.empty() )
             g_InjectionModule = ScriptMgrSingleton::getInstance().ReadScriptFromMemory(
                 "WebVSP_GuardedWriteInjection", "int main() { AddGeom(\"BLANK\"); return 0; }" );
         if ( g_InjectionModule.empty() ) return Result( j.id, "Could not compile injection script", "" );
+        if ( j.a == "control" )
+        {
+            // Never leave a pending arm behind; execute the exact injection entry unguarded.
+            g_InjectionArmed.clear();
+            if ( g_GuardedWrite ) return Result( j.id, "Control requires an unguarded call", "" );
+            int rc = ExecuteGuardedWriteInjection();
+            string err = TakeErrors();
+            if ( !err.empty() ) return Result( j.id, err, "" );
+            return Result( j.id, "", "{\"rc\":" + std::to_string( rc ) + "}" );
+        }
         g_InjectionArmed = j.a;
         return Result( j.id, "", "{\"ok\":true}" );
     }

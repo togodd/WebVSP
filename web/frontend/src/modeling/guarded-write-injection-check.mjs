@@ -2,9 +2,10 @@
 // Build with -DWEBVSP_SCRIPT_GUARD_TEST and serve with vite.modeling-test.config.ts.
 // From web/frontend: WEBVSP_TEST_CHROMIUM=/path/to/chromium node src/modeling/guarded-write-injection-check.mjs
 // Required test-only engine hook: testCall('guardedWriteInjection', phase), where
-// phase is pre, post, watch, or clear. It arms one fixed, precompiled script whose
-// body adds a BLANK geom. The next guarded write consumes the arm even on early
-// failure. The hooks execute under the real write guard, not a simulated result.
+// action is pre, post, watch, clear, or control. The phases arm one fixed,
+// precompiled script whose body adds a BLANK geom; control clears the arm and
+// executes the exact same module and entry unguarded. The next guarded write
+// consumes the arm even on early failure. Hooks use the real write guard.
 import { chromium } from 'playwright-core'
 import assert from 'node:assert/strict'
 
@@ -41,13 +42,23 @@ try {
     }
     try {
       await engine.request('POST', '/file/new')
-      // A separate fixed script with the same body must actually add a geom without
-      // the guard, otherwise blocked injection alone could be a false positive.
-      const control = await call('scriptGuardCheck')
+      // The disposable empty model isolates the positive control. Arm first to
+      // verify control clears it, then execute exactly the injected module/entry.
+      const controlBefore = (await call('model')).geoms
+      await arm('pre')
+      const control = await arm('control')
+      const controlAfter = (await call('model')).geoms
+      const controlAdded = controlAfter.filter(g => !controlBefore.some(before => before.id === g.id))
+      if (controlAdded.length !== 1 || controlAdded[0].type !== 'Blank')
+        throw new Error('Injection control did not add exactly one Blank geom')
+      await call('deleteGeoms', controlAdded[0].id)
+      const controlCleaned = (await call('model')).geoms
       const id = (await call('addGeom', 'FUSELAGE')).id
       const model = await call('model')
       if (!model.modelEpochValid) throw new Error('Invalid model epoch')
       const guarded = (op, a = '', b = '', epoch = model.modelEpoch) => engine.testCallGuarded(op, a, b, 0, epoch)
+      const controlRecovery = await guarded('move', id, '1,0,0')
+      const controlRecoveryModel = await guarded('model')
       const snapshot = async () => ({
         ids: (await guarded('model')).geoms.map(g => g.id),
         origin: await guarded('origin', id),
@@ -139,7 +150,7 @@ try {
       const afterInvalid = await snapshot()
       const afterInvalidWrite = await guarded('move', id, '1,0,0')
       const afterInvalidRecovery = await snapshot()
-      return { control, id, cases, extraCases, beforeStale, stale, afterStale, afterStaleWrite, afterStaleRecovery,
+      return { control, controlBefore, controlAfter, controlAdded, controlCleaned, controlRecovery, controlRecoveryModel, id, cases, extraCases, beforeStale, stale, afterStale, afterStaleWrite, afterStaleRecovery,
         beforeRead, readThenWrite, afterRead, clearedWrite, afterClear,
         beforeInvalid, invalid, afterInvalid, afterInvalidWrite, afterInvalidRecovery }
     } finally {
@@ -150,9 +161,13 @@ try {
     assert.deepEqual(after.ids, before.ids, `${label}: injected script must not add a geom`)
     for (let i = 0; i < 3; i++) assert.ok(Math.abs(after.origin[i] - before.origin[i] - (i === 0 ? delta : 0)) < 1e-8, `${label}: axis ${i}`)
   }
-  assert.equal(result.control.unguardedRc, 0, 'control script executes')
-  assert.equal(result.control.afterUnguarded, result.control.before + 1, 'control script adds a geom')
-  assert.equal(result.control.afterCleanup, result.control.before, 'control cleanup')
+  assert.deepEqual(result.control, { rc: 0 }, 'same injection module and entry execute unguarded')
+  assert.deepEqual(result.controlBefore, [], 'control model starts empty')
+  assert.equal(result.controlAfter.length, 1, 'control adds exactly one geom')
+  assert.equal(result.controlAdded[0].type, 'Blank', 'control adds a Blank')
+  assert.deepEqual(result.controlCleaned, result.controlBefore, 'control cleanup restores isolated model')
+  assert.equal(result.controlRecovery.ok, true, 'control clears the armed injection')
+  assert.deepEqual(result.controlRecoveryModel.geoms.map(g => g.id), [result.id], 'control leaves no arm for the next guarded write')
   const near = (actual, expected, label) => assert.ok(Math.abs(actual - expected) < 1e-8, `${label}: ${actual} != ${expected}`)
   for (const c of result.extraCases) {
     const label = `${c.op}/${c.phase}`
