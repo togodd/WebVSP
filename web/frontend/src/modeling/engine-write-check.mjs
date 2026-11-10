@@ -7,22 +7,36 @@ try {
   const page = await browser.newPage({ viewport: { width: 1600, height: 1000 } })
   const errors = []
   page.on('pageerror', e => errors.push(e.message))
-  await page.goto(process.env.WEBVSP_TEST_PAGE ?? 'http://127.0.0.1:5178/')
+  await page.goto(process.env.WEBVSP_TEST_PAGE ?? 'http://127.0.0.1:5179/')
   await page.waitForSelector('[data-ready="1"]', { timeout: 120000 })
   const data = await page.evaluate(async () => {
     const m = await import('/src/modeling/index.ts')
     const service = m.createBrowserModelingService()
-    const body = await service.write.create({ type: 'FUSELAGE', parentId: null })
-    const wing = await service.write.create({ type: 'WING', parentId: body.geometryId })
-    const moved = await service.write.move({ geometryId: wing.geometryId, frame: 'world', units: 'model-native', delta: [2, 0, 0] })
+    const engine = window.__webvspEngine
+    const body = await engine.request('POST', '/geoms', { type: 'FUSELAGE' })
+    const wing = await engine.request('POST', '/geoms', { type: 'WING', parent: body.id })
+    const before = await engine.request('GET', `/geoms/${wing.id}/origin`)
+    const moved = await engine.request('POST', '/geoms/move', { ids: [wing.id], delta: [2, 0, 0] })
+    const origin = await engine.request('GET', `/geoms/${wing.id}/origin`)
     const model = await service.model.getInfo()
-    const fuselageView = await service.fuselage.get(body.geometryId)
-    const wingView = await service.wing.get(wing.geometryId)
-    return { body, wing, moved, model, fuselageView, wingView, capabilities: service.capabilities() }
+    const token = model.identity
+    const fuselageView = await service.fuselage.get(body.id, token)
+    const wingView = await service.wing.get(wing.id, token)
+    const disabled = []
+    for (const fn of [() => service.write.create({ type: 'WING', parentId: null }, token), () => service.write.move({ geometryId: wing.id, frame: 'world', units: 'model-native', delta: [1, 0, 0] }, token)]) {
+      try { await fn(); disabled.push('SUCCEEDED') } catch (error) { disabled.push(error.code) }
+    }
+    const capabilities = service.capabilities()
+    service.close()
+    return { body, wing, before, moved, origin, model, fuselageView, wingView, disabled, capabilities }
+
   })
   assert.equal(data.model.geometries.length, 2)
-  assert.equal(data.model.geometries.find(g => g.id === data.wing.geometryId).parentId, data.body.geometryId)
-  assert.ok(Number.isFinite(data.moved.origin[0]))
+  assert.equal(data.model.geometries.find(g => g.id === data.wing.id).parentId, data.body.id)
+  assert.equal(data.moved.ok, true)
+  assert.ok(Math.abs(data.origin[0] - data.before[0] - 2) < 1e-7)
+  assert.deepEqual(data.disabled, ['UNSUPPORTED_OPERATION', 'UNSUPPORTED_OPERATION'])
+  for (const name of ['geometry.create', 'geometry.move']) assert.equal(data.capabilities.features.find(c => c.name === name).status, 'unsupported')
   assert.equal(data.fuselageView.length.value, 30)
   assert.equal(data.fuselageView.surfaces[0].sections.length, 5)
   assert.equal(data.wingView.surfaces[0].stations[0].kind, 'rootAirfoilStation')
