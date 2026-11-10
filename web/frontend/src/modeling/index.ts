@@ -64,9 +64,9 @@ export function createBrowserModelingService() {
     const parameter = createParameterService(adapter, controller.signal)
     return { read: readScoped, parameter, wing: createWingService({ geometry: readScoped.geometry, parameters: parameter }), fuselage: createFuselageService(readScoped.geometry, parameter), dispose }
   }
-  function run<T>(token: ModelIdentity, fn: (scope: ReturnType<typeof scoped>, token: ModelIdentity) => Promise<T>): Promise<T> {
+  async function run<T>(token: ModelIdentity, fn: (scope: ReturnType<typeof scoped>, token: ModelIdentity) => Promise<T>): Promise<T> {
     const t = identity(token), scope = scoped(t)
-    try { return Promise.resolve(fn(scope, t)).finally(scope.dispose) } catch (error) { scope.dispose(); throw error }
+    try { return await fn(scope, t) } finally { scope.dispose() }
   }
   return {
     close() { controller.abort(); read.close() },

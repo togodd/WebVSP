@@ -36,6 +36,7 @@ try {
       const length = await s.parameter.getFuselageLength(body, identity)
       const geomParameter = await s.parameter.getGeometryParameter(body, length.id, identity)
       const sectionParameter = await s.parameter.getCrossSectionParameter(section, sectionIds[0], identity)
+      const invalidAsync = await s.geometry.get(wing, { sessionId: 'other', modelEpoch: '0' }).then(() => 'SUCCEEDED', e => e.code)
       const before = await s.model.getInfo()
       const originBefore = await engine.request('GET', `/geoms/${wing}/origin`)
       const input = { owner: 'geometry', ownerId: body, parameterId: length.id, value: length.value + 1 }
@@ -75,9 +76,10 @@ try {
       const finalModel = await s.model.getInfo(identity)
       return { first, replacement, before, after, length, lengthAfter, originBefore, originAfter, stale,
         wing, body, surfaces, geomIds, sectionIds, geomParameter, sectionParameter,
-        freshWing, freshBody, disabledWrites, capabilities, finalModel }
+        freshWing, freshBody, disabledWrites, capabilities, finalModel, invalidAsync }
     } finally { s.close() }
   })
+  assert.equal(result.invalidAsync, 'STALE_MODEL')
   assert.ok(result.first.identity.sessionId)
   assert.match(result.first.identity.modelEpoch, /^(0|[1-9]\d*)$/)
   assert.equal(result.first.identity.sessionId, result.replacement.identity.sessionId)
