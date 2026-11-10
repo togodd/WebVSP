@@ -32,8 +32,10 @@ export function createBrowserModelingService() {
     if (!value) throw new ModelingError('INVALID_ARGUMENT', 'A valid model identity is required')
     let tokenSessionId: unknown, modelEpoch: unknown
     try { ({ sessionId: tokenSessionId, modelEpoch } = value) } catch {
+      if (controller.signal.aborted) throw new ModelingError('SESSION_CLOSED', 'Modeling session is closed')
       throw new ModelingError('INVALID_ARGUMENT', 'A valid model identity is required')
     }
+    if (controller.signal.aborted) throw new ModelingError('SESSION_CLOSED', 'Modeling session is closed')
     if (typeof tokenSessionId !== 'string' || !tokenSessionId.trim() || typeof modelEpoch !== 'string' || !/^(0|[1-9][0-9]*)$/.test(modelEpoch) || modelEpoch.length > 20 || (modelEpoch.length === 20 && modelEpoch > '18446744073709551615')) throw new ModelingError('INVALID_ARGUMENT', 'A valid model identity is required')
     if (tokenSessionId !== sessionId) throw new ModelingError('STALE_MODEL', 'Model identity does not match this session')
     return Object.freeze({ sessionId: tokenSessionId, modelEpoch })

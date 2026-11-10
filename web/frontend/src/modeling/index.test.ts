@@ -127,6 +127,43 @@ describe('browser modeling identity', () => {
     }
   })
 
+  it.each([
+    { field: 'sessionId' as const, throws: false },
+    { field: 'modelEpoch' as const, throws: false },
+    { field: 'sessionId' as const, throws: true },
+    { field: 'modelEpoch' as const, throws: true },
+  ])('fails closed when $field getter closes the session (throws: $throws)', async ({ field, throws }) => {
+    const service = createBrowserModelingService()
+    const engine = vi.mocked(callGuarded), discovery = vi.mocked(discoverModel), bbox = vi.mocked(api.bbox)
+    engine.mockClear(); discovery.mockClear(); bbox.mockClear()
+    const token = {
+      get sessionId(): string {
+        if (field === 'sessionId') { service.close(); if (throws) throw new Error('getter failure'); return '' }
+        return 'tab'
+      },
+      get modelEpoch(): string {
+        if (field === 'modelEpoch') { service.close(); if (throws) throw new Error('getter failure'); return '42' }
+        return '42'
+      },
+    }
+    try {
+      await expect(service.model.getInfo(token)).rejects.toMatchObject({ code: 'SESSION_CLOSED' })
+      expect(engine).not.toHaveBeenCalled()
+      expect(discovery).not.toHaveBeenCalled()
+      expect(bbox).not.toHaveBeenCalled()
+    } finally { service.close() }
+  })
+
+  it('rejects malformed identities without closing or calling the engine', async () => {
+    const service = createBrowserModelingService()
+    const engine = vi.mocked(callGuarded)
+    engine.mockClear()
+    try {
+      await expect(service.model.getInfo({ sessionId: 'tab', modelEpoch: 'invalid' })).rejects.toMatchObject({ code: 'INVALID_ARGUMENT' })
+      expect(engine).not.toHaveBeenCalled()
+    } finally { service.close() }
+  })
+
   it('rejects invalid first getter values asynchronously without calling the engine', async () => {
     const service = createBrowserModelingService()
     const token = { get sessionId() { return 'other' }, get modelEpoch() { return '42' } }
