@@ -157,11 +157,23 @@ export interface EngineModelEpoch {
   modelEpochValid: boolean
 }
 
+/** Deliberately limited to operations that do not pump the GUI or replace the model. */
+export const GUARDED_OPS = ['model', 'bbox', 'origin', 'move', 'addGeom', 'geomXSecs', 'geomParmIDs', 'xsecParmIDs', 'geomParm', 'xsecParm', 'fuselageLength', 'geomSetParm', 'xsecSetParm'] as const
+export type GuardedOp = (typeof GUARDED_OPS)[number]
+
 /** Submit against the engine's model identity, checked atomically on its owning thread. */
-export async function callGuarded<T = unknown>(op: string, a: string, b: string, value: number, expectedEpoch: string): Promise<T> {
+export async function callGuarded<T = unknown>(op: GuardedOp, a: string, b: string, value: number, expectedEpoch: string): Promise<T> {
+  if (!(GUARDED_OPS as readonly string[]).includes(op)) {
+    throw new WasmEngineError(400, 'Operation is not permitted by the guarded bridge', 'not_written')
+  }
   if (typeof expectedEpoch !== 'string' || expectedEpoch.length === 0) {
     throw new WasmEngineError(400, 'expectedEpoch is required', 'not_written')
   }
+  return submitGuarded<T>(op, a, b, value, expectedEpoch)
+}
+
+// The dev-only hook bypasses bridge validation so browser tests exercise engine parsing itself.
+async function submitGuarded<T = unknown>(op: string, a: string, b: string, value: number, expectedEpoch: string): Promise<T> {
   const vsp = await load()
   await readyPromise
   const id = nextId++
@@ -219,7 +231,7 @@ export async function wasmRequest(method: string, path: string, body?: unknown):
 // For the browser console and tests: __webvspEngine.request('POST', '/geoms', { type: 'WING' })
 (window as unknown as Record<string, unknown>).__webvspEngine = {
   request: wasmRequest,
-  ...(import.meta.env.DEV ? { testCall: call, testCallGuarded: callGuarded } : {}),
+  ...(import.meta.env.DEV ? { testCall: call, testCallGuarded: submitGuarded } : {}),
 }
 
 /** Stand-in for the WebSocket: "connected" once OpenVSP has started, then its events. */
