@@ -84,6 +84,7 @@ void MessageCallback( const asSMessageInfo *msg, void *param )
 ScriptMgrSingleton::ScriptMgrSingleton()
 {
     m_SaveInt = 0;
+    m_ExecuteScriptGuards = nullptr;
     m_ScriptEngine = nullptr;
     m_ScriptMessages = "";
 
@@ -293,9 +294,35 @@ bool ScriptMgrSingleton::RemoveScript( const string &  module_name )
 }
 
 
+ScriptMgrSingleton::ExecuteScriptGuard::ExecuteScriptGuard( ScriptMgrSingleton & mgr )
+    : m_Mgr( mgr ), m_Next( mgr.m_ExecuteScriptGuards ), m_Attempted( false )
+{
+    m_Mgr.m_ExecuteScriptGuards = this;
+}
+
+ScriptMgrSingleton::ExecuteScriptGuard::~ExecuteScriptGuard()
+{
+    // Unlink even if guards are destroyed out of nesting order.
+    ExecuteScriptGuard ** link = &m_Mgr.m_ExecuteScriptGuards;
+    while ( *link != this )
+    {
+        link = &( *link )->m_Next;
+    }
+    *link = m_Next;
+}
+
 //==== Execute Function in Module ====//
 int ScriptMgrSingleton::ExecuteScript( const char* module_name, const char* function_name, bool arg_flag, double arg, bool by_decl )
 {
+    if ( m_ExecuteScriptGuards )
+    {
+        for ( ExecuteScriptGuard * guard = m_ExecuteScriptGuards; guard; guard = guard->m_Next )
+        {
+            guard->m_Attempted = true;
+        }
+        return 1; // Existing ExecuteScript failure convention.
+    }
+
     // Find the function that is to be called.
     asIScriptModule *mod = m_ScriptEngine->GetModule( module_name );
 

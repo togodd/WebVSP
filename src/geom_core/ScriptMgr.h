@@ -62,6 +62,25 @@ public:
     //==== Find Script And Remove ====//
     bool RemoveScript( const string &  module_name );
 
+    // Owner-thread only, like ScriptMgr itself. Each live guard rejects ExecuteScript
+    // calls and records attempts independently, including attempts inside nested guards.
+    // This does not prevent module building or execution through other entry points.
+    class ExecuteScriptGuard
+    {
+    public:
+        explicit ExecuteScriptGuard( ScriptMgrSingleton & mgr );
+        ~ExecuteScriptGuard();
+        ExecuteScriptGuard( const ExecuteScriptGuard & ) = delete;
+        ExecuteScriptGuard & operator=( const ExecuteScriptGuard & ) = delete;
+        bool Attempted() const { return m_Attempted; }
+
+    private:
+        friend class ScriptMgrSingleton;
+        ScriptMgrSingleton & m_Mgr;
+        ExecuteScriptGuard * m_Next;
+        bool m_Attempted;
+    };
+
     int ExecuteScript(  const char* module_name,  const char* function_name, bool arg_flag = false, double arg = 0.0, bool by_decl = true );
 
     void AddToMessages( const string & msg )                { m_ScriptMessages += msg; }
@@ -121,6 +140,7 @@ private:
     static void RegisterUtility( asIScriptEngine* se );
 
     //==== Member Variables ====//
+    ExecuteScriptGuard * m_ExecuteScriptGuards;
     asIScriptEngine* m_ScriptEngine;
 //    map< string, CScriptBuilder > m_BuilderMap;
     CScriptBuilder m_ScriptBuilder;
