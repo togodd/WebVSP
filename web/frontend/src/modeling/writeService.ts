@@ -26,15 +26,33 @@ export function createWriteService(adapter: ModelingWriteAdapter, signal: AbortS
   const checkOpen = () => { if (signal.aborted) throw new ModelingError('SESSION_CLOSED', 'Modeling session is closed') }
   const request = <T>(fn: () => Promise<T>) => raceClose(signal, fn)
   const validId = (id: unknown): id is string => typeof id === 'string' && !!id.trim() && !id.includes(',')
-  const validVector = (v: unknown): v is [number, number, number] => Array.isArray(v) && v.length === 3 && Array.from(v).every((x) => typeof x === 'number' && Number.isFinite(x))
+  const snapshotVector = (v: unknown): [number, number, number] => {
+    if (!Array.isArray(v) || v.length !== 3 || !Object.hasOwn(v, 0) || !Object.hasOwn(v, 1) || !Object.hasOwn(v, 2)) throw new Error('Invalid vector')
+    const x = v[0], y = v[1], z = v[2]
+    if (typeof x !== 'number' || !Number.isFinite(x) || typeof y !== 'number' || !Number.isFinite(y) || typeof z !== 'number' || !Number.isFinite(z)) throw new Error('Invalid vector')
+    return [x, y, z]
+  }
   const invalid = (message: string): never => { throw new ModelingError('INVALID_ARGUMENT', message) }
   const unknown = (): never => { throw new ModelingError('OUTCOME_UNKNOWN', 'Write may have taken effect; readback could not verify the outcome. Do not automatically retry.') }
   const stale = (): never => { throw new ModelingError('STALE_MODEL', 'The model identity is stale') }
   const isStale = (e: unknown): e is WasmEngineError => e instanceof WasmEngineError && e.code === 'STALE_MODEL'
-  async function readModel(identity?: ModelIdentity): Promise<ModelTree> {
+  async function readModel(identity?: ModelIdentity): Promise<{ geoms: { id: string; type: string; parent: string | null }[] }> {
     const m = await request(() => adapter.model(...(identity === undefined ? [] : [identity])))
-    if (!m || !Array.isArray(m.geoms) || m.geoms.some((g) => !g || !validId(g.id) || typeof g.type !== 'string' || !(g.parent === null || validId(g.parent))) || new Set(m.geoms.map((g) => g.id)).size !== m.geoms.length) throw new Error('Invalid model')
-    return m
+    const source = m?.geoms
+    if (!Array.isArray(source)) throw new Error('Invalid model')
+    const geoms: { id: string; type: string; parent: string | null }[] = []
+    const seen = new Set<string>()
+    const length = source.length
+    if (!Number.isInteger(length) || length < 0 || length > 0xffffffff) throw new Error('Invalid model')
+    for (let i = 0; i < length; i++) {
+      if (!Object.hasOwn(source, i)) throw new Error('Invalid model')
+      const g = source[i]
+      if (!g) throw new Error('Invalid model')
+      const id = g.id, type = g.type, parent = g.parent
+      if (!validId(id) || typeof type !== 'string' || !(parent === null || validId(parent)) || seen.has(id)) throw new Error('Invalid model')
+      seen.add(id); geoms.push({ id, type, parent })
+    }
+    return { geoms }
   }
   async function preflight<T>(read: () => Promise<T>): Promise<T> {
     try { checkOpen(); const result = await read(); checkOpen(); return result } catch (e) {
@@ -47,12 +65,26 @@ export function createWriteService(adapter: ModelingWriteAdapter, signal: AbortS
   return {
     async create(input: CreateGeometryInput, identity?: ModelIdentity): Promise<{ geometryId: string }> {
       checkOpen()
-      if (!input || typeof input !== 'object' || typeof input.type !== 'string' || !input.type.trim() || !Object.hasOwn(input, 'parentId') || !(input.parentId === null || validId(input.parentId))) invalid('type and explicit parentId are required')
-      const { type, parentId } = input
+      let type: string, parentId: string | null
+      try {
+        if (!input || typeof input !== 'object' || !Object.hasOwn(input, 'parentId')) return invalid('type and explicit parentId are required')
+        const t = input.type, p = input.parentId
+        if (typeof t !== 'string' || !t.trim() || !(p === null || validId(p))) return invalid('type and explicit parentId are required')
+        type = t; parentId = p
+      } catch { return invalid('type and explicit parentId are required') }
       const before = await preflight(async () => {
         const [model, types] = await Promise.all([readModel(identity), request(() => adapter.geomTypes(...(identity === undefined ? [] : [identity])))])
-        if (!Array.isArray(types) || !types.every((t) => typeof t === 'string')) throw new Error('Invalid geometry types')
-        if (!types.includes(type)) invalid('Unknown geometry type')
+        if (!Array.isArray(types)) throw new Error('Invalid geometry types')
+        const length = types.length
+        if (!Number.isInteger(length) || length < 0 || length > 0xffffffff) throw new Error('Invalid geometry types')
+        let supported = false
+        for (let i = 0; i < length; i++) {
+          if (!Object.hasOwn(types, i)) throw new Error('Invalid geometry types')
+          const entry = types[i]
+          if (typeof entry !== 'string') throw new Error('Invalid geometry types')
+          if (entry === type) supported = true
+        }
+        if (!supported) invalid('Unknown geometry type')
         if (parentId !== null && !model.geoms.some((g) => g.id === parentId)) throw new ModelingError('GEOMETRY_NOT_FOUND', 'Parent geometry does not exist')
         return new Set(model.geoms.map((g) => g.id))
       })
@@ -65,34 +97,42 @@ export function createWriteService(adapter: ModelingWriteAdapter, signal: AbortS
         return unknown()
       }
       try {
-        if (!result || !validId(result.id) || before.has(result.id)) return unknown()
+        if (!result) return unknown()
+        const resultId = result.id
+        if (!validId(resultId) || before.has(resultId)) return unknown()
         const after = await readModel(identity)
-        const created = after.geoms.find((g) => g.id === result.id)
+        const created = after.geoms.find((g) => g.id === resultId)
         if (!created || created.type.toUpperCase() !== type.toUpperCase() || created.parent !== parentId) return unknown()
-        return { geometryId: result.id }
+        return { geometryId: resultId }
       } catch { return unknown() }
     },
     async move(input: MoveGeometryInput, identity?: ModelIdentity): Promise<{ geometryId: string; origin: [number, number, number] }> {
       checkOpen()
-      if (!input || typeof input !== 'object' || !validId(input.geometryId) || input.frame !== 'world' || input.units !== 'model-native' || !validVector(input.delta) || input.delta.every((n) => n === 0)) invalid('geometryId, world frame, model-native units and a nonzero finite delta are required')
-      const id = input.geometryId
-      const delta: [number, number, number] = [...input.delta]
+      let id: string, delta: [number, number, number]
+      try {
+        if (!input || typeof input !== 'object') return invalid('Invalid move input')
+        const geometryId = input.geometryId, frame = input.frame, units = input.units, inputDelta = input.delta
+        if (!validId(geometryId) || frame !== 'world' || units !== 'model-native') return invalid('Invalid move input')
+        delta = snapshotVector(inputDelta)
+        if (delta[0] === 0 && delta[1] === 0 && delta[2] === 0) return invalid('Invalid move input')
+        id = geometryId
+      } catch { return invalid('geometryId, world frame, model-native units and a nonzero finite delta are required') }
       const before = await preflight(async () => {
         const model = await readModel(identity)
         const geom = model.geoms.find((g) => g.id === id)
         if (!geom) throw new ModelingError('GEOMETRY_NOT_FOUND', 'Geometry does not exist')
         const origin = await request(() => adapter.geomOrigin(id, ...(identity === undefined ? [] : [identity])))
-        if (!validVector(origin)) throw new Error('Invalid origin')
-        // The adapter may reuse and mutate its returned array during the write.
-        const snapshot: [number, number, number] = [...origin]
-        const expected = snapshot.map((n, i) => n + delta[i]) as [number, number, number]
-        if (!validVector(expected) || delta.some((n, i) => n !== 0 && expected[i] === snapshot[i])) invalid('Delta cannot be represented at this origin')
+        const snapshot = snapshotVector(origin)
+        const expected: [number, number, number] = [snapshot[0] + delta[0], snapshot[1] + delta[1], snapshot[2] + delta[2]]
+        for (let i = 0; i < 3; i++) {
+          if (!Number.isFinite(expected[i]) || (delta[i] !== 0 && expected[i] === snapshot[i])) invalid('Delta cannot be represented at this origin')
+        }
         return { type: geom.type, parent: geom.parent, origin: snapshot, expected }
       })
       checkOpen()
       let result: { ok: boolean }
       try {
-        result = await request(() => adapter.moveGeoms([id], delta, ...(identity === undefined ? [] : [identity])))
+        result = await request(() => adapter.moveGeoms([id], [delta[0], delta[1], delta[2]], ...(identity === undefined ? [] : [identity])))
       } catch (e) {
         if (!signal.aborted && isStale(e) && e.outcome === 'not_written') return stale()
         return unknown()
@@ -102,20 +142,23 @@ export function createWriteService(adapter: ModelingWriteAdapter, signal: AbortS
         const model = await readModel(identity)
         const geom = model.geoms.find((g) => g.id === id)
         if (!geom || geom.type !== before.type || geom.parent !== before.parent) return unknown()
-        const origin = await request(() => adapter.geomOrigin(id, ...(identity === undefined ? [] : [identity])))
-        if (!validVector(origin) || origin.some((n, i) => {
+        const origin = snapshotVector(await request(() => adapter.geomOrigin(id, ...(identity === undefined ? [] : [identity]))))
+        for (let i = 0; i < 3; i++) {
+          const n = origin[i]
           const requested = delta[i]
           const roundoff = 4 * Number.EPSILON * Math.abs(before.expected[i])
-          if (requested === 0) return Math.abs(n - before.expected[i]) > 1e-7 + roundoff
+          if (requested === 0) {
+            if (Math.abs(n - before.expected[i]) > 1e-7 + roundoff) return unknown()
+            continue
+          }
           const represented = Math.abs(before.expected[i] - before.origin[i])
           const tolerance = 1e-7 * Math.abs(requested) + roundoff
-          // If coordinate precision dominates the request, even an apparently matching
-          // readback cannot reliably verify its magnitude. Never let tolerance hide it.
-          if (tolerance > 1e-6 * Math.min(Math.abs(requested), represented)) return true
-          if (requested > 0 ? n <= before.origin[i] : n >= before.origin[i]) return true
-          return Math.abs(n - before.expected[i]) > tolerance
-        })) return unknown()
-        return { geometryId: id, origin: [...origin] }
+          // Coordinate precision must not hide an unverifiable move.
+          if (tolerance > 1e-6 * Math.min(Math.abs(requested), represented)) return unknown()
+          if (requested > 0 ? n <= before.origin[i] : n >= before.origin[i]) return unknown()
+          if (Math.abs(n - before.expected[i]) > tolerance) return unknown()
+        }
+        return { geometryId: id, origin }
       } catch { return unknown() }
     },
   }

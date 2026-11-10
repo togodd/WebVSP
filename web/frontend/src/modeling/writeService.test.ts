@@ -193,6 +193,90 @@ describe('modeling write service', () => {
     adapter.moveGeoms.mockImplementation(async () => { shared[0] = 2; shared[1] = 4; shared[2] = 6; return { ok: true } })
     await expect(service.move(move)).resolves.toEqual({ geometryId: 'p', origin: [2, 4, 6] })
   })
+  it('snapshots input getters once and rejects throwing getters without writing', async () => {
+    const { service, adapter } = fixture()
+    const counts: Record<string, number> = {}
+    const once = (key: string, value: unknown) => ({ get() { counts[key] = (counts[key] ?? 0) + 1; if (counts[key] > 1) throw Error('twice'); return value }, enumerable: true })
+    const create = Object.defineProperties({}, { type: once('type', 'Wing'), parentId: once('parentId', 'p') })
+    await expect(service.create(create as never)).resolves.toEqual({ geometryId: 'new' })
+    const input = Object.defineProperties({}, { geometryId: once('id', 'p'), frame: once('frame', 'world'), units: once('units', 'model-native'), delta: once('delta', [1, 2, 3]) })
+    await expect(service.move(input as never)).resolves.toMatchObject({ geometryId: 'p' })
+    expect(Object.values(counts)).toEqual([1, 1, 1, 1, 1, 1])
+    for (const field of ['type', 'parentId']) {
+      const bad = { type: 'Wing', parentId: null }
+      Object.defineProperty(bad, field, { get() { throw Error('private') } })
+      await expect(service.create(bad)).rejects.toMatchObject({ code: 'INVALID_ARGUMENT' })
+    }
+    for (const field of ['geometryId', 'frame', 'units', 'delta']) {
+      const bad = { ...move }
+      Object.defineProperty(bad, field, { get() { throw Error('private') } })
+      await expect(service.move(bad)).rejects.toMatchObject({ code: 'INVALID_ARGUMENT' })
+    }
+    expect(adapter.addGeom).toHaveBeenCalledTimes(1)
+    expect(adapter.moveGeoms).toHaveBeenCalledTimes(1)
+  })
+  it('validates own delta indices without iterator or every and isolates adapter mutation', async () => {
+    const { service, adapter } = fixture()
+    const delta: [number, number, number] = [1, 2, 3]
+    Object.defineProperty(delta, Symbol.iterator, { value: () => { throw Error('iterator') } })
+    Object.defineProperty(delta, 'every', { value: () => true })
+    adapter.moveGeoms.mockImplementation(async (_ids, passed) => { passed[0] = 99; return { ok: true } })
+    adapter.geomOrigin.mockResolvedValueOnce([1, 2, 3]).mockResolvedValueOnce([100, 4, 6])
+    await expect(service.move({ ...move, delta })).rejects.toMatchObject({ code: 'OUTCOME_UNKNOWN' })
+    expect(delta[0]).toBe(1)
+    const sparse = [1, 2, 3]; delete sparse[1]
+    await expect(service.move({ ...move, delta: sparse as [number, number, number] })).rejects.toMatchObject({ code: 'INVALID_ARGUMENT' })
+    const throwing = [1, 2, 3]
+    Object.defineProperty(throwing, 0, { get() { throw Error('private') } })
+    await expect(service.move({ ...move, delta: throwing as [number, number, number] })).rejects.toMatchObject({ code: 'INVALID_ARGUMENT' })
+    expect(adapter.moveGeoms).toHaveBeenCalledTimes(1)
+  })
+  it('snapshots origin indexed getters once and ignores malicious iteration and some', async () => {
+    const { service, adapter } = fixture()
+    const vector = (values: [number, number, number]) => {
+      const result = [...values] as [number, number, number]
+      for (let i = 0; i < 3; i++) {
+        let reads = 0
+        Object.defineProperty(result, i, { get() { if (++reads > 1) throw Error('twice'); return values[i] } })
+      }
+      Object.defineProperty(result, Symbol.iterator, { value: () => { throw Error('iterator') } })
+      Object.defineProperty(result, 'some', { value: () => false })
+      return result
+    }
+    adapter.geomOrigin.mockResolvedValueOnce(vector([1, 2, 3])).mockResolvedValueOnce(vector([2, 4, 6]))
+    await expect(service.move(move)).resolves.toEqual({ geometryId: 'p', origin: [2, 4, 6] })
+    adapter.geomOrigin.mockResolvedValueOnce(vector([1, 2, 3])).mockResolvedValueOnce(vector([1, 2, 3]))
+    await expect(service.move(move)).rejects.toMatchObject({ code: 'OUTCOME_UNKNOWN' })
+  })
+  it('snapshots engine model, type list and created id without trusting overridden methods', async () => {
+    const { service, adapter, model } = fixture()
+    const types = ['Wing']
+    Object.defineProperty(types, 'every', { value: () => true })
+    Object.defineProperty(types, 'includes', { value: () => true })
+    adapter.geomTypes.mockResolvedValueOnce(types)
+    await expect(service.create({ type: 'Bad', parentId: null })).rejects.toMatchObject({ code: 'INVALID_ARGUMENT' })
+    expect(adapter.addGeom).not.toHaveBeenCalled()
+    let idReads = 0
+    adapter.addGeom.mockImplementationOnce(async () => {
+      model.geoms.push({ ...model.geoms[0], id: 'new', type: 'Wing', parent: null })
+      return Object.defineProperty({}, 'id', { get() { if (++idReads > 1) throw Error('twice'); return 'new' } }) as { id: string }
+    })
+    await expect(service.create({ type: 'Wing', parentId: null })).resolves.toEqual({ geometryId: 'new' })
+    expect(idReads).toBe(1)
+  })
+  it('rejects invalid engine vector getters and forged array lengths at the appropriate stage', async () => {
+    const { service, adapter, model } = fixture()
+    const bad = [1, 2, 3] as [number, number, number]
+    Object.defineProperty(bad, 0, { get() { throw Error('private') } })
+    adapter.geomOrigin.mockResolvedValueOnce(bad)
+    await expect(service.move(move)).rejects.toMatchObject({ code: 'ENGINE_ERROR' })
+    expect(adapter.moveGeoms).not.toHaveBeenCalled()
+    adapter.geomOrigin.mockResolvedValueOnce([1, 2, 3]).mockResolvedValueOnce(bad)
+    await expect(service.move(move)).rejects.toMatchObject({ code: 'OUTCOME_UNKNOWN' })
+    const forged = new Proxy(model.geoms, { get(target, key, receiver) { return key === 'length' ? NaN : Reflect.get(target, key, receiver) } })
+    adapter.model.mockResolvedValueOnce({ ...model, geoms: forged })
+    await expect(service.move(move)).rejects.toMatchObject({ code: 'ENGINE_ERROR' })
+  })
   it('does not let large-coordinate precision mask an unverifiable move', async () => {
     for (const after of [1e16, 1e16 + 2, 1e16 + 4]) {
       const { service, adapter } = fixture()
