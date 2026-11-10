@@ -898,36 +898,61 @@ vector< string > SplitCsv( const string &s )
     return out;
 }
 
+enum class MissingParmOwner { None, Geom, XSec };
+
+// A present error with an empty message must not look like successful enumeration.
+// Preserve legacy behavior outside guarded parameter reads.
+string TakeParmErrors( bool guarded )
+{
+    bool had_errors = guarded && vsp::ErrorMgrSingleton::getInstance().GetNumTotalErrors() != 0;
+    string err = TakeErrors();
+    return had_errors && err.empty() ? "OpenVSP parameter API error (no message)" : err;
+}
+
 // Parameter owners must be reachable from the current model, not merely registered in
 // the vehicle's geom store (which also contains clipboard copies).
-bool CurrentModelGeom( const string &geom, string &err )
+bool CurrentModelGeom( const string &geom, string &err, MissingParmOwner *missing = nullptr )
 {
     vector< string > geoms = vsp::FindGeoms();
-    if ( !( err = TakeErrors() ).empty() ) return false;
+    if ( !( err = TakeParmErrors( missing != nullptr ) ).empty() ) return false;
     if ( std::find( geoms.begin(), geoms.end(), geom ) == geoms.end() )
     {
         err = "Geom not found in the current model: " + geom;
+        if ( missing ) *missing = MissingParmOwner::Geom;
         return false;
     }
     return true;
 }
 
+// Only guarded parameter reads expose owner absence as a structured code. Other failures,
+// including failed enumeration, retain the ordinary engine-error result.
+void ParmReadFailure( const Job &j, const string &err, MissingParmOwner missing )
+{
+    if ( j.guarded && missing != MissingParmOwner::None )
+    {
+        const char *code = missing == MissingParmOwner::Geom ? "GEOMETRY_NOT_FOUND" : "CROSS_SECTION_NOT_FOUND";
+        PublishResult( "{\"t\":\"result\",\"id\":" + std::to_string( j.id ) +
+                       ",\"ok\":false,\"error\":" + Quote( err ) + ",\"code\":" + Quote( code ) + "}" );
+    }
+    else Result( j.id, err, "" );
+}
+
 // Enumerate only live XSecs reachable through a geom; a globally registered XSec may be a
 // clipboard or otherwise not part of the current model. Propagate errors even for empty lists.
-bool GeomXSecs( const string &geom, string &json, bool &found, const string &wanted, string &err )
+bool GeomXSecs( const string &geom, string &json, bool &found, const string &wanted, string &err, bool guarded = false )
 {
     vector< string > surfaces = vsp::GetXSecSurfIDVec( geom );
-    if ( !( err = TakeErrors() ).empty() ) return false;
+    if ( !( err = TakeParmErrors( guarded ) ).empty() ) return false;
     json = "[";
     for ( size_t s = 0; s < surfaces.size(); ++s )
     {
         int count = vsp::GetNumXSec( surfaces[s] );
-        if ( !( err = TakeErrors() ).empty() ) return false;
+        if ( !( err = TakeParmErrors( guarded ) ).empty() ) return false;
         vector< string > ids;
         for ( int i = 0; i < count; ++i )
         {
             string id = vsp::GetXSec( surfaces[s], i );
-            if ( !( err = TakeErrors() ).empty() ) return false;
+            if ( !( err = TakeParmErrors( guarded ) ).empty() ) return false;
             ids.push_back( id );
             if ( !wanted.empty() && id == wanted ) found = true;
         }
@@ -938,38 +963,39 @@ bool GeomXSecs( const string &geom, string &json, bool &found, const string &wan
     return true;
 }
 
-bool ParmIDs( bool xsec, const string &owner, vector< string > &ids, string &err )
+bool ParmIDs( bool xsec, const string &owner, vector< string > &ids, string &err, MissingParmOwner *missing = nullptr )
 {
     if ( xsec )
     {
         vector< string > geoms = vsp::FindGeoms();
-        if ( !( err = TakeErrors() ).empty() ) return false;
+        if ( !( err = TakeParmErrors( missing != nullptr ) ).empty() ) return false;
         bool found = false;
         for ( const string &geom : geoms )
         {
             string unused;
-            if ( !GeomXSecs( geom, unused, found, owner, err ) ) return false;
+            if ( !GeomXSecs( geom, unused, found, owner, err, missing != nullptr ) ) return false;
             if ( found ) break;
         }
         if ( !found )
         {
             err = "XSec not found in the current model: " + owner;
+            if ( missing ) *missing = MissingParmOwner::XSec;
             return false;
         }
         ids = vsp::GetXSecParmIDs( owner );
     }
     else
     {
-        if ( !CurrentModelGeom( owner, err ) ) return false;
+        if ( !CurrentModelGeom( owner, err, missing ) ) return false;
         ids = vsp::GetGeomParmIDs( owner );
     }
-    err = TakeErrors();
+    err = TakeParmErrors( missing != nullptr );
     return err.empty();
 }
 
 // Error stack entries persist across successful API calls, so inspect it before accepting any
 // of the API's fallback values. Num renders NaN/infinity as JSON null, including for limits.
-bool ParmMetadata( const string &id, string &json, string &err )
+bool ParmMetadata( const string &id, string &json, string &err, bool guarded = false )
 {
     double value = vsp::GetParmVal( id );
     int type = vsp::GetParmType( id );
@@ -979,7 +1005,7 @@ bool ParmMetadata( const string &id, string &json, string &err )
     double lower = vsp::GetParmLowerLimit( id );
     double upper = vsp::GetParmUpperLimit( id );
     bool active = vsp::GetParmActiveFlag( id );
-    if ( !( err = TakeErrors() ).empty() ) return false;
+    if ( !( err = TakeParmErrors( guarded ) ).empty() ) return false;
     json = "{\"id\":" + Quote( id ) + ",\"value\":" + Num( value ) +
            ",\"type\":" + std::to_string( type ) + ",\"name\":" + Quote( name ) +
            ",\"group\":" + Quote( group ) + ",\"container\":" + Quote( container ) +
@@ -991,9 +1017,9 @@ bool ParmMetadata( const string &id, string &json, string &err )
 // Resolve the one top-level fuselage Length parameter in a single engine job. Geometry
 // linkable lists can include nested XSec containers, so name/group alone is insufficient.
 // All matches are counted; silently choosing the first would hide ambiguous data.
-bool FuselageLength( const string &geom, string &json, string &err )
+bool FuselageLength( const string &geom, string &json, string &err, MissingParmOwner *missing = nullptr )
 {
-    if ( !CurrentModelGeom( geom, err ) ) return false;
+    if ( !CurrentModelGeom( geom, err, missing ) ) return false;
     Vehicle *veh = VehicleMgr.GetVehicle();
     Geom *g = veh ? veh->FindGeom( geom ) : nullptr;
     if ( !g )
@@ -1007,7 +1033,7 @@ bool FuselageLength( const string &geom, string &json, string &err )
         return false;
     }
     vector< string > ids;
-    if ( !ParmIDs( false, geom, ids, err ) ) return false;
+    if ( !ParmIDs( false, geom, ids, err, missing ) ) return false;
     std::set< string > unique;
     vector< string > matches;
     for ( const string &id : ids )
@@ -1020,7 +1046,7 @@ bool FuselageLength( const string &geom, string &json, string &err )
         string name = vsp::GetParmName( id );
         string group = vsp::GetParmGroupName( id );
         string container = vsp::GetParmContainer( id );
-        if ( !( err = TakeErrors() ).empty() ) return false;
+        if ( !( err = TakeParmErrors( missing != nullptr ) ).empty() ) return false;
         if ( name == "Length" && group == "Design" && container == geom ) matches.push_back( id );
     }
     if ( matches.size() != 1 )
@@ -1028,7 +1054,7 @@ bool FuselageLength( const string &geom, string &json, string &err )
         err = "Fuselage Design/Length parameter is missing or ambiguous";
         return false;
     }
-    return ParmMetadata( matches[0], json, err );
+    return ParmMetadata( matches[0], json, err, missing != nullptr );
 }
 
 // Failures before the setter are known not to have written. After invoking it, even an API
@@ -1707,8 +1733,9 @@ void RunImpl( const Job &j )
     if ( j.op == "fuselageLength" )
     {
         string json, err;
-        FuselageLength( j.a, json, err );
-        return Result( j.id, err, json );
+        MissingParmOwner missing = MissingParmOwner::None;
+        if ( !FuselageLength( j.a, json, err, j.guarded ? &missing : nullptr ) ) return ParmReadFailure( j, err, missing );
+        return Result( j.id, "", json );
     }
 #ifdef WEBVSP_SCRIPT_GUARD_TEST
     // Test-only detached copy with known IDs; never part of the public bridge. Use only
@@ -1756,9 +1783,10 @@ void RunImpl( const Job &j )
     if ( j.op == "geomXSecs" )
     {
         string json, err;
-        if ( !CurrentModelGeom( j.a, err ) ) return Result( j.id, err, "" );
+        MissingParmOwner missing = MissingParmOwner::None;
+        if ( !CurrentModelGeom( j.a, err, j.guarded ? &missing : nullptr ) ) return ParmReadFailure( j, err, missing );
         bool found = false;
-        GeomXSecs( j.a, json, found, "", err );
+        GeomXSecs( j.a, json, found, "", err, j.guarded );
         return Result( j.id, err, json );
     }
     if ( j.op == "geomParmIDs" || j.op == "xsecParmIDs" ||
@@ -1768,11 +1796,12 @@ void RunImpl( const Job &j )
         bool list = j.op == "geomParmIDs" || j.op == "xsecParmIDs";
         vector< string > ids;
         string err, json;
-        if ( !ParmIDs( xsec, j.a, ids, err ) ) return Result( j.id, err, "" );
+        MissingParmOwner missing = MissingParmOwner::None;
+        if ( !ParmIDs( xsec, j.a, ids, err, j.guarded ? &missing : nullptr ) ) return ParmReadFailure( j, err, missing );
         if ( list ) return Result( j.id, "", StrArray( ids ) );
         if ( std::find( ids.begin(), ids.end(), j.b ) == ids.end() )
             return Result( j.id, "Parm is not linkable for the requested owner: " + j.b, "" );
-        if ( !ParmMetadata( j.b, json, err ) ) return Result( j.id, err, "" );
+        if ( !ParmMetadata( j.b, json, err, j.guarded ) ) return Result( j.id, err, "" );
         return Result( j.id, "", json );
     }
     if ( j.op == "geomTypes" )
