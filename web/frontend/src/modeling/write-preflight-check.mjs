@@ -130,6 +130,7 @@ try {
     }
     assert.equal(c.stale.code, 'STALE_MODEL')
     assert.equal(c.stale.outcome, 'not_written')
+    assert.deepEqual(c.staleAfter, c.staleBefore)
     assert.ok(c.legacy.id)
     assert.ok(c.afterLegacy.geoms.some(g => g.id === c.legacy.id))
     assert.equal(c.custom.kind, 'custom-detached')
