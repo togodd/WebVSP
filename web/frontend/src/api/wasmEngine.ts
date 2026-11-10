@@ -17,6 +17,7 @@ import type { MDialog } from '../mirror/types'
 import { useViewer } from '../viewer/store'
 import { offerResults } from './solverResults'
 import { onSolverEnded, solverExited, solverSpawned } from './solverRun'
+import { submitPending, takePending } from './pendingCall'
 
 interface VspModule {
   call(id: number, op: string, a: string, b: string, value: number): void
@@ -107,9 +108,8 @@ function drain(vsp: VspModule) {
   }
   for (const m of out) {
     if (m.t === 'result') {
-      const p = pending.get(m.id as number)
+      const p = takePending(pending, m.id as number, !!m.bin, (id) => vsp.takeBinary(id))
       if (!p) continue
-      pending.delete(m.id as number)
       if (!m.ok) {
         const outcome = m.outcome === 'not_written' || m.outcome === 'different' || m.outcome === 'unknown' ? m.outcome : undefined
         const actual = typeof m.actual === 'number' && Number.isFinite(m.actual) ? m.actual : m.actual === null ? null : undefined
@@ -145,10 +145,7 @@ async function call(op: string, a = '', b = '', value = 0): Promise<unknown> {
   const vsp = await load()
   await readyPromise
   const id = nextId++
-  return new Promise((resolve, reject) => {
-    pending.set(id, { resolve, reject })
-    vsp.call(id, op, a, b, value)
-  })
+  return submitPending(pending, id, () => vsp.call(id, op, a, b, value))
 }
 
 /** A model identity token is an opaque decimal string, never a JavaScript number. */
