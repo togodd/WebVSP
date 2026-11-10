@@ -1,6 +1,6 @@
 // Use a disposable WASM build tree configured with the normal SDK/toolchain and libraries.
 // For example, after the normal initial build, in an isolated copy of its build tree:
-//   cmake -S src -B build/vsp-wasm -DCMAKE_CXX_FLAGS=-DWEBVSP_SCRIPT_GUARD_TEST
+//   cmake -S src -B build/vsp-wasm "-DCMAKE_CXX_FLAGS=-pthread -fwasm-exceptions -DWEBVSP_SCRIPT_GUARD_TEST"
 //   cmake --build build/vsp-wasm --target vsp_wasm
 // Copy build/vsp-wasm/wasm_engine/vsp.{js,wasm} to the test server's public/wasm/.
 // Start Vite with vite.modeling-test.config.ts, then from web/frontend run:
