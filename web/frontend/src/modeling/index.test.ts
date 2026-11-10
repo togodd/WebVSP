@@ -29,6 +29,53 @@ describe('browser modeling identity', () => {
     } finally { service.close(); discovery.mockReset() }
   })
 
+  it('rejects an old WASM unknown modelDiscovery operation without legacy fallback', async () => {
+    const discovery = vi.mocked(discoverModel), guarded = vi.mocked(callGuarded), legacy = vi.mocked(api.model)
+    discovery.mockReset(); guarded.mockClear(); legacy.mockClear()
+    discovery.mockRejectedValueOnce(new WasmEngineError(500, 'unknown request: modelDiscovery'))
+    const service = createBrowserModelingService()
+    try {
+      await expect(service.model.getInfo()).rejects.toMatchObject({ code: 'ENGINE_ERROR' })
+      expect(discovery).toHaveBeenCalledOnce()
+      expect(discovery).toHaveBeenCalledWith(expect.any(AbortSignal))
+      expect(legacy).not.toHaveBeenCalled()
+      expect(guarded).not.toHaveBeenCalled()
+    } finally {
+      service.close()
+      discovery.mockReset()
+    }
+  })
+
+  it.each([
+    ['Unnamed.vsp3', ''],
+    ['/home/web_user/test.vsp3', 'test.vsp3'],
+    ['/home/web_user/subdir/test.vsp3', 'subdir/test.vsp3'],
+    ['/other/test.vsp3', 'other/test.vsp3'],
+    ['relative/test.vsp3', 'relative/test.vsp3'],
+    ['', ''],
+  ])('presents filename %s as %s for discovery and guarded reads', async (fileName, expected) => {
+    const discovery = vi.mocked(discoverModel), guarded = vi.mocked(callGuarded)
+    const tree = { modelEpoch: '42', modelEpochValid: true, fileName, rev: 1, version: '', geoms: [], active: [] }
+    discovery.mockReset(); guarded.mockReset()
+    discovery.mockResolvedValueOnce(tree)
+    guarded.mockResolvedValueOnce(tree)
+    const service = createBrowserModelingService()
+    try {
+      const discovered = await service.model.getInfo()
+      const scoped = await service.model.getInfo({ sessionId: 'tab', modelEpoch: '42' })
+      expect(discovered.fileName).toBe(expected)
+      expect(scoped.fileName).toBe(expected)
+      expect(scoped).toEqual(discovered)
+      expect(discovery).toHaveBeenCalledOnce()
+      expect(guarded).toHaveBeenCalledWith('model', '', '', 0, '42', expect.any(AbortSignal))
+    } finally {
+      service.close()
+      discovery.mockReset()
+      guarded.mockReset()
+      guarded.mockResolvedValue({ modelEpoch: '42', modelEpochValid: true, fileName: '', rev: 1, version: '', geoms: [], active: [] })
+    }
+  })
+
   it('passes independent close signals to discovery and guarded reads', async () => {
     const discovery = vi.mocked(discoverModel), guarded = vi.mocked(callGuarded)
     discovery.mockReset(); guarded.mockReset()
