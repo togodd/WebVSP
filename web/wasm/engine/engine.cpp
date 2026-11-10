@@ -1373,14 +1373,68 @@ bool KnownNonCustomGeomType( int type )
     }
 }
 
+// Keep classification independent of Geom construction, updates, and ownership.
+bool SafeGeomTypeList( const vector< int > &types )
+{
+    for ( int type : types )
+        if ( !KnownNonCustomGeomType( type ) ) return false;
+    return true;
+}
+
+bool SafeStoredGeomTypes( const vector< Geom * > &geoms )
+{
+    vector< int > types;
+    types.reserve( geoms.size() );
+    for ( Geom *geom : geoms )
+    {
+        if ( !geom ) return false;
+        types.push_back( geom->GetType().m_Type );
+    }
+    return SafeGeomTypeList( types );
+}
+
+#ifdef WEBVSP_SCRIPT_GUARD_TEST
+// Fixed inputs only: no fake Geom pointers, type mutation, or model updates.
+void StoredGeomTypesCheck( int id )
+{
+    const vector< int > known = { POD_GEOM_TYPE, FUSELAGE_GEOM_TYPE, MS_WING_GEOM_TYPE,
+        BLANK_GEOM_TYPE, MESH_GEOM_TYPE, STACK_GEOM_TYPE, PT_CLOUD_GEOM_TYPE,
+        PROP_GEOM_TYPE, HINGE_GEOM_TYPE, CONFORMAL_GEOM_TYPE, ELLIPSOID_GEOM_TYPE,
+        BOR_GEOM_TYPE, WIRE_FRAME_GEOM_TYPE, HUMAN_GEOM_TYPE, ROUTING_GEOM_TYPE,
+        AUXILIARY_GEOM_TYPE, GEAR_GEOM_TYPE, NGON_GEOM_TYPE, COBRA_GEOM_TYPE, CLONE_GEOM_TYPE };
+    const vector< int > rejected = { CUSTOM_GEOM_TYPE, BASE_GEOM_TYPE, XFORM_GEOM_TYPE,
+        GEOM_GEOM_TYPE, NUM_GEOM_TYPE, -1, std::numeric_limits< int >::max() };
+    auto boolean = []( bool value ) { return value ? "true" : "false"; };
+    string json = "{\"known\":[";
+    for ( size_t i = 0; i < known.size(); ++i )
+    {
+        if ( i ) json += ",";
+        json += boolean( SafeGeomTypeList( { known[i] } ) );
+    }
+    json += "],\"rejected\":[";
+    for ( size_t i = 0; i < rejected.size(); ++i )
+    {
+        if ( i ) json += ",";
+        json += boolean( SafeGeomTypeList( { rejected[i] } ) );
+    }
+    vector< int > mixed = known;
+    mixed.push_back( std::numeric_limits< int >::max() );
+    json += "],\"empty\":" + string( boolean( SafeGeomTypeList( {} ) ) ) +
+        ",\"allKnown\":" + boolean( SafeGeomTypeList( known ) ) +
+        ",\"mixed\":" + boolean( SafeGeomTypeList( mixed ) ) +
+        ",\"emptyStore\":" + boolean( SafeStoredGeomTypes( {} ) ) +
+        ",\"nullStore\":" + boolean( SafeStoredGeomTypes( { nullptr } ) ) + "}";
+    Result( id, "", json );
+}
+#endif
+
 // This is only an initial preflight, not a complete safety guarantee or a script
 // execution barrier. Other reentrant paths and side effects still require review.
 bool SafeWriteContext( Vehicle *veh, const Job &j )
 {
     if ( asGetActiveContext() || !AdvLinkMgr.GetLinks().empty() ) return false;
     // The store includes detached/clipboard geoms, not just FindGeoms' model tree.
-    for ( Geom *geom : veh->GetGeomStoreVec() )
-        if ( !geom || !KnownNonCustomGeomType( geom->GetType().m_Type ) ) return false;
+    if ( !SafeStoredGeomTypes( veh->GetGeomStoreVec() ) ) return false;
 
     if ( j.op == "addGeom" )
     {
@@ -1447,6 +1501,7 @@ void RunImpl( const Job &j )
     if ( j.op == "scriptGuardCheck" ) return ScriptGuardCheck( j.id );
     if ( j.op == "scriptGcGuardCheck" ) return ScriptGcGuardCheck( j.id );
     if ( j.op == "advLinkGuardCheck" ) return AdvLinkGuardCheck( j.id );
+    if ( j.op == "storedGeomTypesCheck" ) return StoredGeomTypesCheck( j.id );
 #endif
     if ( j.op == "model" )
     {
