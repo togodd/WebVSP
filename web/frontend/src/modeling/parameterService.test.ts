@@ -55,6 +55,64 @@ describe('linkable parameter reads', () => {
     expect(() => service.listSurfaces('')).toThrowError(expect.objectContaining({ code: 'SESSION_CLOSED' }))
     expect(adapter.surfaces).toHaveBeenCalledTimes(1)
   })
+  it('validates all parameter fields, permits null numbers and finite boundaries', async () => {
+    const parameter = { id: 'p', value: 1, type: 0, name: 'Length', group: 'Design', container: 'g', lowerLimit: 0, upperLimit: 10, active: true }
+    let response: unknown = parameter
+    const service = createParameterService({ surfaces: async () => [], list: async () => [], get: async () => response as typeof parameter, fuselageLength: async () => response as typeof parameter })
+    for (const field of ['value', 'lowerLimit', 'upperLimit'] as const) {
+      for (const valid of [null, 0, -1, Number.MAX_VALUE]) {
+        response = { ...parameter, [field]: valid }
+        await expect(service.getGeometryParameter('g', 'p')).resolves.toEqual(response)
+      }
+      for (const invalid of [undefined, NaN, Infinity, -Infinity, '1', false]) {
+        response = { ...parameter, [field]: invalid }
+        await expect(service.getGeometryParameter('g', 'p')).rejects.toMatchObject({ code: 'ENGINE_ERROR' })
+      }
+    }
+    const invalidFields: Record<string, unknown[]> = {
+      id: ['', ' ', null, 1], type: [null, '0', 0.5, NaN, Infinity],
+      name: [null, 1], group: [null, 1], container: [null, 1], active: [null, 0, 'true'],
+    }
+    for (const [field, values] of Object.entries(invalidFields)) for (const value of values) {
+      response = { ...parameter, [field]: value }
+      await expect(service.getCrossSectionParameter('x', 'p')).rejects.toMatchObject({ code: 'ENGINE_ERROR' })
+    }
+    for (const invalid of [null, [], 'parameter', {}]) {
+      response = invalid
+      await expect(service.getGeometryParameter('g', 'p')).rejects.toMatchObject({ code: 'ENGINE_ERROR' })
+    }
+    response = { ...parameter, type: -1, name: '', group: '', container: '', active: false }
+    await expect(service.getGeometryParameter('g', 'p')).resolves.toEqual(response)
+    response = { ...parameter, id: 'other' }
+    await expect(service.getGeometryParameter('g', 'p')).rejects.toMatchObject({ code: 'ENGINE_ERROR' })
+    await expect(service.getCrossSectionParameter('x', 'p')).rejects.toMatchObject({ code: 'ENGINE_ERROR' })
+    response = parameter
+    await expect(service.getFuselageLength('g')).resolves.toEqual(parameter)
+    for (const [field, value] of [['name', 'length'], ['group', 'Other'], ['container', 'other'], ['id', '']] as const) {
+      response = { ...parameter, [field]: value }
+      await expect(service.getFuselageLength('g')).rejects.toMatchObject({ code: 'ENGINE_ERROR' })
+    }
+  })
+  it('validates nested surfaces and both parameter ID lists', async () => {
+    let response: unknown = []
+    const service = createParameterService({ surfaces: async () => response as never, list: async () => response as never, get: async () => { throw new Error() }, fuselageLength: async () => { throw new Error() } })
+    for (const valid of [[], [{ id: 's', xsecs: [] }], [{ id: 's', xsecs: ['x', 'y'] }]]) {
+      response = valid; await expect(service.listSurfaces('g')).resolves.toEqual(valid)
+    }
+    for (const invalid of [null, {}, [null], ['s'], [{}], [{ id: '', xsecs: [] }], [{ id: 's', xsecs: null }], [{ id: 's', xsecs: ['x', ' '] }], [{ id: 's', xsecs: [1] }]]) {
+      response = invalid; await expect(service.listSurfaces('g')).rejects.toMatchObject({ code: 'ENGINE_ERROR' })
+    }
+    for (const valid of [[], ['a', 'b']]) {
+      response = valid
+      await expect(service.listGeometryParameterIds('g')).resolves.toEqual(valid)
+      await expect(service.listCrossSectionParameterIds('x')).resolves.toEqual(valid)
+    }
+    for (const invalid of [null, {}, [''], [' '], [1], ['a', null]]) {
+      response = invalid
+      await expect(service.listGeometryParameterIds('g')).rejects.toMatchObject({ code: 'ENGINE_ERROR' })
+      await expect(service.listCrossSectionParameterIds('x')).rejects.toMatchObject({ code: 'ENGINE_ERROR' })
+    }
+  })
   it('rejects invalid inputs and sanitizes backend errors', async () => {
     const service = createParameterService({ fuselageLength: async () => { throw new Error('secret') }, surfaces: async () => { throw new Error('secret') }, list: async () => [], get: async () => { throw new Error('secret') } })
     expect(() => service.listSurfaces('')).toThrowError(expect.objectContaining({ code: 'INVALID_ARGUMENT' }))
