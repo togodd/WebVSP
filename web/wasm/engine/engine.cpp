@@ -53,6 +53,9 @@
 #include "Vehicle.h"
 #include "VehicleMgr.h"
 #include "WebProcess.h"
+#ifdef WEBVSP_SCRIPT_GUARD_TEST
+#include "ScriptMgr.h"
+#endif
 
 #include <sys/stat.h>
 
@@ -956,6 +959,83 @@ bool ParseModelEpoch( const string &text, uint64_t &epoch )
     return true;
 }
 
+// This diagnostic is absent unless explicitly compiled in (e.g. with
+// -DWEBVSP_SCRIPT_GUARD_TEST). It accepts no script or other caller-controlled input.
+#ifdef WEBVSP_SCRIPT_GUARD_TEST
+void ScriptGuardCheck( int id )
+{
+    ScriptMgrSingleton &mgr = ScriptMgrSingleton::getInstance();
+    // A unique fixed module; retain it for repeated checks. Never execute user input.
+    const string module = mgr.ReadScriptFromMemory( "WebVSP_ExecuteScriptGuard_Check",
+        "int main() { AddGeom(\"BLANK\"); return 0; } // WebVSP guard check" );
+    if ( module.empty() ) return Result( id, "Could not compile fixed guard-check script", "" );
+    const vector< string > before = vsp::FindGeoms();
+    auto count = []() { return vsp::FindGeoms().size(); };
+    auto execute = [&]() { return mgr.ExecuteScript( module.c_str(), "int main()" ); };
+    int unguarded = execute();
+    size_t after_unguarded = count(), after_nested, after_inner;
+    int nested_rc, inner_destroyed_rc;
+    bool initial, outer_attempted, inner_initial, inner_attempted, outer_nested;
+    {
+        ScriptMgrSingleton::ExecuteScriptGuard outer( mgr );
+        initial = outer.Attempted();
+        {
+            ScriptMgrSingleton::ExecuteScriptGuard inner( mgr );
+            inner_initial = inner.Attempted();
+            nested_rc = execute();
+            after_nested = count();
+            inner_attempted = inner.Attempted();
+            outer_nested = outer.Attempted();
+        }
+        outer_attempted = outer.Attempted();
+        inner_destroyed_rc = execute();
+        after_inner = count();
+    }
+    // Also unlink a non-head guard, then verify exception unwinding releases a guard.
+    bool non_lifo_attempted, unwind_attempted = false;
+    int non_lifo_rc, unwind_rc;
+    auto *older = new ScriptMgrSingleton::ExecuteScriptGuard( mgr );
+    {
+        ScriptMgrSingleton::ExecuteScriptGuard newer( mgr );
+        delete older;
+        non_lifo_rc = execute();
+        non_lifo_attempted = newer.Attempted();
+    }
+    try
+    {
+        ScriptMgrSingleton::ExecuteScriptGuard guard( mgr );
+        unwind_rc = execute();
+        unwind_attempted = guard.Attempted();
+        throw 42;
+    }
+    catch ( int ) {}
+    size_t after_extra_guards = count();
+    int restored = execute();
+    vector< string > after = vsp::FindGeoms();
+    vector< string > added;
+    for ( const string &geom : after )
+        if ( std::find( before.begin(), before.end(), geom ) == before.end() ) added.push_back( geom );
+    vsp::DeleteGeomVec( added );
+    vsp::Update();
+    string err = TakeErrors();
+    Watch( "Script guard check", true );
+    auto boolean = []( bool value ) { return value ? "true" : "false"; };
+    string json = "{\"before\":" + std::to_string( before.size() ) +
+        ",\"unguardedRc\":" + std::to_string( unguarded ) + ",\"afterUnguarded\":" + std::to_string( after_unguarded ) +
+        ",\"outerInitial\":" + boolean( initial ) +
+        ",\"outerAttempted\":" + boolean( outer_attempted ) +
+        ",\"innerInitial\":" + boolean( inner_initial ) + ",\"nestedRc\":" + std::to_string( nested_rc ) +
+        ",\"innerAttempted\":" + boolean( inner_attempted ) + ",\"outerNested\":" + boolean( outer_nested ) +
+        ",\"afterNested\":" + std::to_string( after_nested ) + ",\"innerDestroyedRc\":" + std::to_string( inner_destroyed_rc ) +
+        ",\"afterInner\":" + std::to_string( after_inner ) +
+        ",\"nonLifoRc\":" + std::to_string( non_lifo_rc ) + ",\"nonLifoAttempted\":" + boolean( non_lifo_attempted ) +
+        ",\"unwindRc\":" + std::to_string( unwind_rc ) + ",\"unwindAttempted\":" + boolean( unwind_attempted ) +
+        ",\"afterExtraGuards\":" + std::to_string( after_extra_guards ) + ",\"restoredRc\":" + std::to_string( restored ) +
+        ",\"afterRestored\":" + std::to_string( after.size() ) + ",\"afterCleanup\":" + std::to_string( count() ) + "}";
+    Result( id, err, json );
+}
+#endif
+
 void Run( const Job &j )
 {
     if ( j.guarded )
@@ -972,6 +1052,9 @@ void Run( const Job &j )
         }
     }
     TakeErrors();
+#ifdef WEBVSP_SCRIPT_GUARD_TEST
+    if ( j.op == "scriptGuardCheck" ) return ScriptGuardCheck( j.id );
+#endif
     if ( j.op == "model" )
     {
         string m = ModelJson();
