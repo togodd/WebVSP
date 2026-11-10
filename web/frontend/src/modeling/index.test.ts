@@ -92,6 +92,42 @@ describe('browser facade composite reads', () => {
   })
 
   it.each([
+    { facade: 'wing' as const, type: 'Wing', operations: ['model', 'geomXSecs'], stalled: 'model' },
+    { facade: 'wing' as const, type: 'Wing', operations: ['model', 'geomXSecs'], stalled: 'geomXSecs' },
+    { facade: 'fuselage' as const, type: 'Fuselage', operations: ['model', 'fuselageLength', 'geomXSecs'], stalled: 'model' },
+    { facade: 'fuselage' as const, type: 'Fuselage', operations: ['model', 'fuselageLength', 'geomXSecs'], stalled: 'fuselageLength' },
+    { facade: 'fuselage' as const, type: 'Fuselage', operations: ['model', 'fuselageLength', 'geomXSecs'], stalled: 'geomXSecs' },
+  ])('$facade.get closes while $stalled is pending without starting further stages', async ({ facade, type, operations, stalled }) => {
+    const engine = vi.mocked(callGuarded)
+    engine.mockReset()
+    let rejectStalled!: (error: Error) => void
+    let stageStarted!: () => void
+    const started = new Promise<void>((resolve) => { stageStarted = resolve })
+    const pendingStage = new Promise<never>((_resolve, reject) => { rejectStalled = reject })
+    engine.mockImplementation(async (op) => {
+      if (op === stalled) { stageStarted(); return pendingStage }
+      if (op === 'model') return model(type) as never
+      if (op === 'fuselageLength') return length as never
+      if (op === 'geomXSecs') return surfaces as never
+      throw new Error(`Unexpected operation ${op}`)
+    })
+    const service = createBrowserModelingService()
+    try {
+      const pending = service[facade].get('geom', token)
+      await started
+      service.close()
+      await expect(pending).rejects.toMatchObject({ code: 'SESSION_CLOSED' })
+      rejectStalled(new Error('late engine failure'))
+      await new Promise<void>((resolve) => setTimeout(resolve, 0))
+      const expected = operations.slice(0, operations.indexOf(stalled) + 1)
+      expect(engine.mock.calls).toEqual(expected.map((op) => [op, op === 'model' ? '' : 'geom', '', 0, '42']))
+    } finally {
+      service.close()
+      engine.mockReset()
+    }
+  })
+
+  it.each([
     { facade: 'wing' as const, type: 'Wing', operations: ['model', 'geomXSecs'] },
     { facade: 'fuselage' as const, type: 'Fuselage', operations: ['model', 'fuselageLength', 'geomXSecs'] },
   ])('$facade.get uses one captured epoch for every successful request', async ({ facade, type, operations }) => {
