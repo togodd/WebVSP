@@ -13,6 +13,8 @@ try {
   const request = (method, path, body) => page.evaluate(({ method, path, body }) => window.__webvspEngine.request(method, path, body), { method, path, body })
   await page.evaluate(async () => { const m = await import('/src/modeling/index.ts'); window.testModeling = m.createBrowserModelingService() })
   const wing = (await request('POST', '/geoms', { type: 'WING' })).id
+  const pod = (await request('POST', '/geoms', { type: 'POD' })).id
+  const clone = (await request('POST', '/geoms', { type: 'CLONE' })).id
   const fuselage = (await request('POST', '/geoms', { type: 'FUSELAGE' })).id
   const surfaces = await request('GET', `/geoms/${wing}/xsecs`)
   const ids = await request('GET', `/geoms/${wing}/parms`)
@@ -29,14 +31,23 @@ try {
   const sectionIds = await request('GET', `/xsecs/${section}/parms`)
   assert.ok(sectionIds.length)
   assert.equal((await request('GET', `/xsecs/${section}/parms/${sectionIds[0]}`)).id, sectionIds[0])
-  let length
+  const lengths = []
   for (const id of await request('GET', `/geoms/${fuselage}/parms`)) {
     const candidate = await request('GET', `/geoms/${fuselage}/parms/${id}`)
-    if (candidate.name === 'Length' && candidate.group === 'Design' && candidate.active) { length = candidate; break }
+    if (candidate.name === 'Length' && candidate.group === 'Design' && candidate.container === fuselage) lengths.push(candidate)
   }
-  assert.ok(length, 'Expected an active fuselage length parameter')
+  assert.equal(lengths.length, 1, 'Expected exactly one top-level fuselage Design/Length parameter')
+  const length = lengths[0]
+  assert.ok(length.active, 'Expected an active fuselage length parameter')
   assert.deepEqual(await request('GET', `/geoms/${fuselage}/fuselage-length`), length)
-  await assert.rejects(() => request('GET', '/geoms/NOTREAL/fuselage-length'))
+  // A POD also has a top-level Design/Length: matching metadata is not a type check.
+  const podParms = await request('GET', `/geoms/${pod}/parms`)
+  const podMetadata = await Promise.all(podParms.map(id => request('GET', `/geoms/${pod}/parms/${id}`)))
+  assert.ok(podMetadata.some(p => p.name === 'Length' && p.group === 'Design' && p.container === pod))
+  for (const geom of [pod, wing, clone]) {
+    await assert.rejects(() => request('GET', `/geoms/${geom}/fuselage-length`), /not a fuselage/i)
+  }
+  await assert.rejects(() => request('GET', '/geoms/NOTREAL/fuselage-length'), /not found in the current model/i)
   let tess
   for (const id of await request('GET', `/geoms/${fuselage}/parms`)) {
     const candidate = await request('GET', `/geoms/${fuselage}/parms/${id}`)
@@ -96,8 +107,9 @@ try {
   await assert.rejects(() => request('GET', `/geoms/${fuselage}/parms/${ids[0]}`))
   await assert.rejects(() => request('GET', '/xsecs/NOTREAL/parms'))
   await assert.rejects(() => request('GET', '/geoms/NOTREAL/parms'))
-  await request('POST', '/geoms/delete', { ids: [wing] })
+  await request('POST', '/geoms/delete', { ids: [wing, fuselage] })
   await assert.rejects(() => request('GET', `/xsecs/${section}/parms`))
+  await assert.rejects(() => request('GET', `/geoms/${fuselage}/fuselage-length`), /not found in the current model/i)
   assert.deepEqual(errors, [])
   console.log('PASS: geometry and cross-section parameter ownership, metadata and stale references')
 } finally {

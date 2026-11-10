@@ -912,6 +912,19 @@ bool ParmMetadata( const string &id, string &json, string &err )
 // All matches are counted; silently choosing the first would hide ambiguous data.
 bool FuselageLength( const string &geom, string &json, string &err )
 {
+    if ( !CurrentModelGeom( geom, err ) ) return false;
+    Vehicle *veh = VehicleMgr.GetVehicle();
+    Geom *g = veh ? veh->FindGeom( geom ) : nullptr;
+    if ( !g )
+    {
+        err = "Geom not found in the current model: " + geom;
+        return false;
+    }
+    if ( g->GetType().m_Type != FUSELAGE_GEOM_TYPE )
+    {
+        err = "Geom is not a fuselage: " + geom;
+        return false;
+    }
     vector< string > ids;
     if ( !ParmIDs( false, geom, ids, err ) ) return false;
     std::set< string > unique;
