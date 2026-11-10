@@ -828,6 +828,36 @@ bool ParmMetadata( const string &id, string &json, string &err )
     return true;
 }
 
+// Resolve the one top-level fuselage Length parameter in a single engine job. Geometry
+// linkable lists can include nested XSec containers, so name/group alone is insufficient.
+// All matches are counted; silently choosing the first would hide ambiguous data.
+bool FuselageLength( const string &geom, string &json, string &err )
+{
+    vector< string > ids;
+    if ( !ParmIDs( false, geom, ids, err ) ) return false;
+    std::set< string > unique;
+    vector< string > matches;
+    for ( const string &id : ids )
+    {
+        if ( id.empty() || !unique.insert( id ).second )
+        {
+            err = "Invalid or duplicate geometry parameter ID";
+            return false;
+        }
+        string name = vsp::GetParmName( id );
+        string group = vsp::GetParmGroupName( id );
+        string container = vsp::GetParmContainer( id );
+        if ( !( err = TakeErrors() ).empty() ) return false;
+        if ( name == "Length" && group == "Design" && container == geom ) matches.push_back( id );
+    }
+    if ( matches.size() != 1 )
+    {
+        err = "Fuselage Design/Length parameter is missing or ambiguous";
+        return false;
+    }
+    return ParmMetadata( matches[0], json, err );
+}
+
 // Failures before the setter are known not to have written. After invoking it, even an API
 // error may follow side effects; readback is informative but cannot establish atomicity.
 void ParmWriteFailure( int id, const string &error, const string &outcome, const string &actual )
@@ -912,6 +942,12 @@ void Run( const Job &j )
         m += ",\"rev\":" + std::to_string( g_Rev ) + ",\"dirty\":" + ( g_Dirty ? "true" : "false" ) +
              ",\"undo\":" + NO_UNDO + "}";
         return Result( j.id, "", m );
+    }
+    if ( j.op == "fuselageLength" )
+    {
+        string json, err;
+        FuselageLength( j.a, json, err );
+        return Result( j.id, err, json );
     }
     if ( j.op == "geomXSecs" )
     {

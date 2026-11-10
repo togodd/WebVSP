@@ -22,6 +22,7 @@ export function createBrowserModelingService() {
   const path = (owner: 'geometry' | 'crossSection', ownerId: string) => `/${owner === 'geometry' ? 'geoms' : 'xsecs'}/${encodeURIComponent(ownerId)}/parms`
   const adapter: ParameterReadAdapter = {
     surfaces: async (geometryId) => await wasmRequest('GET', `/geoms/${encodeURIComponent(geometryId)}/xsecs`) as CrossSectionSurface[],
+    fuselageLength: async (geometryId) => await wasmRequest('GET', `/geoms/${encodeURIComponent(geometryId)}/fuselage-length`) as EngineParameter,
     list: async (owner, ownerId) => await wasmRequest('GET', path(owner, ownerId)) as string[],
     get: async (owner, ownerId, parameterId) => await wasmRequest('GET', `${path(owner, ownerId)}/${encodeURIComponent(parameterId)}`) as EngineParameter,
   }

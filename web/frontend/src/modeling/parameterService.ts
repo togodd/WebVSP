@@ -17,6 +17,7 @@ export interface EngineParameter {
 export interface CrossSectionSurface { id: string; xsecs: string[] }
 export interface ParameterReadAdapter {
   surfaces(geometryId: string): Promise<CrossSectionSurface[]>
+  fuselageLength(geometryId: string): Promise<EngineParameter>
   list(owner: 'geometry' | 'crossSection', ownerId: string): Promise<string[]>
   get(owner: 'geometry' | 'crossSection', ownerId: string, parameterId: string): Promise<EngineParameter>
 }
@@ -33,6 +34,8 @@ export function createParameterService(adapter: ParameterReadAdapter, signal: Ab
   return {
     /** Only surfaces and cross sections reachable through the current model's geometry. */
     listSurfaces(geometryId: string) { checkOpen(); const owner = id(geometryId, 'geometryId'); return read(() => adapter.surfaces(owner)) },
+    /** The engine resolves and checks the unique geometry-owned Design/Length parameter. */
+    getFuselageLength(geometryId: string) { checkOpen(); const owner = id(geometryId, 'geometryId'); return read(() => adapter.fuselageLength(owner)) },
     /** IDs returned by OpenVSP's linkable parameter list; not all internal parameters. */
     listGeometryParameterIds(geometryId: string) { checkOpen(); const owner = id(geometryId, 'geometryId'); return read(() => adapter.list('geometry', owner)) },
     listCrossSectionParameterIds(sectionId: string) { checkOpen(); const owner = id(sectionId, 'sectionId'); return read(() => adapter.list('crossSection', owner)) },

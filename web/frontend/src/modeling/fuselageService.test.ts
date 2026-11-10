@@ -8,8 +8,7 @@ function fixture() {
   const info = { context: { sessionId: 's', engineRevision: 4, engineVersion: 'v' }, geometry: { id: 'g', name: 'Body', type: 'Fuselage', parentId: null, childIds: [], shown: true } }
   const geometry = { get: vi.fn(async (_id: string) => info) }
   const parameter = {
-    listGeometryParameterIds: vi.fn(async (_id: string) => ['p']),
-    getGeometryParameter: vi.fn(async (_owner: string, _id: string): Promise<EngineParameter> => length()),
+    getFuselageLength: vi.fn(async (_id: string): Promise<EngineParameter> => length()),
     listSurfaces: vi.fn(async (_id: string) => [{ id: 'surface0', xsecs: ['a', 'b'] }, { id: 'surface1', xsecs: ['c'] }]),
   }
   return { info, geometry, parameter, service: createFuselageService(geometry, parameter) }
@@ -18,14 +17,12 @@ function fixture() {
 describe('read-only fuselage service', () => {
   it('reads the actual Design/Length and preserves separate surface and XSec indices', async () => {
     const f = fixture()
-    f.parameter.listGeometryParameterIds.mockResolvedValue(['other', 'p'])
-    f.parameter.getGeometryParameter.mockImplementation(async (_owner, id) => id === 'p' ? length() : { ...length(), id, name: 'Other', container: 'nested' })
     const result = await f.service.get('g')
     expect(result).toEqual({ ...f.info, length: length(), surfaces: [
       { id: 'surface0', index: 0, sections: [{ id: 'a', index: 0, shape: null }, { id: 'b', index: 1, shape: null }] },
       { id: 'surface1', index: 1, sections: [{ id: 'c', index: 0, shape: null }] },
     ] })
-    expect(f.parameter.getGeometryParameter.mock.calls).toEqual([['g', 'other'], ['g', 'p']])
+    expect(f.parameter.getFuselageLength.mock.calls).toEqual([['g']])
     expect(Object.keys(f.service)).toEqual(['get'])
   })
   it('allows empty surfaces and empty section lists without inventing data', async () => {
@@ -42,45 +39,30 @@ describe('read-only fuselage service', () => {
     await expect(f.service.get('g')).rejects.toMatchObject({ code: 'ENGINE_ERROR' })
     f.info.geometry.id = 'g'; f.info.geometry.type = 'Wing'
     await expect(f.service.get('g')).rejects.toMatchObject({ code: 'UNSUPPORTED_OPERATION' })
-    expect(f.parameter.listGeometryParameterIds).not.toHaveBeenCalled()
+    expect(f.parameter.getFuselageLength).not.toHaveBeenCalled()
   })
   it('propagates not found, closed and engine errors from every read stage', async () => {
-    for (const stage of ['geometry', 'ids', 'parameter', 'surfaces'] as const) {
+    for (const stage of ['geometry', 'parameter', 'surfaces'] as const) {
       for (const code of ['GEOMETRY_NOT_FOUND', 'SESSION_CLOSED', 'ENGINE_ERROR'] as const) {
         const f = fixture(), error = new ModelingError(code, 'failure')
         if (stage === 'geometry') f.geometry.get.mockRejectedValue(error)
-        if (stage === 'ids') f.parameter.listGeometryParameterIds.mockRejectedValue(error)
-        if (stage === 'parameter') f.parameter.getGeometryParameter.mockRejectedValue(error)
+        if (stage === 'parameter') f.parameter.getFuselageLength.mockRejectedValue(error)
         if (stage === 'surfaces') f.parameter.listSurfaces.mockRejectedValue(error)
         await expect(f.service.get('g')).rejects.toBe(error)
       }
     }
   })
-  it('rejects invalid and duplicate parameter IDs, mismatched returned IDs and missing owners', async () => {
-    for (const ids of [[''], ['p', 'p']]) {
-      const f = fixture(); f.parameter.listGeometryParameterIds.mockResolvedValue(ids)
+  it('rejects invalid parameter ID, name, group or owner', async () => {
+    for (const patch of [{ id: '' }, { name: 'Other' }, { group: 'Other' }, { container: '' }, { container: 'other' }]) {
+      const f = fixture(); f.parameter.getFuselageLength.mockResolvedValue({ ...length(), ...patch })
       await expect(f.service.get('g')).rejects.toMatchObject({ code: 'ENGINE_ERROR' })
-      expect(f.parameter.getGeometryParameter).not.toHaveBeenCalled()
+      expect(f.parameter.listSurfaces).not.toHaveBeenCalled()
     }
-    for (const patch of [{ id: 'wrong' }, { container: '' }]) {
-      const f = fixture(); f.parameter.getGeometryParameter.mockResolvedValue({ ...length(), ...patch })
-      await expect(f.service.get('g')).rejects.toMatchObject({ code: 'ENGINE_ERROR' })
-    }
-  })
-  it('rejects missing, wrong owner, wrong group and ambiguous Design/Length', async () => {
-    for (const patch of [{ name: 'Other' }, { group: 'Other' }, { container: 'other' }]) {
-      const f = fixture(); f.parameter.getGeometryParameter.mockResolvedValue({ ...length(), ...patch })
-      await expect(f.service.get('g')).rejects.toMatchObject({ code: 'ENGINE_ERROR' })
-    }
-    const f = fixture(); f.parameter.listGeometryParameterIds.mockResolvedValue(['p', 'q'])
-    f.parameter.getGeometryParameter.mockImplementation(async (_owner, id) => ({ ...length(), id }))
-    await expect(f.service.get('g')).rejects.toMatchObject({ code: 'ENGINE_ERROR' })
-    expect(f.parameter.listSurfaces).not.toHaveBeenCalled()
   })
   it('rejects null and non-finite value and limits', async () => {
     for (const field of ['value', 'lowerLimit', 'upperLimit'] as const) {
       for (const value of [null, NaN, Infinity, -Infinity]) {
-        const f = fixture(); f.parameter.getGeometryParameter.mockResolvedValue({ ...length(), [field]: value })
+        const f = fixture(); f.parameter.getFuselageLength.mockResolvedValue({ ...length(), [field]: value })
         await expect(f.service.get('g')).rejects.toMatchObject({ code: 'ENGINE_ERROR' })
       }
     }
@@ -97,7 +79,7 @@ describe('read-only fuselage service', () => {
   })
   it('does not claim atomicity when replacement reuses IDs during asynchronous reads', async () => {
     const f = fixture()
-    f.parameter.getGeometryParameter.mockImplementation(async () => ({ ...length(), value: 55 }))
+    f.parameter.getFuselageLength.mockImplementation(async () => ({ ...length(), value: 55 }))
     const result = await f.service.get('g')
     expect(result.context.engineRevision).toBe(4)
     expect(result.length.value).toBe(55)

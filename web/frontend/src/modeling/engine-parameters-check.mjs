@@ -34,6 +34,8 @@ try {
     if (candidate.name === 'Length' && candidate.group === 'Design' && candidate.active) { length = candidate; break }
   }
   assert.ok(length, 'Expected an active fuselage length parameter')
+  assert.deepEqual(await request('GET', `/geoms/${fuselage}/fuselage-length`), length)
+  await assert.rejects(() => request('GET', '/geoms/NOTREAL/fuselage-length'))
   let tess
   for (const id of await request('GET', `/geoms/${fuselage}/parms`)) {
     const candidate = await request('GET', `/geoms/${fuselage}/parms/${id}`)

@@ -7,8 +7,7 @@ export interface FuselageGeometryReader {
   get(geometryId: string): Promise<{ context: ModelContext; geometry: Geometry }>
 }
 export interface FuselageParameterReader {
-  listGeometryParameterIds(geometryId: string): Promise<string[]>
-  getGeometryParameter(geometryId: string, parameterId: string): Promise<EngineParameter>
+  getFuselageLength(geometryId: string): Promise<EngineParameter>
   listSurfaces(geometryId: string): Promise<CrossSectionSurface[]>
 }
 export interface FuselageSection {
@@ -45,16 +44,9 @@ export function createFuselageService(geometry: FuselageGeometryReader, paramete
       if (!info.geometry || info.geometry.id !== geometryId) badData('Geometry response does not match the requested ID')
       if (info.geometry.type !== 'Fuselage') throw new ModelingError('UNSUPPORTED_OPERATION', 'Geometry is not a Fuselage', { geometryId })
 
-      const ids = await parameter.listGeometryParameterIds(geometryId)
-      if (!Array.isArray(ids) || ids.some((id) => !validId(id)) || new Set(ids).size !== ids.length) badData('Invalid or ambiguous geometry parameter IDs')
-      const matches: EngineParameter[] = []
-      for (const id of ids) {
-        const parm = await parameter.getGeometryParameter(geometryId, id)
-        if (!parm || parm.id !== id || !validId(parm.container)) badData('Parameter response does not match the requested ID or owner')
-        if (parm.name === 'Length' && parm.group === 'Design' && parm.container === geometryId) matches.push(parm)
-      }
-      if (matches.length !== 1) badData('Fuselage Design/Length parameter is missing or ambiguous')
-      const length = matches[0]
+      // The engine enforces uniqueness; still validate the returned identity and metadata.
+      const length = await parameter.getFuselageLength(geometryId)
+      if (!length || !validId(length.id) || length.name !== 'Length' || length.group !== 'Design' || length.container !== geometryId) badData('Invalid Fuselage Design/Length parameter')
       if (typeof length.value !== 'number' || !Number.isFinite(length.value) ||
           typeof length.lowerLimit !== 'number' || !Number.isFinite(length.lowerLimit) ||
           typeof length.upperLimit !== 'number' || !Number.isFinite(length.upperLimit)) badData('Fuselage Length has a non-finite value or limit')
