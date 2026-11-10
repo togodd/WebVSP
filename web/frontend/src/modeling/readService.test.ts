@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from 'vitest'
 import type { ModelTree } from '../api/types'
 import { createReadService } from './readService'
+import { ModelingError } from './contracts'
 
 function fixture(): ModelTree {
   return { geoms: [{ id: 'f', name: 'Body', type: 'Fuselage', parent: null, children: ['w'], shown: true, drawType: 1, color: [0, 0, 1], numXSecSurfs: 1 }, { id: 'w', name: 'Wing', type: 'Wing', parent: 'f', children: [], shown: false, drawType: 0, color: [0, 0, 1], numXSecSurfs: 1 }], active: ['w'], vehicleId: 'v', fileName: '', version: 'OpenVSP 3.55.0', rev: 7, modelEpoch: '42', modelEpochValid: true, dirty: false, undo: { canUndo: false, canRedo: false, undoLabel: null, redoLabel: null } }
@@ -75,6 +76,79 @@ describe('browser-local read service', () => {
     await expect(service.model.getInfo()).rejects.toMatchObject({ code: 'ENGINE_ERROR' })
     current.modelEpochValid = true
     expect((await service.model.getInfo()).identity.modelEpoch).toBe('18446744073709551615')
+  })
+  it('rejects malformed model projections consistently across read operations', async () => {
+    const badModels: unknown[] = [null, {}, ...[
+      ['rev', '7'], ['rev', Infinity], ['version', null], ['fileName', 1],
+      ['geoms', 'bad'], ['geoms', [null]], ['geoms', Array(1)],
+      ['active', 'w'], ['active', [1]], ['active', Array(1)],
+    ].map(([key, value]) => ({ ...fixture(), [key as string]: value }))]
+    for (const [key, value] of [
+      ['id', 1], ['name', null], ['type', 1], ['parent', undefined],
+      ['children', 'w'], ['children', [null]], ['children', Array(1)], ['shown', 1],
+    ] as const) {
+      const model = fixture()
+      Object.assign(model.geoms[0], { [key]: value })
+      badModels.push(model)
+    }
+    const throwing = fixture()
+    Object.defineProperty(throwing, 'version', { get() { throw new ModelingError('STALE_MODEL', 'private') } })
+    badModels.push(throwing)
+    for (const bad of badModels) {
+      const service = createReadService({ model: async () => bad as ModelTree, bbox: async () => null }, 'tab')
+      for (const read of [() => service.model.getInfo(), () => service.model.getSelection(), () => service.geometry.list(), () => service.geometry.get('f')]) {
+        await expect(read()).rejects.toMatchObject({ code: 'ENGINE_ERROR', message: 'The OpenVSP engine request failed' })
+      }
+    }
+  })
+  it('validates array indices instead of trusting a custom iterator or inherited entries', async () => {
+    const masked = <T,>(values: T[], replacement: T[]) => {
+      values[Symbol.iterator] = () => replacement[Symbol.iterator]()
+      return values
+    }
+    const badModels: ModelTree[] = []
+    for (const field of ['active', 'children', 'geoms'] as const) {
+      const model = fixture()
+      if (field === 'active') model.active = masked(Array(1), ['valid'])
+      if (field === 'children') model.geoms[0].children = masked([1] as unknown as string[], ['valid'])
+      if (field === 'geoms') model.geoms = masked(Array(1), fixture().geoms)
+      badModels.push(model)
+    }
+    const inherited = Array(1)
+    Object.setPrototypeOf(inherited, Object.assign(Object.create(Array.prototype), { 0: 'inherited' }))
+    badModels.push({ ...fixture(), active: inherited })
+    for (const model of badModels) {
+      const service = createReadService({ model: async () => model, bbox: async () => null }, 'tab')
+      await expect(service.model.getInfo()).rejects.toMatchObject({ code: 'ENGINE_ERROR' })
+    }
+    const badBounds = masked([0, NaN, 2], [0, 1, 2]) as [number, number, number]
+    const service = createReadService({ model: async () => fixture(), bbox: async () => ({ min: badBounds, max: [1, 2, 3] }) }, 'tab')
+    await expect(service.model.getVisibleSurfaceBounds()).rejects.toMatchObject({ code: 'ENGINE_ERROR' })
+
+    const valid = masked(['actual'], ['different'])
+    const model = { ...fixture(), active: valid }
+    const safe = createReadService({ model: async () => model, bbox: async () => null }, 'tab')
+    expect((await safe.model.getSelection()).geometryIds).toEqual(['actual'])
+  })
+  it('accepts unknown valid strings and copies bounds without extra properties', async () => {
+    const model = fixture()
+    model.geoms[0].type = 'Future Geometry'; model.geoms[0].name = ''; model.active = ['unknown']
+    const bounds = { min: [-2, 0, 10] as [number, number, number], max: [3, 4, 5] as [number, number, number], private: 'secret' }
+    const service = createReadService({ model: async () => model, bbox: async () => bounds }, 'tab')
+    expect((await service.model.getInfo()).geometries[0]).toMatchObject({ type: 'Future Geometry', name: '' })
+    expect((await service.model.getSelection()).geometryIds).toEqual(['unknown'])
+    const result = await service.model.getVisibleSurfaceBounds()
+    expect(result).toEqual({ min: [-2, 0, 10], max: [3, 4, 5] })
+    result!.min[0] = 99
+    expect(bounds.min[0]).toBe(-2)
+    expect(await createReadService({ model: async () => model, bbox: async () => null }, 'tab').model.getVisibleSurfaceBounds()).toBeNull()
+  })
+  it('rejects malformed bounds and hides response getter failures', async () => {
+    const throwing = { get min() { throw new ModelingError('STALE_MODEL', 'private') }, max: [1, 2, 3] }
+    for (const bounds of [undefined, 1, {}, { min: null, max: [1, 2, 3] }, { min: [0, 1], max: [1, 2, 3] }, { min: [0, 1, 2, 3], max: [1, 2, 3] }, { min: [0, NaN, 2], max: [1, 2, 3] }, { min: [0, 1, 2], max: [1, Infinity, 3] }, { min: Array(3), max: [1, 2, 3] }, throwing]) {
+      const service = createReadService({ model: async () => fixture(), bbox: async () => bounds as never }, 'tab')
+      await expect(service.model.getVisibleSurfaceBounds()).rejects.toMatchObject({ code: 'ENGINE_ERROR', message: 'The OpenVSP engine request failed' })
+    }
   })
   it('reports invalid and missing geometry and hides engine errors', async () => {
     const adapter = { model: vi.fn(async () => fixture()), bbox: vi.fn(async () => { throw new Error('internal details') }) }

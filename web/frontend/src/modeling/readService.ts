@@ -24,6 +24,35 @@ export function raceClose<T>(signal: AbortSignal, fn: () => Promise<T>): Promise
   })
 }
 
+// Engine responses are untrusted at runtime despite the adapter's static types. Copy
+// validated fields so neither extra properties nor later mutations escape the service.
+function copyArray<T>(value: unknown, copyItem: (item: unknown) => T, expectedLength?: number): T[] {
+  if (!Array.isArray(value)) throw new Error('Invalid array')
+  const length = value.length
+  if (!Number.isSafeInteger(length) || length < 0 || (expectedLength !== undefined && length !== expectedLength)) throw new Error('Invalid array length')
+  const copy: T[] = []
+  for (let i = 0; i < length; i++) {
+    if (!Object.prototype.hasOwnProperty.call(value, i)) throw new Error('Sparse array')
+    copy.push(copyItem(value[i]))
+  }
+  return copy
+}
+
+function stringArray(value: unknown): string[] {
+  return copyArray(value, (item) => {
+    if (typeof item !== 'string') throw new Error('Invalid string')
+    return item
+  })
+}
+
+function boundsVector(value: unknown): [number, number, number] {
+  const copy = copyArray(value, (item) => {
+    if (typeof item !== 'number' || !Number.isFinite(item)) throw new Error('Invalid bounds')
+    return item
+  }, 3)
+  return [copy[0], copy[1], copy[2]]
+}
+
 const supported = new Set(['model.read', 'geometry.read'])
 const capabilityNames: Capability['name'][] = ['model.read', 'geometry.read', 'geometry.create', 'geometry.move', 'parameter.read', 'parameter.write', 'wing.read', 'wing.edit', 'fuselage.read', 'fuselage.edit', 'assembly.attach']
 
@@ -60,15 +89,27 @@ export function createReadService(adapter: ModelingReadAdapter, sessionId: strin
     }
     const info = await fromEngine(async () => {
       const model = expectedIdentity ? await adapter.model(expectedIdentity) : await adapter.model()
-      if (!model) throw new Error('Invalid model identity')
-      const modelEpoch = model.modelEpoch
-      if (model.modelEpochValid !== true || !validEpoch(modelEpoch)) throw new Error('Invalid model identity')
-      return {
-        identity: { sessionId, modelEpoch },
-        context: { sessionId, engineRevision: model.rev, engineVersion: model.version },
-        fileName: model.fileName,
-        geometries: model.geoms.map((g): Geometry => ({ id: g.id, name: g.name, type: g.type, parentId: g.parent, childIds: [...g.children], shown: g.shown })),
-        selectedGeometryIds: [...model.active],
+      try {
+        if (!model) throw new Error('Invalid model identity')
+        const modelEpoch = model.modelEpoch
+        if (model.modelEpochValid !== true || !validEpoch(modelEpoch)) throw new Error('Invalid model identity')
+        const { rev, version, fileName, geoms, active } = model
+        if (typeof rev !== 'number' || !Number.isFinite(rev) || typeof version !== 'string' || typeof fileName !== 'string' || !Array.isArray(geoms)) throw new Error('Invalid model')
+        const geometries = copyArray(geoms, (g): Geometry => {
+          if (!g || typeof g !== 'object') throw new Error('Invalid geometry')
+          const { id, name, type, parent, children, shown } = g as Record<string, unknown>
+          if (typeof id !== 'string' || typeof name !== 'string' || typeof type !== 'string' || (parent !== null && typeof parent !== 'string') || typeof shown !== 'boolean') throw new Error('Invalid geometry')
+          return { id, name, type, parentId: parent, childIds: stringArray(children), shown }
+        })
+        return {
+          identity: { sessionId, modelEpoch },
+          context: { sessionId, engineRevision: rev, engineVersion: version },
+          fileName,
+          geometries,
+          selectedGeometryIds: stringArray(active),
+        }
+      } catch {
+        throw new Error('Invalid model response')
       }
     })
     if (expectedIdentity && info.identity.modelEpoch !== expectedIdentity.modelEpoch) throw new ModelingError('STALE_MODEL', 'Model identity does not match the snapshot')
@@ -87,7 +128,16 @@ export function createReadService(adapter: ModelingReadAdapter, sessionId: strin
       },
       /** Bounds of shown surfaces only, not all model geometry; a separate non-atomic read. */
       getVisibleSurfaceBounds(): Promise<Bounds | null> {
-        return fromEngine(() => adapter.bbox())
+        return fromEngine(async () => {
+          const bbox = await adapter.bbox()
+          try {
+            if (bbox === null) return null
+            if (!bbox || typeof bbox !== 'object') throw new Error('Invalid bounds')
+            return { min: boundsVector(bbox.min), max: boundsVector(bbox.max) }
+          } catch {
+            throw new Error('Invalid bounds response')
+          }
+        })
       },
     },
     geometry: {
