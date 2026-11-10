@@ -21,6 +21,7 @@ import { submitPending } from './pendingCall'
 import { settleBridgeResult } from './settleBridgeResult'
 import { emitListeners } from './emitListeners'
 import { drainBatch } from './drainBatch'
+import { facadeSubmit } from './facadeSubmit'
 
 interface VspModule {
   call(id: number, op: string, a: string, b: string, value: number): void
@@ -144,8 +145,11 @@ async function call(op: string, a = '', b = '', value = 0): Promise<unknown> {
 }
 
 /** Internal discovery snapshot: no epoch required, but serializer errors are fatal. */
-export async function discoverModel<T = unknown>(): Promise<T> {
-  return await call('modelDiscovery') as T
+export async function discoverModel<T = unknown>(signal: AbortSignal): Promise<T> {
+  return facadeSubmit(signal, load, readyPromise, (vsp) => {
+    const id = nextId++
+    return submitPending(pending, id, () => vsp.call(id, 'modelDiscovery', '', '', 0)) as Promise<T>
+  })
 }
 
 /** A model identity token is an opaque decimal string, never a JavaScript number. */
@@ -159,13 +163,14 @@ export const GUARDED_OPS = ['model', 'bbox', 'origin', 'move', 'addGeom', 'geomX
 export type GuardedOp = (typeof GUARDED_OPS)[number]
 
 /** Submit against the engine's model identity, checked atomically on its owning thread. */
-export async function callGuarded<T = unknown>(op: GuardedOp, a: string, b: string, value: number, expectedEpoch: string): Promise<T> {
+export async function callGuarded<T = unknown>(op: GuardedOp, a: string, b: string, value: number, expectedEpoch: string, signal?: AbortSignal): Promise<T> {
   if (!(GUARDED_OPS as readonly string[]).includes(op)) {
     throw new WasmEngineError(400, 'Operation is not permitted by the guarded bridge', 'not_written')
   }
   if (typeof expectedEpoch !== 'string' || expectedEpoch.length === 0) {
     throw new WasmEngineError(400, 'expectedEpoch is required', 'not_written')
   }
+  if (signal) return facadeSubmit(signal, load, readyPromise, (vsp) => submitGuardedTo<T>(vsp, op, a, b, value, expectedEpoch))
   return submitGuarded<T>(op, a, b, value, expectedEpoch)
 }
 
@@ -173,6 +178,10 @@ export async function callGuarded<T = unknown>(op: GuardedOp, a: string, b: stri
 async function submitGuarded<T = unknown>(op: string, a: string, b: string, value: number, expectedEpoch: string): Promise<T> {
   const vsp = await load()
   await readyPromise
+  return submitGuardedTo(vsp, op, a, b, value, expectedEpoch)
+}
+
+function submitGuardedTo<T>(vsp: VspModule, op: string, a: string, b: string, value: number, expectedEpoch: string): Promise<T> {
   const id = nextId++
   return new Promise<T>((resolve, reject) => {
     pending.set(id, { resolve: (result) => resolve(result as T), reject })

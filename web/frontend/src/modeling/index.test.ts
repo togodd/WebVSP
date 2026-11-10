@@ -29,6 +29,27 @@ describe('browser modeling identity', () => {
     } finally { service.close(); discovery.mockReset() }
   })
 
+  it('passes independent close signals to discovery and guarded reads', async () => {
+    const discovery = vi.mocked(discoverModel), guarded = vi.mocked(callGuarded)
+    discovery.mockReset(); guarded.mockReset()
+    const wait = new Promise<never>(() => {})
+    discovery.mockReturnValue(wait); guarded.mockReturnValue(wait)
+    const first = createBrowserModelingService(), second = createBrowserModelingService()
+    const a = first.model.getInfo(), b = second.model.getInfo({ sessionId: 'tab', modelEpoch: '42' })
+    const firstSignal = discovery.mock.calls[0][0]!
+    const secondSignal = guarded.mock.calls[0][5]!
+    expect(firstSignal).not.toBe(secondSignal)
+    first.close()
+    await expect(a).rejects.toMatchObject({ code: 'SESSION_CLOSED' })
+    expect(firstSignal.aborted).toBe(true)
+    expect(secondSignal.aborted).toBe(false)
+    second.close()
+    await expect(b).rejects.toMatchObject({ code: 'SESSION_CLOSED' })
+    expect(secondSignal.aborted).toBe(true)
+    discovery.mockReset(); guarded.mockReset()
+    guarded.mockResolvedValue({ modelEpoch: '42', modelEpochValid: true, fileName: '', rev: 1, version: '', geoms: [], active: [] })
+  })
+
   it('validates and guards with the same values from changing getters', async () => {
     const service = createBrowserModelingService()
     let sessions = 0, epochs = 0
@@ -39,7 +60,7 @@ describe('browser modeling identity', () => {
     const pending = service.model.getInfo(token)
     expect(pending).toBeInstanceOf(Promise)
     expect((await pending).identity).toEqual({ sessionId: 'tab', modelEpoch: '42' })
-    expect(callGuarded).toHaveBeenCalledWith('model', '', '', 0, '42')
+    expect(callGuarded).toHaveBeenCalledWith('model', '', '', 0, '42', expect.any(AbortSignal))
     expect([sessions, epochs]).toEqual([1, 1])
     service.close()
   })
@@ -96,9 +117,9 @@ describe('browser facade composite reads', () => {
     try {
       await expect(service[facade].get('geom', token)).rejects.toMatchObject({ code: 'STALE_MODEL' })
       expect(engine.mock.calls).toEqual([
-        ['model', '', '', 0, '42'],
-        ...beforeFailure.map((op) => [op, 'geom', '', 0, '42']),
-        [failure, 'geom', '', 0, '42'],
+        ['model', '', '', 0, '42', expect.any(AbortSignal)],
+        ...beforeFailure.map((op) => [op, 'geom', '', 0, '42', expect.any(AbortSignal)]),
+        [failure, 'geom', '', 0, '42', expect.any(AbortSignal)],
       ])
     } finally {
       service.close()
@@ -135,7 +156,7 @@ describe('browser facade composite reads', () => {
       rejectStalled(new Error('late engine failure'))
       await new Promise<void>((resolve) => setTimeout(resolve, 0))
       const expected = operations.slice(0, operations.indexOf(stalled) + 1)
-      expect(engine.mock.calls).toEqual(expected.map((op) => [op, op === 'model' ? '' : 'geom', '', 0, '42']))
+      expect(engine.mock.calls).toEqual(expected.map((op) => [op, op === 'model' ? '' : 'geom', '', 0, '42', expect.any(AbortSignal)]))
     } finally {
       service.close()
       engine.mockReset()
@@ -160,7 +181,7 @@ describe('browser facade composite reads', () => {
       const view = await service[facade].get('geom', { sessionId: 'tab', get modelEpoch() { return ++reads === 1 ? '42' : '43' } })
       expect(view.surfaces).toHaveLength(1)
       expect(reads).toBe(1)
-      expect(engine.mock.calls).toEqual(operations.map((op) => [op, op === 'model' ? '' : 'geom', '', 0, '42']))
+      expect(engine.mock.calls).toEqual(operations.map((op) => [op, op === 'model' ? '' : 'geom', '', 0, '42', expect.any(AbortSignal)]))
     } finally {
       service.close()
       engine.mockReset()

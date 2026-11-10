@@ -26,7 +26,7 @@ export function createBrowserModelingService() {
     const name = tree.fileName
     return { ...tree, fileName: name === 'Unnamed.vsp3' ? '' : name.startsWith('/home/web_user/') ? name.slice('/home/web_user/'.length) : name.replace(/^\//, '') }
   }
-  const read = createReadService({ model: async () => presentModel(await discoverModel<ModelTree>()), bbox: api.bbox }, sessionId)
+  const read = createReadService({ model: async () => presentModel(await discoverModel<ModelTree>(controller.signal)), bbox: api.bbox }, sessionId)
   function identity(value: ModelIdentity): ModelIdentity {
     if (controller.signal.aborted) throw new ModelingError('SESSION_CLOSED', 'Modeling session is closed')
     if (!value) throw new ModelingError('INVALID_ARGUMENT', 'A valid model identity is required')
@@ -39,7 +39,7 @@ export function createBrowserModelingService() {
     return Object.freeze({ sessionId: tokenSessionId, modelEpoch })
   }
   function scoped(token: ModelIdentity) {
-    const call = <T>(op: Parameters<typeof callGuarded>[0], a = '', b = '', value = 0) => callGuarded<T>(op, a, b, value, token.modelEpoch)
+    const call = <T>(op: Parameters<typeof callGuarded>[0], a = '', b = '', value = 0) => callGuarded<T>(op, a, b, value, token.modelEpoch, controller.signal)
     const model = async () => {
       const tree = await call<ModelTree>('model')
       return presentModel(tree)
