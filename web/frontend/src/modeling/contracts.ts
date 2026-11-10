@@ -14,7 +14,8 @@ export interface Geometry {
   type: string
   parentId: string | null
   childIds: string[]
-  visible: boolean
+  /** Membership in OpenVSP's shown set; draw mode can still prevent rendering. */
+  shown: boolean
 }
 
 export interface ModelInfo {

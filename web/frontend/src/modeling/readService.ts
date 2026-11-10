@@ -13,7 +13,7 @@ const capabilityNames: Capability['name'][] = ['model.read', 'geometry.read', 'g
 
 /** A service belongs to one live engine instance. Revision is an event counter, not a lock. */
 export function createReadService(adapter: ModelingReadAdapter, sessionId: string) {
-  if (!sessionId.trim()) throw new ModelingError('INVALID_ARGUMENT', 'sessionId must not be empty')
+  if (typeof sessionId !== 'string' || !sessionId.trim()) throw new ModelingError('INVALID_ARGUMENT', 'sessionId must not be empty')
   let closed = false
   function checkOpen() {
     if (closed) throw new ModelingError('SESSION_CLOSED', 'Modeling session is closed')
@@ -24,8 +24,8 @@ export function createReadService(adapter: ModelingReadAdapter, sessionId: strin
       const result = await read()
       checkOpen()
       return result
-    } catch (error) {
-      if (error instanceof ModelingError) throw error
+    } catch {
+      checkOpen()
       throw new ModelingError('ENGINE_ERROR', 'The OpenVSP engine request failed')
     }
   }
@@ -34,7 +34,7 @@ export function createReadService(adapter: ModelingReadAdapter, sessionId: strin
     return {
       context: { sessionId, engineRevision: model.rev, engineVersion: model.version },
       fileName: model.fileName,
-      geometries: model.geoms.map((g): Geometry => ({ id: g.id, name: g.name, type: g.type, parentId: g.parent, childIds: [...g.children], visible: g.shown })),
+      geometries: model.geoms.map((g): Geometry => ({ id: g.id, name: g.name, type: g.type, parentId: g.parent, childIds: [...g.children], shown: g.shown })),
       selectedGeometryIds: [...model.active],
     }
   }
@@ -49,8 +49,8 @@ export function createReadService(adapter: ModelingReadAdapter, sessionId: strin
         const info = await getModel()
         return { context: info.context, geometryIds: info.selectedGeometryIds }
       },
-      /** Bounds and model info are separate reads and do not form an atomic snapshot. */
-      getBounds(): Promise<Bounds | null> {
+      /** Bounds of shown surfaces only, not all model geometry; a separate non-atomic read. */
+      getVisibleSurfaceBounds(): Promise<Bounds | null> {
         return fromEngine(() => adapter.bbox())
       },
     },
@@ -60,6 +60,7 @@ export function createReadService(adapter: ModelingReadAdapter, sessionId: strin
         return { context: info.context, geometries: info.geometries }
       },
       async get(geometryId: string): Promise<{ context: ModelInfo['context']; geometry: Geometry }> {
+        checkOpen()
         if (typeof geometryId !== 'string' || !geometryId.trim()) throw new ModelingError('INVALID_ARGUMENT', 'geometryId must be a nonempty string')
         const info = await getModel()
         const geometry = info.geometries.find((g) => g.id === geometryId)

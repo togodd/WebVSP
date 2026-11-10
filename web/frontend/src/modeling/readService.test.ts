@@ -13,10 +13,10 @@ describe('browser-local read service', () => {
     const service = createReadService(adapter, 'tab-1')
     const first = await service.model.getInfo()
     expect(first.context).toEqual({ sessionId: 'tab-1', engineRevision: 7, engineVersion: 'OpenVSP 3.55.0' })
-    expect(first.geometries[0]).toEqual({ id: 'f', name: 'Body', type: 'Fuselage', parentId: null, childIds: ['w'], visible: true })
+    expect(first.geometries[0]).toEqual({ id: 'f', name: 'Body', type: 'Fuselage', parentId: null, childIds: ['w'], shown: true })
     expect((await service.geometry.get('w')).geometry.parentId).toBe('f')
     expect((await service.model.getSelection()).geometryIds).toEqual(['w'])
-    expect(await service.model.getBounds()).toEqual({ min: [0, 0, 0], max: [1, 2, 3] })
+    expect(await service.model.getVisibleSurfaceBounds()).toEqual({ min: [0, 0, 0], max: [1, 2, 3] })
     first.geometries[0].childIds.length = 0
     expect(current.geoms[0].children).toEqual(['w'])
     current.geoms[0].name = 'Updated'; current.rev++
@@ -28,7 +28,7 @@ describe('browser-local read service', () => {
     const service = createReadService(adapter, 'one')
     await expect(service.geometry.get('')).rejects.toMatchObject({ code: 'INVALID_ARGUMENT' })
     await expect(service.geometry.get('missing')).rejects.toMatchObject({ code: 'GEOMETRY_NOT_FOUND' })
-    await expect(service.model.getBounds()).rejects.toMatchObject({ code: 'ENGINE_ERROR', message: 'The OpenVSP engine request failed' })
+    await expect(service.model.getVisibleSurfaceBounds()).rejects.toMatchObject({ code: 'ENGINE_ERROR', message: 'The OpenVSP engine request failed' })
   })
   it('isolates sessions, capabilities and closing', async () => {
     const adapter = { model: async () => fixture(), bbox: async () => null }
@@ -40,6 +40,14 @@ describe('browser-local read service', () => {
     await expect(a.model.getInfo()).rejects.toMatchObject({ code: 'SESSION_CLOSED' })
     expect((await b.model.getInfo()).context.sessionId).toBe('b')
     expect(() => createReadService(adapter, ' ')).toThrow()
+  })
+  it('prioritizes closure over invalid arguments and rejected engine requests', async () => {
+    let reject!: (error: Error) => void
+    const service = createReadService({ model: () => new Promise((_, r) => { reject = r }), bbox: async () => null }, 'tab')
+    const pending = service.model.getInfo()
+    service.close(); reject(new Error('private'))
+    await expect(pending).rejects.toMatchObject({ code: 'SESSION_CLOSED' })
+    await expect(service.geometry.get('')).rejects.toMatchObject({ code: 'SESSION_CLOSED' })
   })
   it('does not return a response after close during a pending request', async () => {
     let resolve!: (m: ModelTree) => void
