@@ -1,6 +1,17 @@
 import { describe, expect, it, vi } from 'vitest'
 import type { ModelTree } from '../api/types'
+import { WasmEngineError } from '../api/wasmEngine'
 import { createWriteService } from './writeService'
+
+vi.mock('../api/wasmEngine', () => ({
+  WasmEngineError: class WasmEngineError extends Error {
+    status: number
+    outcome?: string
+    actual?: number | null
+    code?: string
+    constructor(status: number, message: string, outcome?: string, actual?: number | null, code?: string) { super(message); this.status = status; this.outcome = outcome; this.actual = actual; this.code = code }
+  },
+}))
 
 function fixture() {
   const model: ModelTree = { geoms: [{ id: 'p', name: 'Parent', type: 'Fuselage', parent: null, children: [], shown: true, drawType: 1, color: [0, 0, 1], numXSecSurfs: 1 }], active: [], vehicleId: 'v', fileName: '', version: '3', rev: 1, dirty: false, undo: { canUndo: false, canRedo: false, undoLabel: null, redoLabel: null } }
@@ -17,6 +28,47 @@ function fixture() {
 const move = { geometryId: 'p', frame: 'world' as const, units: 'model-native' as const, delta: [1, 2, 3] as [number, number, number] }
 
 describe('modeling write service', () => {
+  it('passes the same identity to every preflight, dispatch and readback call', async () => {
+    const identity = { sessionId: 'session', modelEpoch: 'epoch' }
+    const created = fixture()
+    await created.service.create({ type: 'Wing', parentId: 'p' }, identity)
+    expect(created.adapter.model.mock.calls).toEqual([[identity], [identity]])
+    expect(created.adapter.geomTypes).toHaveBeenCalledWith(identity)
+    expect(created.adapter.addGeom).toHaveBeenCalledWith('Wing', 'p', identity)
+    const moved = fixture()
+    await moved.service.move(move, identity)
+    expect(moved.adapter.model.mock.calls).toEqual([[identity], [identity]])
+    expect(moved.adapter.geomOrigin.mock.calls).toEqual([['p', identity], ['p', identity]])
+    expect(moved.adapter.moveGeoms).toHaveBeenCalledWith(['p'], move.delta, identity)
+  })
+  it('maps engine stale before writing, but never assumes a write succeeded or failed on readback', async () => {
+    const identity = { sessionId: 'session', modelEpoch: 'epoch' }
+    const stale = (outcome?: 'not_written' | 'unknown') => new WasmEngineError(409, 'stale', outcome, undefined, 'STALE_MODEL')
+    for (const op of ['create', 'move'] as const) {
+      const invoke = (service: ReturnType<typeof createWriteService>) => op === 'create' ? service.create({ type: 'Wing', parentId: null }, identity) : service.move(move, identity)
+      for (const stage of ['model', 'secondary', 'dispatch', 'dispatchUnknown', 'readback', 'originReadback'] as const) {
+        if (op === 'create' && stage === 'originReadback') continue
+        const { adapter, service } = fixture()
+        if (stage === 'model') adapter.model.mockRejectedValueOnce(stale())
+        if (stage === 'secondary') {
+          if (op === 'create') adapter.geomTypes.mockRejectedValueOnce(stale())
+          else adapter.geomOrigin.mockRejectedValueOnce(stale())
+        }
+        if (stage === 'dispatch' || stage === 'dispatchUnknown') {
+          const error = stale(stage === 'dispatch' ? 'not_written' : 'unknown')
+          if (op === 'create') adapter.addGeom.mockRejectedValueOnce(error)
+          else adapter.moveGeoms.mockRejectedValueOnce(error)
+        }
+        if (stage === 'readback') adapter.model.mockResolvedValueOnce(structuredClone(fixture().model)).mockRejectedValueOnce(stale('not_written'))
+        if (stage === 'originReadback') adapter.geomOrigin.mockResolvedValueOnce([1, 2, 3]).mockRejectedValueOnce(stale('not_written'))
+        await expect(invoke(service)).rejects.toMatchObject({ code: ['model', 'secondary', 'dispatch'].includes(stage) ? 'STALE_MODEL' : 'OUTCOME_UNKNOWN' })
+        if (stage === 'model' || stage === 'secondary') {
+          expect(adapter.addGeom).not.toHaveBeenCalled()
+          expect(adapter.moveGeoms).not.toHaveBeenCalled()
+        }
+      }
+    }
+  })
   it('closes pending preflight without dispatching and consumes late failures', async () => {
     for (const op of ['create', 'move'] as const) {
       const { adapter } = fixture()
