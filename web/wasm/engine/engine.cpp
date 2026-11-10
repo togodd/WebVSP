@@ -1770,6 +1770,14 @@ void RunImpl( const Job &j )
         }
         vec3d d( delta[0], delta[1], delta[2] );
         vector< string > ids = SplitCsv( j.a );
+        if ( j.guarded )
+        {
+            if ( j.a.empty() || j.a.front() == ',' || j.a.back() == ',' || j.a.find( ",," ) != string::npos )
+                return ParmWriteFailure( j.id, "Move requires non-empty geom IDs", "not_written", "null" );
+            string err;
+            for ( const string &id : ids )
+                if ( !CurrentModelGeom( id, err ) ) return ParmWriteFailure( j.id, err, "not_written", "null" );
+        }
         if ( !BeginGuardedWrite() ) return;
         vsp::MirrorMoveGeoms( ids, d );
         string err = TakeErrors();

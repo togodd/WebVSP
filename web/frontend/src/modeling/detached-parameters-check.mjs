@@ -55,11 +55,26 @@ try {
         section: () => engine.testCall('xsecParmIDs', detachedSection),
         write: () => engine.testCall('geomSetParm', detached.id, detached.parms[0], 1),
       })) raw[key] = await failure(fn)
+      const model = await engine.testCall('model')
+      if (!model.modelEpochValid) throw new Error('Invalid model epoch')
+      const guarded = (op, a = '', b = '') => engine.testCallGuarded(op, a, b, 0, model.modelEpoch)
+      const origin = () => engine.testCall('origin', body)
+      const moveFailures = []
+      for (const ids of [detached.id, `${body},${detached.id}`, `${detached.id},${body}`, 'NOTREAL', `${body},NOTREAL`, '', `,${body}`, `${body},`, `${body},,${child}`]) {
+        const before = await origin()
+        const error = await failure(() => guarded('move', ids, '1,2,3'))
+        moveFailures.push({ ids, before, error, after: await origin() })
+      }
+      const beforeMove = await origin()
+      const moved = await guarded('move', body, '1,2,3')
+      const afterMove = await origin()
+      const legacy = await engine.testCall('move', body, ' 2junk,1')
+      const afterLegacy = await origin()
       await engine.testCall('parameterDetachedCleanup', detached.id)
       detached = undefined
       await engine.request('POST', '/file/new')
       const stale = await failure(() => service.parameter.listGeometryParameterIds(body, identity))
-      return { body, child, detachedId: detachedFixtureId, originalLength, originalIds, childIds, emptySurfaces, tree, checks, raw, stale }
+      return { body, child, detachedId: detachedFixtureId, originalLength, originalIds, childIds, emptySurfaces, tree, checks, raw, stale, moveFailures, beforeMove, moved, afterMove, legacy, afterLegacy }
     } finally {
       if (detached) await engine.testCall('parameterDetachedCleanup', detached.id)
       service.close()
@@ -75,6 +90,18 @@ try {
   for (const [name, value] of Object.entries(result.raw)) assert.notEqual(value.code, 'SUCCEEDED', name)
   assert.equal(result.raw.write.outcome, 'not_written')
   assert.equal(result.raw.write.actual, null)
+  for (const { ids, before, error, after } of result.moveFailures) {
+    assert.notEqual(error.code, 'SUCCEEDED', ids)
+    assert.equal(error.outcome, 'not_written', ids)
+    assert.equal(error.actual, null, ids)
+    assert.deepEqual(after, before, ids)
+  }
+  assert.equal(result.moved.ok, true)
+  assert.equal(result.legacy.ok, true)
+  for (const [i, delta] of [1, 2, 3].entries())
+    assert.ok(Math.abs(result.afterMove[i] - result.beforeMove[i] - delta) < 1e-8)
+  for (const [i, delta] of [2, 1, 0].entries())
+    assert.ok(Math.abs(result.afterLegacy[i] - result.afterMove[i] - delta) < 1e-8)
   assert.equal(result.stale.code, 'STALE_MODEL')
   assert.deepEqual(errors, [])
   console.log('PASS: detached geometry is rejected by parameter and XSec operations')
