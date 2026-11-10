@@ -12,7 +12,10 @@ export interface WingStation {
   readonly id: string
   /** Position in this particular read, not a persistent identifier. */
   readonly index: number
-  /** Index 0 is the root airfoil station; subsequent entries represent wing sections. */
+  /** Index 0 is the root airfoil XSec, with no inboard wing section. For i > 0,
+   * this XSec is the outboard airfoil station of the section from i-1 to i;
+   * its WingSect owns that section's parameters. The ID is an XSec ID, not a
+   * separate segment ID, and indices can change after topology edits. */
   readonly kind: 'rootAirfoilStation' | 'wingSection'
 }
 export interface WingSurface {
