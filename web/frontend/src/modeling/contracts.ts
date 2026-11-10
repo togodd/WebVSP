@@ -46,7 +46,7 @@ export interface Capability {
   reason?: string
 }
 
-export type ModelingErrorCode = 'INVALID_ARGUMENT' | 'GEOMETRY_NOT_FOUND' | 'UNSUPPORTED_OPERATION' | 'ENGINE_ERROR' | 'SESSION_CLOSED' | 'OUTCOME_UNKNOWN' | 'STALE_MODEL'
+export type ModelingErrorCode = 'INVALID_ARGUMENT' | 'GEOMETRY_NOT_FOUND' | 'CROSS_SECTION_NOT_FOUND' | 'UNSUPPORTED_OPERATION' | 'ENGINE_ERROR' | 'SESSION_CLOSED' | 'OUTCOME_UNKNOWN' | 'STALE_MODEL'
 
 export class ModelingError extends Error {
   readonly code: ModelingErrorCode

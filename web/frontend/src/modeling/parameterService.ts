@@ -64,23 +64,27 @@ function surfacesSnapshot(value: unknown): CrossSectionSurface[] {
 }
 export function createParameterService(adapter: ParameterReadAdapter, signal: AbortSignal = new AbortController().signal) {
   function checkOpen() { if (signal.aborted) throw new ModelingError('SESSION_CLOSED', 'Modeling session is closed') }
-  async function read<T>(fn: () => Promise<unknown>, snapshot: (result: unknown) => T, identity?: ModelIdentity): Promise<T> {
+  async function read<T>(fn: () => Promise<unknown>, snapshot: (result: unknown) => T, owner: 'geometry' | 'crossSection', identity?: ModelIdentity): Promise<T> {
     checkOpen()
     try { const result = await raceClose(signal, fn); checkOpen(); return snapshot(result) } catch (error) {
       checkOpen()
       if (identity !== undefined && error instanceof WasmEngineError && error.code === 'STALE_MODEL') throw new ModelingError('STALE_MODEL', 'The model identity is stale')
+      if (error instanceof WasmEngineError) {
+        if (owner === 'geometry' && error.code === 'GEOMETRY_NOT_FOUND') throw new ModelingError('GEOMETRY_NOT_FOUND', 'Geometry not found')
+        if (owner === 'crossSection' && error.code === 'CROSS_SECTION_NOT_FOUND') throw new ModelingError('CROSS_SECTION_NOT_FOUND', 'Cross section not found')
+      }
       throw new ModelingError('ENGINE_ERROR', 'The OpenVSP parameter request failed')
     }
   }
   return {
     /** Only surfaces and cross sections reachable through the current model's geometry. */
-    listSurfaces(geometryId: string, identity?: ModelIdentity) { checkOpen(); const owner = id(geometryId, 'geometryId'); return read(() => identity === undefined ? adapter.surfaces(owner) : adapter.surfaces(owner, identity), surfacesSnapshot, identity) },
+    listSurfaces(geometryId: string, identity?: ModelIdentity) { checkOpen(); const owner = id(geometryId, 'geometryId'); return read(() => identity === undefined ? adapter.surfaces(owner) : adapter.surfaces(owner, identity), surfacesSnapshot, 'geometry', identity) },
     /** The engine resolves and checks the unique geometry-owned Design/Length parameter. */
-    getFuselageLength(geometryId: string, identity?: ModelIdentity) { checkOpen(); const owner = id(geometryId, 'geometryId'); return read(() => identity === undefined ? adapter.fuselageLength(owner) : adapter.fuselageLength(owner, identity), result => { const parameter = parameterSnapshot(result); if (parameter.name !== 'Length' || parameter.group !== 'Design' || parameter.container !== owner) return invalid(); return parameter }, identity) },
+    getFuselageLength(geometryId: string, identity?: ModelIdentity) { checkOpen(); const owner = id(geometryId, 'geometryId'); return read(() => identity === undefined ? adapter.fuselageLength(owner) : adapter.fuselageLength(owner, identity), result => { const parameter = parameterSnapshot(result); if (parameter.name !== 'Length' || parameter.group !== 'Design' || parameter.container !== owner) return invalid(); return parameter }, 'geometry', identity) },
     /** IDs returned by OpenVSP's linkable parameter list; not all internal parameters. */
-    listGeometryParameterIds(geometryId: string, identity?: ModelIdentity) { checkOpen(); const owner = id(geometryId, 'geometryId'); return read(() => identity === undefined ? adapter.list('geometry', owner) : adapter.list('geometry', owner, identity), idsSnapshot, identity) },
-    listCrossSectionParameterIds(sectionId: string, identity?: ModelIdentity) { checkOpen(); const owner = id(sectionId, 'sectionId'); return read(() => identity === undefined ? adapter.list('crossSection', owner) : adapter.list('crossSection', owner, identity), idsSnapshot, identity) },
-    getGeometryParameter(geometryId: string, parameterId: string, identity?: ModelIdentity) { checkOpen(); const owner = id(geometryId, 'geometryId'), parm = id(parameterId, 'parameterId'); return read(() => identity === undefined ? adapter.get('geometry', owner, parm) : adapter.get('geometry', owner, parm, identity), result => { const parameter = parameterSnapshot(result); if (parameter.id !== parm) return invalid(); return parameter }, identity) },
-    getCrossSectionParameter(sectionId: string, parameterId: string, identity?: ModelIdentity) { checkOpen(); const owner = id(sectionId, 'sectionId'), parm = id(parameterId, 'parameterId'); return read(() => identity === undefined ? adapter.get('crossSection', owner, parm) : adapter.get('crossSection', owner, parm, identity), result => { const parameter = parameterSnapshot(result); if (parameter.id !== parm) return invalid(); return parameter }, identity) },
+    listGeometryParameterIds(geometryId: string, identity?: ModelIdentity) { checkOpen(); const owner = id(geometryId, 'geometryId'); return read(() => identity === undefined ? adapter.list('geometry', owner) : adapter.list('geometry', owner, identity), idsSnapshot, 'geometry', identity) },
+    listCrossSectionParameterIds(sectionId: string, identity?: ModelIdentity) { checkOpen(); const owner = id(sectionId, 'sectionId'); return read(() => identity === undefined ? adapter.list('crossSection', owner) : adapter.list('crossSection', owner, identity), idsSnapshot, 'crossSection', identity) },
+    getGeometryParameter(geometryId: string, parameterId: string, identity?: ModelIdentity) { checkOpen(); const owner = id(geometryId, 'geometryId'), parm = id(parameterId, 'parameterId'); return read(() => identity === undefined ? adapter.get('geometry', owner, parm) : adapter.get('geometry', owner, parm, identity), result => { const parameter = parameterSnapshot(result); if (parameter.id !== parm) return invalid(); return parameter }, 'geometry', identity) },
+    getCrossSectionParameter(sectionId: string, parameterId: string, identity?: ModelIdentity) { checkOpen(); const owner = id(sectionId, 'sectionId'), parm = id(parameterId, 'parameterId'); return read(() => identity === undefined ? adapter.get('crossSection', owner, parm) : adapter.get('crossSection', owner, parm, identity), result => { const parameter = parameterSnapshot(result); if (parameter.id !== parm) return invalid(); return parameter }, 'crossSection', identity) },
   }
 }

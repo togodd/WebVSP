@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from 'vitest'
 import { createParameterService } from './parameterService'
 import { WasmEngineError } from '../api/wasmEngine'
+import { ModelingError } from './contracts'
 
 vi.mock('../api/wasmEngine', () => ({
   WasmEngineError: class WasmEngineError extends Error {
@@ -41,6 +42,45 @@ describe('linkable parameter reads', () => {
     await expect(service.listSurfaces('g')).rejects.toMatchObject({ code: 'ENGINE_ERROR' })
     adapter.surfaces.mockRejectedValue(new Error('secret'))
     await expect(service.listSurfaces('g', identity)).rejects.toMatchObject({ code: 'ENGINE_ERROR' })
+  })
+  it('maps only matching owner engine errors and never exposes backend data', async () => {
+    let failure: unknown
+    const reject = async (): Promise<never> => { throw failure }
+    const service = createParameterService({ surfaces: reject, fuselageLength: reject, list: reject, get: reject })
+    const geometry = [() => service.listSurfaces('secret-id'), () => service.getFuselageLength('secret-id'), () => service.listGeometryParameterIds('secret-id'), () => service.getGeometryParameter('secret-id', 'secret-parm')]
+    const sections = [() => service.listCrossSectionParameterIds('secret-id'), () => service.getCrossSectionParameter('secret-id', 'secret-parm')]
+    for (const [code, expectedGeometry, expectedSection] of [
+      ['GEOMETRY_NOT_FOUND', 'GEOMETRY_NOT_FOUND', 'ENGINE_ERROR'],
+      ['CROSS_SECTION_NOT_FOUND', 'ENGINE_ERROR', 'CROSS_SECTION_NOT_FOUND'],
+      ['UNKNOWN_SECRET_CODE', 'ENGINE_ERROR', 'ENGINE_ERROR'],
+    ] as const) {
+      failure = new WasmEngineError(404, 'secret backend message', 'unknown', 123, code)
+      for (const [calls, expected] of [[geometry, expectedGeometry], [sections, expectedSection]] as const) for (const call of calls) {
+        const error = await call().catch(e => e)
+        expect(error).toBeInstanceOf(ModelingError)
+        expect(error.toJSON()).toEqual({ code: expected, message: expected === 'GEOMETRY_NOT_FOUND' ? 'Geometry not found' : expected === 'CROSS_SECTION_NOT_FOUND' ? 'Cross section not found' : 'The OpenVSP parameter request failed' })
+        expect(JSON.stringify(error)).not.toMatch(/secret|123/i)
+      }
+    }
+    for (const fake of [Object.assign(new Error('secret'), { code: 'GEOMETRY_NOT_FOUND' }), { code: 'CROSS_SECTION_NOT_FOUND', message: 'secret' }, new ModelingError('GEOMETRY_NOT_FOUND', 'secret')]) {
+      failure = fake
+      for (const call of [...geometry, ...sections]) await expect(call()).rejects.toMatchObject({ code: 'ENGINE_ERROR', message: 'The OpenVSP parameter request failed' })
+    }
+  })
+  it('prioritizes stale identity and closed session over backend not-found errors', async () => {
+    const identity = { sessionId: 'session', modelEpoch: 'epoch' }
+    const stale = new WasmEngineError(409, 'secret', undefined, undefined, 'STALE_MODEL')
+    const controller = new AbortController()
+    let failure = stale
+    const reject = async (): Promise<never> => { throw failure }
+    const service = createParameterService({ surfaces: reject, fuselageLength: reject, list: reject, get: reject }, controller.signal)
+    await expect(service.listCrossSectionParameterIds('x', identity)).rejects.toMatchObject({ code: 'STALE_MODEL' })
+    await expect(service.listCrossSectionParameterIds('x')).rejects.toMatchObject({ code: 'ENGINE_ERROR' })
+    failure = new WasmEngineError(404, 'secret', undefined, undefined, 'CROSS_SECTION_NOT_FOUND')
+    const pending = service.listCrossSectionParameterIds('x', identity)
+    controller.abort()
+    await expect(pending).rejects.toMatchObject({ code: 'SESSION_CLOSED' })
+    expect(() => service.listSurfaces('')).toThrowError(expect.objectContaining({ code: 'SESSION_CLOSED' }))
   })
   it('races every pending parameter read with close and consumes late rejections', async () => {
     const controller = new AbortController()
