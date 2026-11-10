@@ -1380,7 +1380,7 @@ bool SafeWriteContext( Vehicle *veh, const Job &j )
     if ( asGetActiveContext() || !AdvLinkMgr.GetLinks().empty() ) return false;
     // The store includes detached/clipboard geoms, not just FindGeoms' model tree.
     for ( Geom *geom : veh->GetGeomStoreVec() )
-        if ( !geom || geom->GetType().m_Type == CUSTOM_GEOM_TYPE ) return false;
+        if ( !geom || !KnownNonCustomGeomType( geom->GetType().m_Type ) ) return false;
 
     if ( j.op == "addGeom" )
     {
