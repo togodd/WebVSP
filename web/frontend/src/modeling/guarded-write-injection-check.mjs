@@ -106,6 +106,30 @@ try {
           extraCases.push({ op, phase, before, args, error, after, observed, recoveryArgs, recovery, recoveryAfter })
         }
       }
+      // Parent validation precedes BeginGuardedWrite; even post/watch arms must
+      // be discarded on this early return. Stale epoch and unsafe type checks
+      // precede parent validation. Exercise each combination independently.
+      const parentCases = []
+      for (const phase of ['pre', 'post', 'watch']) {
+        for (const priority of ['parent', 'stale', 'unsafe', 'staleUnsafe']) {
+          const before = await guarded('model')
+          await arm(phase)
+          const start = events.length
+          let error
+          try {
+            await guarded('addGeom', priority === 'unsafe' || priority === 'staleUnsafe' ? 'NOT_A_GEOM_TYPE' : 'BLANK',
+              'NOT_A_CURRENT_PARENT', priority === 'stale' || priority === 'staleUnsafe' ? 'not-an-epoch' : model.modelEpoch)
+            error = { code: 'SUCCEEDED' }
+          } catch (e) {
+            error = { code: e.code, outcome: e.outcome, actual: e.actual, message: e.message }
+          }
+          const after = await guarded('model')
+          const observed = events.slice(start).filter(e => e.type === 'model_changed' && e.label === 'Add BLANK')
+          const recovery = await guarded('addGeom', 'BLANK', id)
+          const recoveryAfter = await guarded('model')
+          parentCases.push({ phase, priority, before, error, after, observed, recovery, recoveryAfter })
+        }
+      }
       const cases = []
       for (const phase of ['pre', 'post', 'watch']) {
         const before = await snapshot()
@@ -150,7 +174,7 @@ try {
       const afterInvalid = await snapshot()
       const afterInvalidWrite = await guarded('move', id, '1,0,0')
       const afterInvalidRecovery = await snapshot()
-      return { control, controlBefore, controlAfter, controlAdded, controlCleaned, controlRecovery, controlRecoveryModel, id, cases, extraCases, beforeStale, stale, afterStale, afterStaleWrite, afterStaleRecovery,
+      return { control, controlBefore, controlAfter, controlAdded, controlCleaned, controlRecovery, controlRecoveryModel, id, cases, extraCases, parentCases, beforeStale, stale, afterStale, afterStaleWrite, afterStaleRecovery,
         beforeRead, readThenWrite, afterRead, clearedWrite, afterClear,
         beforeInvalid, invalid, afterInvalid, afterInvalidWrite, afterInvalidRecovery }
     } finally {
@@ -191,6 +215,21 @@ try {
     else near(c.recovery.actual, c.recoveryArgs[2], `${label}: recovery result`)
     near(c.recoveryAfter.length, c.op === 'geomSetParm' ? c.recoveryArgs[2] : c.after.length, `${label}: recovery length`)
     near(c.recoveryAfter.section, c.op === 'xsecSetParm' ? c.recoveryArgs[2] : c.after.section, `${label}: recovery section`)
+  }
+  for (const c of result.parentCases) {
+    const label = `addGeom/${c.phase}/${c.priority}`
+    assert.equal(c.error.code, c.priority === 'parent' ? undefined : c.priority === 'stale' || c.priority === 'staleUnsafe' ? 'STALE_MODEL' : 'UNSAFE_SCRIPT_CONTEXT', label)
+    assert.equal(c.error.outcome, 'not_written', label)
+    assert.equal(c.error.actual, null, label)
+    if (c.priority === 'parent') assert.match(c.error.message, /Geom not found in the current model: NOT_A_CURRENT_PARENT/, label)
+    assert.deepEqual(c.after.geoms, c.before.geoms, `${label}: model unchanged`)
+    assert.deepEqual(c.after.active, c.before.active, `${label}: selection unchanged`)
+    assert.equal(c.observed.length, 0, `${label}: no add event`)
+    const added = c.recoveryAfter.geoms.filter(g => !c.after.geoms.some(old => old.id === g.id))
+    assert.equal(added.length, 1, `${label}: recovery adds exactly one geom`)
+    assert.equal(c.recovery.id, added[0].id, label)
+    assert.equal(added[0].parent, result.id, `${label}: recovery uses valid parent`)
+    assert.deepEqual(c.after.geoms.filter(g => !c.recoveryAfter.geoms.some(next => next.id === g.id)), [], `${label}: recovery removes nothing`)
   }
   for (const c of result.cases) {
     assert.deepEqual(c.error, { code: 'SCRIPT_REENTRY_BLOCKED', outcome: c.phase === 'pre' ? 'not_written' : 'unknown', actual: null }, c.phase)
