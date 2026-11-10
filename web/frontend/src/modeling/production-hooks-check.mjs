@@ -77,6 +77,7 @@ try {
       ['parameterDetachedFixture', id],
       ['parameterDetachedCleanup', id],
       ['serializerInjection', 'model:early'],
+      ['parmReadInjection', 'FindGeoms'],
       ['webvspDefinitelyUnknownOperation', ''],
     ]
     const results = []
@@ -91,7 +92,7 @@ try {
     return { id, results }
   })
   assert.ok(result.id)
-  assert.equal(result.results.length, 11)
+  assert.equal(result.results.length, 12)
   for (const { op, before, error, after } of result.results) {
     assert.deepEqual(error, { message: `unknown request: ${op}`, status: 400 }, `${op}: must be rejected by the engine as unknown`)
     assert.equal(before.model.modelEpochValid, true, `${op}: valid model identity`)
@@ -100,7 +101,7 @@ try {
     console.log(`PASS: ${op} rejected without model changes`)
   }
   assert.deepEqual(errors, [], 'browser, console and network errors')
-  console.log('PASS: production WASM excludes all ten test-only operations')
+  console.log('PASS: production WASM excludes all eleven test-only operations')
 } finally {
   if (browser) await browser.close()
   clearTimeout(deadline)
