@@ -68,6 +68,9 @@
 #include <cctype>
 #include <cstdlib>
 #include <chrono>
+#ifdef WEBVSP_SCRIPT_GUARD_TEST
+#include <condition_variable>
+#endif
 #include <cmath>
 #include <cstdint>
 #include <cstdio>
@@ -715,6 +718,7 @@ void EmitModelChanged( bool tree, const vector< string > &changed, const vector<
 
 #ifdef WEBVSP_SCRIPT_GUARD_TEST
 void InjectGuardedWriteScript( const char *phase );
+void TestWriteBarrier( int phase );
 #endif
 
 // Every ~150 ms, and right after each edit: report what the GUI or a request changed.
@@ -722,6 +726,7 @@ void Watch( const string &label = "", bool force = false )
 {
 #ifdef WEBVSP_SCRIPT_GUARD_TEST
     InjectGuardedWriteScript( "post" );
+    TestWriteBarrier( 1 ); // guarded Watch entry, after optional post injection
 #endif
     bool updated = vsp::GetAndResetUpdateCount() > 0;
     string sig = TreeSignature();
@@ -759,6 +764,45 @@ struct GuardedWriteState
 thread_local GuardedWriteState *g_GuardedWrite = nullptr;
 
 #ifdef WEBVSP_SCRIPT_GUARD_TEST
+// Test-only rendezvous uses a separate lock: take() must remain usable while
+// the engine pthread is paused. The browser never waits on this condition.
+std::mutex g_TestBarrierMutex;
+std::condition_variable g_TestBarrierCv;
+int g_TestBarrierPhase = 0; // 1: Watch entry, 2: before final guard check
+int g_TestBarrierState = 0; // 0: idle, 1: armed, 2: paused, 3: timed out
+
+bool TestBarrierArm( int phase )
+{
+    std::lock_guard< std::mutex > lock( g_TestBarrierMutex );
+    if ( ( phase != 1 && phase != 2 ) || g_TestBarrierState != 0 ) return false;
+    g_TestBarrierPhase = phase;
+    g_TestBarrierState = 1;
+    return true;
+}
+
+int TestBarrierState()
+{
+    std::lock_guard< std::mutex > lock( g_TestBarrierMutex );
+    return g_TestBarrierState;
+}
+
+void TestBarrierRelease()
+{
+    std::lock_guard< std::mutex > lock( g_TestBarrierMutex );
+    g_TestBarrierState = 0;
+    g_TestBarrierCv.notify_all();
+}
+
+void TestWriteBarrier( int phase )
+{
+    if ( !g_GuardedWrite ) return;
+    std::unique_lock< std::mutex > lock( g_TestBarrierMutex );
+    if ( g_TestBarrierState != 1 || g_TestBarrierPhase != phase ) return;
+    g_TestBarrierState = 2;
+    if ( !g_TestBarrierCv.wait_for( lock, std::chrono::seconds( 15 ), [] { return g_TestBarrierState != 2; } ) )
+        g_TestBarrierState = 3;
+}
+
 string g_InjectionArmed, g_InjectionActive, g_InjectionModule;
 
 int ExecuteGuardedWriteInjection()
@@ -1940,6 +1984,9 @@ void Run( const Job &j )
             threw = true;
         }
 
+#ifdef WEBVSP_SCRIPT_GUARD_TEST
+        TestWriteBarrier( 2 ); // guard still alive, before its final state is checked
+#endif
         if ( state.guard.Attempted() )
             PublishResult( "{\"t\":\"result\",\"id\":" + std::to_string( j.id ) +
                 ",\"ok\":false,\"error\":\"SCRIPT_REENTRY_BLOCKED\",\"code\":\"SCRIPT_REENTRY_BLOCKED\",\"outcome\":" +
@@ -2108,4 +2155,9 @@ EMSCRIPTEN_BINDINGS( openvsp )
     emscripten::function( "requestFull", &RequestFull );
     emscripten::function( "processOutput", &ProcessOutput );
     emscripten::function( "processExit", &ProcessExit );
+#ifdef WEBVSP_SCRIPT_GUARD_TEST
+    emscripten::function( "testBarrierArm", &TestBarrierArm );
+    emscripten::function( "testBarrierState", &TestBarrierState );
+    emscripten::function( "testBarrierRelease", &TestBarrierRelease );
+#endif
 }
