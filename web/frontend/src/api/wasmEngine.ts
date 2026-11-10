@@ -20,6 +20,7 @@ import { onSolverEnded, solverExited, solverSpawned } from './solverRun'
 import { submitPending } from './pendingCall'
 import { settleBridgeResult } from './settleBridgeResult'
 import { emitListeners } from './emitListeners'
+import { drainBatch } from './drainBatch'
 
 interface VspModule {
   call(id: number, op: string, a: string, b: string, value: number): void
@@ -99,16 +100,15 @@ function load(): Promise<VspModule> {
 }
 
 function drain(vsp: VspModule) {
-  const { out, mirror, proc } = JSON.parse(vsp.take()) as {
+  const batch = JSON.parse(vsp.take()) as {
     out: Record<string, unknown>[]
     mirror: Record<string, unknown>[]
     proc: ProcRequest[]
   }
-  for (const r of proc) {
+  drainBatch(batch, (r) => {
     if (r.t === 'spawn') runProgram(vsp, r)
     else if (r.t === 'kill') killProgram(vsp, r.id)
-  }
-  for (const m of out) {
+  }, (m) => {
     if (m.t === 'result') {
       settleBridgeResult(pending, m, (id) => vsp.takeBinary(id), (result) => {
         const outcome = result.outcome === 'not_written' || result.outcome === 'different' || result.outcome === 'unknown' ? result.outcome : undefined
@@ -125,15 +125,14 @@ function drain(vsp: VspModule) {
     } else {
       emit(m as unknown as SocketMessage)
     }
-  }
-  if (mirror.length) {
+  }, (mirror) => {
     const files = mirror.filter((m) => m.t === 'dialog' && m.kind === 'file')
     // Answered here with the browser's pickers, not the UI's file browser.
     for (const m of files) m.native = true
     // The UI must know a prompt before it hears it was answered.
     emit({ type: 'mirror', msgs: mirror })
     for (const m of files) void answerFileDialog(vsp, m as unknown as MDialog)
-  }
+  })
   watchLinked(vsp)
 }
 
