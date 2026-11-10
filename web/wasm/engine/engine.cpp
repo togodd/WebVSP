@@ -768,6 +768,20 @@ vector< string > SplitCsv( const string &s )
     return out;
 }
 
+// Parameter owners must be reachable from the current model, not merely registered in
+// the vehicle's geom store (which also contains clipboard copies).
+bool CurrentModelGeom( const string &geom, string &err )
+{
+    vector< string > geoms = vsp::FindGeoms();
+    if ( !( err = TakeErrors() ).empty() ) return false;
+    if ( std::find( geoms.begin(), geoms.end(), geom ) == geoms.end() )
+    {
+        err = "Geom not found in the current model: " + geom;
+        return false;
+    }
+    return true;
+}
+
 // Enumerate only live XSecs reachable through a geom; a globally registered XSec may be a
 // clipboard or otherwise not part of the current model. Propagate errors even for empty lists.
 bool GeomXSecs( const string &geom, string &json, bool &found, const string &wanted, string &err )
@@ -816,6 +830,7 @@ bool ParmIDs( bool xsec, const string &owner, vector< string > &ids, string &err
     }
     else
     {
+        if ( !CurrentModelGeom( owner, err ) ) return false;
         ids = vsp::GetGeomParmIDs( owner );
     }
     err = TakeErrors();
@@ -1311,9 +1326,53 @@ void Run( const Job &j )
         FuselageLength( j.a, json, err );
         return Result( j.id, err, json );
     }
+#ifdef WEBVSP_SCRIPT_GUARD_TEST
+    // Test-only detached copy with known IDs; never part of the public bridge. Use only
+    // in a disposable model, with no intervening geom deletion/replacement: epoch and
+    // pointer checks do not exclude an ABA reuse of both an ID and an address.
+    static std::map< string, std::pair< uint64_t, Geom* > > parameter_test_copies;
+    if ( j.op == "parameterDetachedFixture" )
+    {
+        Vehicle *veh = VehicleMgr.GetVehicle();
+        string err;
+        if ( !CurrentModelGeom( j.a, err ) ) return Result( j.id, err, "" );
+        vector< string > copies = veh->CopyGeomVec( vector< string >( 1, j.a ) );
+        if ( copies.size() != 1 ) return Result( j.id, "Could not create detached geom", "" );
+        vector< string > ids = vsp::GetGeomParmIDs( copies[0] );
+        err = TakeErrors();
+        string sections;
+        bool found = false;
+        if ( err.empty() ) GeomXSecs( copies[0], sections, found, "", err );
+        if ( !err.empty() )
+        {
+            veh->DeleteGeomVec( copies );
+            return Result( j.id, err, "" );
+        }
+        parameter_test_copies[copies[0]] = { veh->GetModelEpoch(), veh->FindGeom( copies[0] ) };
+        return Result( j.id, "", "{\"id\":" + Quote( copies[0] ) + ",\"parms\":" + StrArray( ids ) + ",\"surfaces\":" + sections + "}" );
+    }
+    if ( j.op == "parameterDetachedCleanup" )
+    {
+        Vehicle *veh = VehicleMgr.GetVehicle();
+        auto it = parameter_test_copies.find( j.a );
+        if ( it == parameter_test_copies.end() ) return Result( j.id, "Unknown test fixture", "" );
+        uint64_t epoch = it->second.first;
+        Geom *original = it->second.second;
+        parameter_test_copies.erase( it );
+        if ( !veh || !veh->IsModelEpochValid() || veh->GetModelEpoch() != epoch ||
+             veh->FindGeom( j.a ) != original )
+            return Result( j.id, "Test fixture model was replaced", "" );
+        string err;
+        if ( CurrentModelGeom( j.a, err ) ) return Result( j.id, "Refusing to delete current model geom", "" );
+        if ( err != "Geom not found in the current model: " + j.a ) return Result( j.id, err, "" );
+        veh->DeleteGeomVec( vector< string >( 1, j.a ) );
+        return Result( j.id, "", "null" );
+    }
+#endif
     if ( j.op == "geomXSecs" )
     {
         string json, err;
+        if ( !CurrentModelGeom( j.a, err ) ) return Result( j.id, err, "" );
         bool found = false;
         GeomXSecs( j.a, json, found, "", err );
         return Result( j.id, err, json );
