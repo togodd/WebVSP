@@ -17,7 +17,8 @@ import type { MDialog } from '../mirror/types'
 import { useViewer } from '../viewer/store'
 import { offerResults } from './solverResults'
 import { onSolverEnded, solverExited, solverSpawned } from './solverRun'
-import { submitPending, takePending } from './pendingCall'
+import { submitPending } from './pendingCall'
+import { settleBridgeResult } from './settleBridgeResult'
 
 interface VspModule {
   call(id: number, op: string, a: string, b: string, value: number): void
@@ -108,18 +109,12 @@ function drain(vsp: VspModule) {
   }
   for (const m of out) {
     if (m.t === 'result') {
-      const p = takePending(pending, m.id as number, !!m.bin, (id) => vsp.takeBinary(id))
-      if (!p) continue
-      if (!m.ok) {
-        const outcome = m.outcome === 'not_written' || m.outcome === 'different' || m.outcome === 'unknown' ? m.outcome : undefined
-        const actual = typeof m.actual === 'number' && Number.isFinite(m.actual) ? m.actual : m.actual === null ? null : undefined
-        const code = typeof m.code === 'string' ? m.code : undefined
-        p.reject(new WasmEngineError(code === 'STALE_MODEL' ? 409 : 400, String(m.error), outcome, actual, code))
-      }
-      else if (m.bin) {
-        const bytes = vsp.takeBinary(m.id as number)
-        p.resolve(bytes ? bytes.buffer : new ArrayBuffer(0))
-      } else p.resolve(m.value)
+      settleBridgeResult(pending, m, (id) => vsp.takeBinary(id), (result) => {
+        const outcome = result.outcome === 'not_written' || result.outcome === 'different' || result.outcome === 'unknown' ? result.outcome : undefined
+        const actual = typeof result.actual === 'number' && Number.isFinite(result.actual) ? result.actual : result.actual === null ? null : undefined
+        const code = typeof result.code === 'string' ? result.code : undefined
+        return new WasmEngineError(code === 'STALE_MODEL' ? 409 : 400, String(result.error), outcome, actual, code)
+      })
     } else if (m.type === 'engine_ready') {
       if (m.gui) {
         emit({ type: 'mirror_snapshot', enabled: true, windows: [], widgets: [], dialogs: [] })
