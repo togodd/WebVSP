@@ -5,6 +5,8 @@ import type { CrossSectionSurface, EngineParameter, ParameterReadAdapter } from 
 import { getEngineSessionId, wasmRequest } from '../api/wasmEngine'
 import { createWriteService } from './writeService'
 import { createParameterWriteService } from './parameterWriteService'
+import { createWingService } from './wingService'
+import { createFuselageService } from './fuselageService'
 
 export * from './contracts'
 export type { ModelingReadAdapter } from './readService'
@@ -31,13 +33,14 @@ export function createBrowserModelingService() {
     geomOrigin: (id) => api.geomOrigin(id),
     moveGeoms: async (ids, delta) => await api.moveGeoms(ids, delta) as { ok: boolean },
   }, controller.signal)
-  return { ...read, close: () => { controller.abort(); read.close() }, capabilities: () => {
-    const result = read.capabilities()
-    return { ...result, features: result.features.map((c) => ['parameter.read', 'parameter.write', 'geometry.create', 'geometry.move'].includes(c.name) ? { name: c.name, status: 'supported' as const } : c) }
-  }, parameter: {
+  const parameter = {
     ...createParameterService(adapter, controller.signal),
     ...createParameterWriteService({
       set: async (owner, ownerId, parameterId, value) => await wasmRequest('PUT', `${path(owner, ownerId)}/${encodeURIComponent(parameterId)}`, { value }) as { actual: number },
     }, controller.signal),
-  }, write }
+  }
+  return { ...read, close: () => { controller.abort(); read.close() }, capabilities: () => {
+    const result = read.capabilities()
+    return { ...result, features: result.features.map((c) => ['parameter.read', 'parameter.write', 'geometry.create', 'geometry.move', 'wing.read', 'fuselage.read'].includes(c.name) ? { name: c.name, status: 'supported' as const } : c) }
+  }, parameter, wing: createWingService({ geometry: read.geometry, parameters: parameter }), fuselage: createFuselageService(read.geometry, parameter), write }
 }

@@ -24,7 +24,7 @@ export function raceClose<T>(signal: AbortSignal, fn: () => Promise<T>): Promise
 }
 
 const supported = new Set(['model.read', 'geometry.read'])
-const capabilityNames: Capability['name'][] = ['model.read', 'geometry.read', 'geometry.create', 'geometry.move', 'parameter.read', 'parameter.write', 'wing.edit', 'fuselage.edit', 'assembly.attach']
+const capabilityNames: Capability['name'][] = ['model.read', 'geometry.read', 'geometry.create', 'geometry.move', 'parameter.read', 'parameter.write', 'wing.read', 'wing.edit', 'fuselage.read', 'fuselage.edit', 'assembly.attach']
 
 /** A service belongs to one live engine instance. Revision is an event counter, not a lock. */
 export function createReadService(adapter: ModelingReadAdapter, sessionId: string) {

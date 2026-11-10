@@ -31,7 +31,7 @@ export interface Bounds {
 }
 
 export type CapabilityStatus = 'supported' | 'unsupported'
-export type CapabilityName = 'model.read' | 'geometry.read' | 'geometry.create' | 'geometry.move' | 'parameter.read' | 'parameter.write' | 'wing.edit' | 'fuselage.edit' | 'assembly.attach'
+export type CapabilityName = 'model.read' | 'geometry.read' | 'geometry.create' | 'geometry.move' | 'parameter.read' | 'parameter.write' | 'wing.read' | 'wing.edit' | 'fuselage.read' | 'fuselage.edit' | 'assembly.attach'
 
 export interface Capability {
   name: CapabilityName
