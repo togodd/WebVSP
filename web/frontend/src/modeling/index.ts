@@ -1,6 +1,6 @@
 import { api } from '../api/client'
 import type { ModelTree } from '../api/types'
-import { callGuarded, getEngineSessionId, WasmEngineError } from '../api/wasmEngine'
+import { callGuarded, discoverModel, getEngineSessionId, WasmEngineError } from '../api/wasmEngine'
 import { ModelingError, type ModelIdentity } from './contracts'
 import { createReadService } from './readService'
 import { createParameterService } from './parameterService'
@@ -22,7 +22,11 @@ export type { CrossSectionSurface, EngineParameter, ParameterReadAdapter } from 
 export function createBrowserModelingService() {
   const sessionId = getEngineSessionId()
   const controller = new AbortController()
-  const read = createReadService({ model: api.model, bbox: api.bbox }, sessionId)
+  const presentModel = (tree: ModelTree) => {
+    const name = tree.fileName
+    return { ...tree, fileName: name === 'Unnamed.vsp3' ? '' : name.startsWith('/home/web_user/') ? name.slice('/home/web_user/'.length) : name.replace(/^\//, '') }
+  }
+  const read = createReadService({ model: async () => presentModel(await discoverModel<ModelTree>()), bbox: api.bbox }, sessionId)
   function identity(value: ModelIdentity): ModelIdentity {
     if (controller.signal.aborted) throw new ModelingError('SESSION_CLOSED', 'Modeling session is closed')
     if (!value) throw new ModelingError('INVALID_ARGUMENT', 'A valid model identity is required')
@@ -38,9 +42,7 @@ export function createBrowserModelingService() {
     const call = <T>(op: Parameters<typeof callGuarded>[0], a = '', b = '', value = 0) => callGuarded<T>(op, a, b, value, token.modelEpoch)
     const model = async () => {
       const tree = await call<ModelTree>('model')
-      // Match the public model route's file name presentation.
-      const name = tree.fileName
-      return { ...tree, fileName: name === 'Unnamed.vsp3' ? '' : name.startsWith('/home/web_user/') ? name.slice('/home/web_user/'.length) : name.replace(/^\//, '') }
+      return presentModel(tree)
     }
     const readScoped = createReadService({
       model: async () => {

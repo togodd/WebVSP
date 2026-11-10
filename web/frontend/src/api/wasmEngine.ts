@@ -143,6 +143,11 @@ async function call(op: string, a = '', b = '', value = 0): Promise<unknown> {
   return submitPending(pending, id, () => vsp.call(id, op, a, b, value))
 }
 
+/** Internal discovery snapshot: no epoch required, but serializer errors are fatal. */
+export async function discoverModel<T = unknown>(): Promise<T> {
+  return await call('modelDiscovery') as T
+}
+
 /** A model identity token is an opaque decimal string, never a JavaScript number. */
 export interface EngineModelEpoch {
   modelEpoch: string

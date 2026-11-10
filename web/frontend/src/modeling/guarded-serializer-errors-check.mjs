@@ -16,6 +16,8 @@ try {
   await page.waitForSelector('[data-ready="1"]', { timeout: 120000 })
   const result = await page.evaluate(async () => {
     const engine = window.__webvspEngine
+    const { createBrowserModelingService } = await import('/src/modeling/index.ts')
+    const service = createBrowserModelingService()
     const legacy = (op, a = '') => engine.testCall(op, a, '', 0)
     const arm = point => legacy('serializerInjection', point)
     await engine.request('POST', '/file/new')
@@ -42,21 +44,38 @@ try {
           cases.push({ op, arg, point, baseline, failure, value, recovery, legacyValue, legacyRecovery })
         }
       }
-      return cases
-    } finally { await arm('clear') }
+      const discovery = []
+      for (const phase of ['early', 'middle', 'late']) {
+        const point = `model:${phase}`
+        await arm(point)
+        let failure = null, value
+        try { value = await service.model.getInfo() } catch (e) { failure = { code: e.code, message: e.message } }
+        const recovery = await service.model.getInfo()
+        await arm(point)
+        const legacyValue = await engine.request('GET', '/model')
+        discovery.push({ point, failure, value, recovery, legacyValue })
+      }
+      return { cases, discovery }
+    } finally { await arm('clear'); service.close() }
   })
   assert.deepEqual(errors, [])
+  for (const d of result.discovery) {
+    assert.equal(d.failure?.code, 'ENGINE_ERROR', d.point)
+    assert.equal(d.value, undefined, d.point)
+    assert.ok(d.recovery.geometries.length > 0, d.point)
+    assert.ok(d.legacyValue.geoms.length > 0, d.point)
+  }
   const comparable = (op, value) => op === 'model'
     ? { geoms: value.geoms, active: value.active, vehicleId: value.vehicleId, fileName: value.fileName, version: value.version, modelEpoch: value.modelEpoch }
     : value
-  for (const c of result) {
+  for (const c of result.cases) {
     const label = `${c.point} ${c.arg}`
     assert.match(c.failure ?? '', new RegExp(`Injected serializer error: ${c.point}`), label)
     assert.equal(c.value, undefined, `${label}: must not return partial success`)
     for (const [name, value] of [['recovery', c.recovery], ['legacy', c.legacyValue], ['legacy recovery', c.legacyRecovery]])
       assert.deepEqual(comparable(c.op, value), comparable(c.op, c.baseline), `${label}: ${name}`)
   }
-  console.log(`PASS: ${result.length} guarded serializer failures, recovery and legacy compatibility`)
+  console.log(`PASS: ${result.cases.length} guarded and ${result.discovery.length} discovery serializer failures, recovery and legacy compatibility`)
 } finally {
   clearTimeout(deadline)
   await browser.close()

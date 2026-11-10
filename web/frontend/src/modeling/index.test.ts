@@ -3,6 +3,7 @@ import { describe, expect, it, vi } from 'vitest'
 vi.mock('../api/client', () => ({ api: { model: vi.fn(), bbox: vi.fn() } }))
 vi.mock('../api/wasmEngine', () => ({
   getEngineSessionId: () => 'tab',
+  discoverModel: vi.fn(),
   callGuarded: vi.fn(async () => ({ modelEpoch: '42', modelEpochValid: true, fileName: '', rev: 1, version: '', geoms: [], active: [] })),
   WasmEngineError: class extends Error {
     readonly code?: string
@@ -10,10 +11,24 @@ vi.mock('../api/wasmEngine', () => ({
   },
 }))
 
-import { callGuarded, WasmEngineError } from '../api/wasmEngine'
+import { api } from '../api/client'
+import { callGuarded, discoverModel, WasmEngineError } from '../api/wasmEngine'
 import { createBrowserModelingService } from './index'
 
 describe('browser modeling identity', () => {
+  it('discovers without an epoch, propagates failure, and recovers without legacy model', async () => {
+    const discovery = vi.mocked(discoverModel)
+    discovery.mockReset()
+    discovery.mockRejectedValueOnce(new Error('serializer failure')).mockResolvedValueOnce({ modelEpoch: '42', modelEpochValid: true, fileName: '/home/web_user/test.vsp3', rev: 1, version: '', geoms: [], active: [] })
+    const service = createBrowserModelingService()
+    try {
+      await expect(service.model.getInfo()).rejects.toMatchObject({ code: 'ENGINE_ERROR' })
+      expect((await service.model.getInfo()).fileName).toBe('test.vsp3')
+      expect(discovery).toHaveBeenCalledTimes(2)
+      expect(vi.mocked(api.model)).not.toHaveBeenCalled()
+    } finally { service.close(); discovery.mockReset() }
+  })
+
   it('validates and guards with the same values from changing getters', async () => {
     const service = createBrowserModelingService()
     let sessions = 0, epochs = 0

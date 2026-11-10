@@ -19,7 +19,8 @@
 //     GUI, emitting "model_changed" events.
 //
 // Requests (op, a, b, value) and their results (the page's side is wasmRequest, wasmEngine.ts):
-//   model, geomTypes, bbox              JSON (bbox: the shown geoms', or a="all" every geom's)
+//   model, modelDiscovery, geomTypes, bbox   JSON (bbox: the shown geoms', or a="all" every geom's)
+//     modelDiscovery is an unguarded internal snapshot that reports serializer errors.
 //   mesh(a=geom id)                     binary "VSPM" mesh (format: web/frontend/src/api/mesh.ts)
 //   addGeom(a=type, b=parent)           {"id":...}
 //   deleteGeoms(a=comma-separated ids)
@@ -1784,10 +1785,10 @@ void RunImpl( const Job &j )
     if ( j.op == "advLinkGuardCheck" ) return AdvLinkGuardCheck( j.id );
     if ( j.op == "storedGeomTypesCheck" ) return StoredGeomTypesCheck( j.id );
 #endif
-    if ( j.op == "model" )
+    if ( j.op == "model" || j.op == "modelDiscovery" )
     {
         string err;
-        string m = ModelJson( j.guarded ? &err : nullptr );
+        string m = ModelJson( j.guarded || j.op == "modelDiscovery" ? &err : nullptr );
         if ( !err.empty() ) return Result( j.id, err, "" );
         // Add the engine's own bookkeeping, as session.tree() does.
         m.pop_back();
