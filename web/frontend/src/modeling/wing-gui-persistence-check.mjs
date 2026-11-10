@@ -1,8 +1,10 @@
 // Run against vite.modeling-test.config.ts with a matching WASM build.
-// A fresh browser context and in-memory picker keep this model isolated from user files.
+// A fresh browser context and fake in-memory picker keep this model isolated from user files.
+// GUI edits exercise the real mirrored OpenVSP widgets, not the modeling facade's write API.
 import { chromium } from 'playwright-core'
 import assert from 'node:assert/strict'
 
+const testPage = process.env.WEBVSP_TEST_PAGE ?? 'http://127.0.0.1:5179/'
 const executablePath = process.env.WEBVSP_TEST_CHROMIUM
 if (!executablePath) throw new Error('Set WEBVSP_TEST_CHROMIUM to a Chromium executable')
 const browser = await chromium.launch({ executablePath, headless: true, args: ['--no-sandbox', '--enable-unsafe-swiftshader'] })
@@ -30,7 +32,7 @@ try {
     window.showSaveFilePicker = async () => handle
     window.showOpenFilePicker = async () => { window.__wingTestPicker.opens++; return [handle] }
   })
-  await page.goto(process.env.WEBVSP_TEST_PAGE ?? 'http://127.0.0.1:5178/')
+  await page.goto(testPage)
   await page.waitForSelector('[data-ready="1"]', { timeout: 120000 })
   assert.equal(await page.evaluate(() => crossOriginIsolated), true)
   await page.evaluate(async () => {
@@ -87,6 +89,39 @@ try {
   const oldIds = before.wing.surfaces[0].stations.map(s => s.id)
   assert.ok(oldIds.length >= 2)
 
+  // Change an absolute world coordinate using the mirrored GUI, not facade writes.
+  // The two XLoc fields are relative and absolute; target the actual bound parm.
+  const targetX = 12.375
+  const absButton = page.getByRole('button', { name: 'Abs', exact: true })
+  const xAbs = page.locator('.m-w.m-input[title*="XForm:X_Location"] input')
+  const origin = id => page.evaluate(id => window.__webvspEngine.request('GET', `/geoms/${encodeURIComponent(id)}/origin`), id)
+  const near = (actual, expected, message) => assert.ok(Math.abs(actual - expected) < 1e-6, `${message}: ${actual} != ${expected}`)
+  const showXForm = async () => {
+    await page.locator('.m-tabbar').getByRole('button', { name: 'XForm', exact: true }).click()
+    await absButton.waitFor({ state: 'visible' })
+    await xAbs.waitFor({ state: 'visible' })
+  }
+  const waitForX = async (id, x) => {
+    await page.waitForFunction(async ({ id, x }) => {
+      const origin = await window.__webvspEngine.request('GET', `/geoms/${encodeURIComponent(id)}/origin`)
+      const input = document.querySelector('.m-w.m-input[title*="XForm:X_Location"] input')
+      return Math.abs(origin[0] - x) < 1e-6 && input && Math.abs(Number(input.value) - x) < 1e-6
+    }, { id, x }, { timeout: 30000 })
+  }
+  await showXForm()
+  await absButton.click()
+  await page.waitForFunction(() => [...document.querySelectorAll('.m-w button')].some(button => button.textContent.trim() === 'Abs' && button.classList.contains('on')), null, { timeout: 30000 })
+  const originBefore = await origin(wing.id)
+  await xAbs.fill(String(targetX))
+  await xAbs.press('Enter')
+  await waitForX(wing.id, targetX)
+  const changedOrigin = await origin(wing.id)
+  near(changedOrigin[0], targetX, 'GUI absolute XLoc must set the engine world origin')
+  near(changedOrigin[1], originBefore[1], 'GUI XLoc must preserve world Y')
+  near(changedOrigin[2], originBefore[2], 'GUI XLoc must preserve world Z')
+  assert.ok(Math.abs(originBefore[0] - targetX) > 1e-6, 'XLoc edit must change the origin')
+  near(Number(await xAbs.inputValue()), targetX, 'GUI absolute XLoc readback')
+
   // A freshly created WingGeom initializes its active Wing Section to 1. Insert
   // is after that section, i.e. at XSec index 2 (not a new root station).
   await page.locator('.m-tabbar').getByRole('button', { name: 'Sect', exact: true }).click()
@@ -120,9 +155,18 @@ try {
   assert.deepEqual(restored.wing.surfaces[0].stations.map(s => [s.index, s.kind]), after.wing.surfaces[0].stations.map(s => [s.index, s.kind]))
   assert.equal(restored.fuselage.length.value, after.fuselage.length.value)
   assert.deepEqual(restored.fuselage.surfaces.map(s => s.sections.length), after.fuselage.surfaces.map(s => s.sections.length))
+  const reopenedOrigin = await origin(reopenedWing.id)
+  for (let i = 0; i < 3; i++) near(reopenedOrigin[i], changedOrigin[i], `saved world origin component ${i}`)
+  // Re-select the reopened wing to inspect its own editor, rather than assuming
+  // that opening a file restores the previous selection.
+  await page.evaluate(id => window.__webvspEngine.request('POST', '/pick', { id }), reopenedWing.id)
+  await showXForm()
+  await waitForX(reopenedWing.id, targetX)
+  near(Number(await xAbs.inputValue()), targetX, 'reopened GUI absolute XLoc')
+  assert.ok(await absButton.evaluate(el => el.classList.contains('on')), 'reopened XForm must retain Abs mode')
   assert.deepEqual(errors, [])
   await page.evaluate(() => window.__wingTestService.close())
-  console.log('PASS: GUI wing Insert and domain reads survive fake-picker save/reopen')
+  console.log('PASS: GUI wing XForm Abs XLoc and Insert survive fake-picker save/reopen; GUI edits are not facade writes')
 } finally {
   await context.close()
   await browser.close()
