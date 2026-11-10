@@ -31,25 +31,43 @@ export function createParameterWriteService(adapter: ParameterWriteAdapter, sign
   return {
     async set(input: ParameterWriteInput, identity?: ModelIdentity): Promise<{ actual: number }> {
       if (signal.aborted) throw new ModelingError('SESSION_CLOSED', 'Modeling session is closed')
-      if (!input || typeof input !== 'object' || (input.owner !== 'geometry' && input.owner !== 'crossSection') ||
-          !validId(input.ownerId) || !validId(input.parameterId) || typeof input.value !== 'number' || !Number.isFinite(input.value)) {
+      let owner: ParameterOwner, ownerId: string, parameterId: string, value: number
+      let identityCopy: ModelIdentity | undefined
+      try {
+        if (!input || typeof input !== 'object') throw new Error()
+        ;({ owner, ownerId, parameterId, value } = input)
+        if ((owner !== 'geometry' && owner !== 'crossSection') || !validId(ownerId) || !validId(parameterId) ||
+            typeof value !== 'number' || !Number.isFinite(value)) throw new Error()
+        if (identity !== undefined) {
+          if (!identity || typeof identity !== 'object') throw new Error()
+          const { sessionId, modelEpoch } = identity
+          if (typeof sessionId !== 'string' || !sessionId || typeof modelEpoch !== 'string' || !modelEpoch) throw new Error()
+          identityCopy = { sessionId, modelEpoch }
+        }
+      } catch {
+        if (signal.aborted) throw new ModelingError('SESSION_CLOSED', 'Modeling session is closed')
         throw new ModelingError('INVALID_ARGUMENT', 'A valid owner, IDs and finite numeric value are required')
       }
-      const { owner, ownerId, parameterId, value } = input
       if (signal.aborted) throw new ModelingError('SESSION_CLOSED', 'Modeling session is closed')
       let dispatched = false
       let result: { actual: number }
       try {
         result = await raceClose(signal, () => {
           dispatched = true
-          return identity === undefined ? adapter.set(owner, ownerId, parameterId, value) : adapter.set(owner, ownerId, parameterId, value, identity)
+          return identityCopy === undefined ? adapter.set(owner, ownerId, parameterId, value) : adapter.set(owner, ownerId, parameterId, value, { ...identityCopy })
         })
         if (signal.aborted) throw new ModelingError('OUTCOME_UNKNOWN', 'The parameter write outcome is unknown; do not automatically retry')
       } catch (error) {
         if (!dispatched) throw new ModelingError('SESSION_CLOSED', 'Modeling session is closed')
         if (signal.aborted) throw new ModelingError('OUTCOME_UNKNOWN', 'The parameter write outcome is unknown; do not automatically retry')
         if (error instanceof WasmEngineError) {
-          const actual = typeof error.actual === 'number' && Number.isFinite(error.actual) ? error.actual : null
+          let actual: number | null = null
+          try {
+            const readback = error.actual
+            if (typeof readback === 'number' && Number.isFinite(readback)) actual = readback
+          } catch {
+            throw new ModelingError('OUTCOME_UNKNOWN', 'The parameter write outcome is unknown; do not automatically retry')
+          }
           if (error.outcome === 'not_written') {
             if (identity !== undefined && error.code === 'STALE_MODEL') throw new ModelingError('STALE_MODEL', 'The model identity is stale', { outcome: 'not_written', actual })
             throw new ModelingError('ENGINE_ERROR', 'The parameter was not written', { outcome: 'not_written', actual })
@@ -58,10 +76,13 @@ export function createParameterWriteService(adapter: ParameterWriteAdapter, sign
         }
         throw new ModelingError('OUTCOME_UNKNOWN', 'The parameter write outcome is unknown; do not automatically retry')
       }
-      if (!result || typeof result.actual !== 'number' || !Number.isFinite(result.actual) || result.actual !== value) {
-        throw new ModelingError('OUTCOME_UNKNOWN', 'The parameter write outcome is unknown; do not automatically retry')
+      try {
+        const actual = result?.actual
+        if (!signal.aborted && typeof actual === 'number' && Number.isFinite(actual) && actual === value) return { actual }
+      } catch {
+        // A throwing readback cannot establish the outcome of a dispatched write.
       }
-      return { actual: result.actual }
+      throw new ModelingError('OUTCOME_UNKNOWN', 'The parameter write outcome is unknown; do not automatically retry')
     },
   }
 }

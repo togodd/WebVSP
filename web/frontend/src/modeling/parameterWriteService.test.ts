@@ -32,7 +32,7 @@ describe('single parameter write service', () => {
     const { adapter, service } = fixture()
     await service.set(input, identity)
     expect(adapter.set).toHaveBeenCalledWith('geometry', 'geom', 'parm', 1.5, identity)
-    expect((adapter.set.mock.calls[0] as unknown as [string, string, string, number, typeof identity])[4]).toBe(identity)
+    expect((adapter.set.mock.calls[0] as unknown as [string, string, string, number, typeof identity])[4]).not.toBe(identity)
     adapter.set.mockRejectedValue(new WasmEngineError(409, 'secret', 'not_written', null, 'STALE_MODEL'))
     await expect(service.set(input, identity)).rejects.toMatchObject({ code: 'STALE_MODEL', details: { outcome: 'not_written' } })
     await expect(service.set(input)).rejects.toMatchObject({ code: 'ENGINE_ERROR' })
@@ -100,6 +100,65 @@ describe('single parameter write service', () => {
     const pending = service.set(input)
     controller.abort()
     await expect(pending).rejects.toMatchObject({ code: 'OUTCOME_UNKNOWN' })
+  })
+  it('snapshots each input field once and maps getter failures to invalid argument', async () => {
+    const { adapter, service } = fixture()
+    const counts: Record<string, number> = {}
+    const malicious = Object.fromEntries(Object.entries(input).map(([key, value]) => [key, {
+      enumerable: true, get() { counts[key] = (counts[key] ?? 0) + 1; return counts[key] === 1 ? value : undefined },
+    }]))
+    await expect(service.set(Object.defineProperties({}, malicious) as typeof input)).resolves.toEqual({ actual: 1.5 })
+    expect(counts).toEqual({ owner: 1, ownerId: 1, parameterId: 1, value: 1 })
+    for (const field of Object.keys(input)) {
+      const bad = { ...input, get [field]() { throw new Error('private') } }
+      await expect(service.set(bad)).rejects.toMatchObject({ code: 'INVALID_ARGUMENT' })
+    }
+    expect(adapter.set).toHaveBeenCalledTimes(1)
+  })
+  it('prioritizes close if an input or identity getter closes and throws', async () => {
+    for (const which of ['input', 'identity']) {
+      const controller = new AbortController()
+      const { adapter } = fixture()
+      const service = createParameterWriteService(adapter, controller.signal)
+      const fail = () => { controller.abort(); throw new Error('private') }
+      const badInput = which === 'input' ? { ...input, get ownerId(): string { return fail() } } : input
+      const identity = which === 'identity' ? { get sessionId(): string { return fail() }, modelEpoch: 'epoch' } : undefined
+      await expect(service.set(badInput, identity)).rejects.toMatchObject({ code: 'SESSION_CLOSED' })
+      expect(adapter.set).not.toHaveBeenCalled()
+    }
+  })
+  it('validates and snapshots identity without exposing the caller object', async () => {
+    const counts = { sessionId: 0, modelEpoch: 0 }
+    const identity = {
+      get sessionId() { counts.sessionId++; return counts.sessionId === 1 ? ' session ' : '' },
+      get modelEpoch() { counts.modelEpoch++; return counts.modelEpoch === 1 ? ' epoch ' : '' },
+    }
+    const adapter = { set: vi.fn(async (_a: string, _b: string, _c: string, value: number, copy?: { sessionId: string; modelEpoch: string }) => {
+      expect(copy).toEqual({ sessionId: ' session ', modelEpoch: ' epoch ' })
+      if (copy) copy.sessionId = 'modified'
+      return { actual: value }
+    }) }
+    const service = createParameterWriteService(adapter)
+    await service.set(input, identity)
+    expect(counts).toEqual({ sessionId: 1, modelEpoch: 1 })
+    expect(adapter.set.mock.calls[0][4]).not.toBe(identity)
+    for (const bad of [null, {}, { sessionId: '', modelEpoch: 'e' }, { sessionId: 's', modelEpoch: 0 }, { get sessionId() { throw Error('secret') }, modelEpoch: 'e' }]) {
+      await expect(service.set(input, bad as never)).rejects.toMatchObject({ code: 'INVALID_ARGUMENT' })
+    }
+    expect(adapter.set).toHaveBeenCalledTimes(1)
+  })
+  it('reads result actual once and sanitizes throwing readbacks', async () => {
+    const { adapter, service } = fixture()
+    let reads = 0
+    adapter.set.mockResolvedValue({ get actual() { return ++reads === 1 ? 1.5 : 2 } })
+    await expect(service.set(input)).resolves.toEqual({ actual: 1.5 })
+    expect(reads).toBe(1)
+    adapter.set.mockResolvedValue({ get actual(): number { throw new Error('private') } })
+    await expect(service.set(input)).rejects.toMatchObject({ code: 'OUTCOME_UNKNOWN' })
+    const error = new WasmEngineError(400, 'private', 'not_written')
+    Object.defineProperty(error, 'actual', { get() { throw new Error('private') } })
+    adapter.set.mockRejectedValue(error)
+    await expect(service.set(input)).rejects.toMatchObject({ code: 'OUTCOME_UNKNOWN' })
   })
   it('does not report success for malformed or differing readback', async () => {
     for (const result of [null, {}, { actual: NaN }, { actual: Infinity }, { actual: 2 }]) {
