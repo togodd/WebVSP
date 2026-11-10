@@ -54,6 +54,7 @@
 #include "VehicleMgr.h"
 #include "WebProcess.h"
 #ifdef WEBVSP_SCRIPT_GUARD_TEST
+#include "AdvLinkMgr.h"
 #include "ScriptMgr.h"
 #endif
 
@@ -962,6 +963,62 @@ bool ParseModelEpoch( const string &text, uint64_t &epoch )
 // This diagnostic is absent unless explicitly compiled in (e.g. with
 // -DWEBVSP_SCRIPT_GUARD_TEST). It accepts no script or other caller-controlled input.
 #ifdef WEBVSP_SCRIPT_GUARD_TEST
+// Disposable-model integration check: the script may only delete the separately
+// created victim, never the geom/parm whose setter remains on the C++ stack.
+// Both the script and its target are generated here, not supplied by the caller.
+void AdvLinkGuardCheck( int id )
+{
+    const size_t before = vsp::FindGeoms().size();
+    const string driver = vsp::AddGeom( "BLANK" );
+    const string victim = vsp::AddGeom( "BLANK" );
+    const string input = vsp::FindParm( driver, "X_Rel_Location", "XForm" );
+    AdvLink *link = nullptr;
+    bool built = false, initial = false, attempted = false;
+    bool below_alive = false, guarded_alive = false, unguarded_alive = true;
+    if ( !driver.empty() && !victim.empty() && !input.empty() )
+    {
+        link = AdvLinkMgr.AddLink( "WebVSP_Guard_AdvLink_Check" );
+        AdvLinkMgr.AddInput( input, "input_value" );
+        link->SetScriptCode( "if (input_value > 0.75) { DeleteGeom(\"" + victim + "\"); }" );
+        built = link->BuildScript();
+        if ( built )
+        {
+            auto alive = [&]() {
+                vector< string > geoms = vsp::FindGeoms();
+                return std::find( geoms.begin(), geoms.end(), victim ) != geoms.end();
+            };
+            vsp::SetParmVal( input, 0.5 );
+            below_alive = alive();
+            {
+                ScriptMgrSingleton::ExecuteScriptGuard guard( ScriptMgrSingleton::getInstance() );
+                initial = guard.Attempted();
+                vsp::SetParmVal( input, 1.0 );
+                attempted = guard.Attempted();
+                guarded_alive = alive();
+            }
+            // Change the input again, rather than calling ExecuteScript directly.
+            vsp::SetParmVal( input, 2.0 );
+            unguarded_alive = alive();
+        }
+    }
+    if ( link ) AdvLinkMgr.DelLink( link );
+    vector< string > remaining = vsp::FindGeoms();
+    vector< string > cleanup;
+    for ( const string &geom : remaining )
+        if ( geom == driver || geom == victim ) cleanup.push_back( geom );
+    vsp::DeleteGeomVec( cleanup );
+    vsp::Update();
+    string err = TakeErrors();
+    Watch( "Advanced link guard check", true );
+    auto boolean = []( bool value ) { return value ? "true" : "false"; };
+    string json = "{\"built\":" + string( boolean( built ) ) +
+        ",\"belowAlive\":" + boolean( below_alive ) + ",\"initial\":" + boolean( initial ) +
+        ",\"attempted\":" + boolean( attempted ) + ",\"guardedAlive\":" + boolean( guarded_alive ) +
+        ",\"unguardedAlive\":" + boolean( unguarded_alive ) +
+        ",\"before\":" + std::to_string( before ) + ",\"afterCleanup\":" + std::to_string( vsp::FindGeoms().size() ) + "}";
+    Result( id, err, json );
+}
+
 void ScriptGuardCheck( int id )
 {
     ScriptMgrSingleton &mgr = ScriptMgrSingleton::getInstance();
@@ -1093,6 +1150,7 @@ void Run( const Job &j )
     TakeErrors();
 #ifdef WEBVSP_SCRIPT_GUARD_TEST
     if ( j.op == "scriptGuardCheck" ) return ScriptGuardCheck( j.id );
+    if ( j.op == "advLinkGuardCheck" ) return AdvLinkGuardCheck( j.id );
 #endif
     if ( j.op == "model" )
     {
