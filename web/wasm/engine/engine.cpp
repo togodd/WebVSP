@@ -66,7 +66,9 @@
 #include <emscripten/val.h>
 
 #include <algorithm>
+#include <cerrno>
 #include <cctype>
+#include <cstdlib>
 #include <chrono>
 #include <cmath>
 #include <cstdint>
@@ -1376,9 +1378,37 @@ void Run( const Job &j )
     }
     if ( j.op == "move" )
     {
-        vector< string > c = SplitCsv( j.b );
-        vec3d d( c.size() > 0 ? atof( c[0].c_str() ) : 0, c.size() > 1 ? atof( c[1].c_str() ) : 0,
-                 c.size() > 2 ? atof( c[2].c_str() ) : 0 );
+        double delta[3];
+        if ( j.guarded )
+        {
+            const char *p = j.b.c_str();
+            const char *end = p + j.b.size();
+            bool valid = std::none_of( j.b.begin(), j.b.end(), []( unsigned char c ) { return std::isspace( c ); } );
+            for ( int i = 0; valid && i < 3; ++i )
+            {
+                char *next;
+                errno = 0;
+                delta[i] = strtod( p, &next );
+                valid = next != p && errno != ERANGE && std::isfinite( delta[i] ) &&
+                        ( i == 2 ? next == end : next < end && *next == ',' );
+                if ( valid ) p = i == 2 ? next : next + 1;
+            }
+            if ( !valid )
+            {
+                Emit( "{\"t\":\"result\",\"id\":" + std::to_string( j.id ) +
+                      ",\"ok\":false,\"error\":\"INVALID_ARGUMENT\",\"code\":\"INVALID_ARGUMENT\","
+                      "\"outcome\":\"not_written\",\"actual\":null}" );
+                return;
+            }
+        }
+        else
+        {
+            vector< string > c = SplitCsv( j.b );
+            delta[0] = c.size() > 0 ? atof( c[0].c_str() ) : 0;
+            delta[1] = c.size() > 1 ? atof( c[1].c_str() ) : 0;
+            delta[2] = c.size() > 2 ? atof( c[2].c_str() ) : 0;
+        }
+        vec3d d( delta[0], delta[1], delta[2] );
         vsp::MirrorMoveGeoms( SplitCsv( j.a ), d );
         string err = TakeErrors();
         Watch( "Move", true );
