@@ -145,7 +145,7 @@ void WebProcess::Exit( int id, int code )
 {
     std::lock_guard< std::mutex > lock( g_Mutex );
     auto it = g_Procs.find( id );
-    if ( it != g_Procs.end() )
+    if ( it != g_Procs.end() && it->second.running )
     {
         it->second.running = false;
         it->second.code = code;
