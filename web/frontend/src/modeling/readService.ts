@@ -30,13 +30,15 @@ export function createReadService(adapter: ModelingReadAdapter, sessionId: strin
     }
   }
   async function getModel(): Promise<ModelInfo> {
-    const model = await fromEngine(() => adapter.model())
-    return {
-      context: { sessionId, engineRevision: model.rev, engineVersion: model.version },
-      fileName: model.fileName,
-      geometries: model.geoms.map((g): Geometry => ({ id: g.id, name: g.name, type: g.type, parentId: g.parent, childIds: [...g.children], shown: g.shown })),
-      selectedGeometryIds: [...model.active],
-    }
+    return fromEngine(async () => {
+      const model = await adapter.model()
+      return {
+        context: { sessionId, engineRevision: model.rev, engineVersion: model.version },
+        fileName: model.fileName,
+        geometries: model.geoms.map((g): Geometry => ({ id: g.id, name: g.name, type: g.type, parentId: g.parent, childIds: [...g.children], shown: g.shown })),
+        selectedGeometryIds: [...model.active],
+      }
+    })
   }
   return {
     capabilities(): { contractVersion: string; features: Capability[] } {
