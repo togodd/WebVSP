@@ -188,7 +188,10 @@ export async function wasmRequest(method: string, path: string, body?: unknown):
 }
 
 // For the browser console and tests: __webvspEngine.request('POST', '/geoms', { type: 'WING' })
-(window as unknown as Record<string, unknown>).__webvspEngine = { request: wasmRequest }
+(window as unknown as Record<string, unknown>).__webvspEngine = {
+  request: wasmRequest,
+  ...(import.meta.env.DEV ? { testCall: call } : {}),
+}
 
 /** Stand-in for the WebSocket: "connected" once OpenVSP has started, then its events. */
 export function wasmConnect(onEvent: (e: SocketMessage) => void, onStatus: (connected: boolean) => void) {

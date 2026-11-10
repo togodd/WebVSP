@@ -1067,31 +1067,60 @@ void Run( const Job &j )
     if ( j.op == "newModel" )
     {
         vsp::ClearVSPModel();
-        vsp::Update();
         string err = TakeErrors();
+        if ( err.empty() )
+        {
+            vsp::Update();
+            err = TakeErrors();
+        }
+        if ( !err.empty() )
+        {
+            // Clear or update may already have changed the model.
+            g_Dirty = true;
+            Watch( "New", true );
+            return Result( j.id, err, "" );
+        }
         g_Dirty = false;
         Watch( "New", true );
         g_Dirty = false;
-        return Result( j.id, err, "{\"ok\":true}" );
+        return Result( j.id, "", "{\"ok\":true}" );
     }
     if ( j.op == "readFile" )
     {
         vsp::ClearVSPModel();
-        vsp::ReadVSPFile( j.a );
-        vsp::Update();
         string err = TakeErrors();
+        if ( err.empty() )
+        {
+            vsp::ReadVSPFile( j.a );
+            err = TakeErrors();
+        }
+        if ( err.empty() )
+        {
+            vsp::Update();
+            err = TakeErrors();
+        }
+        if ( !err.empty() )
+        {
+            // The old model was cleared; a failed read is not rolled back.
+            g_Dirty = true;
+            Watch( "Open", true );
+            return Result( j.id, err, "" );
+        }
         Watch( "Open", true );
         g_Dirty = false;
-        return Result( j.id, err, "{\"ok\":true}" );
+        return Result( j.id, "", "{\"ok\":true}" );
     }
     if ( j.op == "writeFile" )
     {
         vsp::SetVSP3FileName( j.a );
-        vsp::WriteVSPFile( j.a );
         string err = TakeErrors();
+        if ( !err.empty() ) return Result( j.id, err, "" );
+        vsp::WriteVSPFile( j.a );
+        err = TakeErrors();
+        if ( !err.empty() ) return Result( j.id, err, "" );
         g_Dirty = false;
         Emit( "{\"type\":\"saved\",\"fileName\":" + Quote( j.a ) + "}" );
-        return Result( j.id, err, "{\"path\":" + Quote( j.a ) + "}" );
+        return Result( j.id, "", "{\"path\":" + Quote( j.a ) + "}" );
     }
     if ( j.op == "pick" )
     {
