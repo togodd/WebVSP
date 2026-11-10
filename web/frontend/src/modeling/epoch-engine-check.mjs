@@ -12,6 +12,7 @@ try {
   await page.waitForSelector('[data-ready="1"]', { timeout: 120000 })
   const result = await page.evaluate(async () => {
     const engine = window.__webvspEngine
+    const bridge = await import('/src/api/wasmEngine.ts')
     const model = () => engine.testCall('model')
     const guarded = (token) => engine.testCallGuarded('addGeom', 'WING', '', 0, token)
     const failure = async (fn) => {
@@ -23,8 +24,10 @@ try {
     const first = await model()
     const added = await guarded(first.modelEpoch)
     const afterAdd = await model()
-    const missing = await failure(() => guarded(undefined))
+    const missing = await failure(() => bridge.callGuarded('addGeom', 'WING', '', 0, undefined))
+    const forbidden = await failure(() => bridge.callGuarded('newModel', '', '', 0, first.modelEpoch))
     const invalid = await failure(() => guarded('00'))
+    const empty = await failure(() => guarded(''))
     const afterInvalid = await model()
     // Legacy user requests continue to work and do not replace the model identity.
     const legacy = await engine.request('POST', '/geoms', { type: 'FUSELAGE' })
@@ -35,7 +38,7 @@ try {
     const afterStale = await model()
     const fresh = await guarded(replacement.modelEpoch)
     const afterFresh = await model()
-    return { first, added, afterAdd, missing, invalid, afterInvalid, legacy, afterLegacy, replacement, stale, afterStale, fresh, afterFresh }
+    return { first, added, afterAdd, missing, forbidden, invalid, empty, afterInvalid, legacy, afterLegacy, replacement, stale, afterStale, fresh, afterFresh }
   })
   assert.equal(result.first.modelEpochValid, true)
   assert.match(result.first.modelEpoch, /^(0|[1-9]\d*)$/)
@@ -43,6 +46,8 @@ try {
   assert.equal(result.afterAdd.modelEpoch, result.first.modelEpoch)
   assert.equal(result.afterAdd.geoms.length, result.first.geoms.length + 1)
   assert.equal(result.missing.outcome, 'not_written')
+  assert.equal(result.forbidden.outcome, 'not_written')
+  assert.equal(result.empty.code, 'STALE_MODEL')
   assert.equal(result.invalid.code, 'STALE_MODEL')
   assert.equal(result.invalid.outcome, 'not_written')
   assert.equal(result.invalid.actual, null)
