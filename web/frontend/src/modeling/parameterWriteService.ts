@@ -1,5 +1,6 @@
 import { WasmEngineError } from '../api/wasmEngine'
 import { ModelingError } from './contracts'
+import { raceClose } from './readService'
 
 export type ParameterOwner = 'geometry' | 'crossSection'
 
@@ -26,18 +27,27 @@ function validId(value: unknown): value is string {
  * a point-in-time observation, not isolation from concurrent edits. Never retry
  * automatically, particularly after an unknown outcome.
  */
-export function createParameterWriteService(adapter: ParameterWriteAdapter) {
+export function createParameterWriteService(adapter: ParameterWriteAdapter, signal: AbortSignal = new AbortController().signal) {
   return {
     async set(input: ParameterWriteInput): Promise<{ actual: number }> {
+      if (signal.aborted) throw new ModelingError('SESSION_CLOSED', 'Modeling session is closed')
       if (!input || typeof input !== 'object' || (input.owner !== 'geometry' && input.owner !== 'crossSection') ||
           !validId(input.ownerId) || !validId(input.parameterId) || typeof input.value !== 'number' || !Number.isFinite(input.value)) {
         throw new ModelingError('INVALID_ARGUMENT', 'A valid owner, IDs and finite numeric value are required')
       }
       const { owner, ownerId, parameterId, value } = input
+      if (signal.aborted) throw new ModelingError('SESSION_CLOSED', 'Modeling session is closed')
+      let dispatched = false
       let result: { actual: number }
       try {
-        result = await adapter.set(owner, ownerId, parameterId, value)
+        result = await raceClose(signal, () => {
+          dispatched = true
+          return adapter.set(owner, ownerId, parameterId, value)
+        })
+        if (signal.aborted) throw new ModelingError('OUTCOME_UNKNOWN', 'The parameter write outcome is unknown; do not automatically retry')
       } catch (error) {
+        if (!dispatched) throw new ModelingError('SESSION_CLOSED', 'Modeling session is closed')
+        if (signal.aborted) throw new ModelingError('OUTCOME_UNKNOWN', 'The parameter write outcome is unknown; do not automatically retry')
         if (error instanceof WasmEngineError) {
           const actual = typeof error.actual === 'number' && Number.isFinite(error.actual) ? error.actual : null
           if (error.outcome === 'not_written') {

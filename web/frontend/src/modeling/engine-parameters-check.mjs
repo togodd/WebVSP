@@ -18,7 +18,9 @@ try {
   const ids = await request('GET', `/geoms/${wing}/parms`)
   const facadeIds = await page.evaluate(wing => window.testModeling.parameter.listGeometryParameterIds(wing), wing)
   assert.deepEqual(facadeIds, ids)
-  assert.equal((await page.evaluate(() => window.testModeling.capabilities())).features.find(x => x.name === 'parameter.read').status, 'supported')
+  const capabilities = (await page.evaluate(() => window.testModeling.capabilities())).features
+  assert.equal(capabilities.find(x => x.name === 'parameter.read').status, 'supported')
+  assert.equal(capabilities.find(x => x.name === 'parameter.write').status, 'supported')
   assert.ok(surfaces.length && surfaces[0].xsecs.length && ids.length)
   const parameter = await request('GET', `/geoms/${wing}/parms/${ids[0]}`)
   assert.equal(parameter.id, ids[0]); assert.equal(typeof parameter.value, 'number')
@@ -46,15 +48,33 @@ try {
   assert.deepEqual(quantized, {outcome: 'not_written', actual: 17})
   assert.equal((await request('GET', tessPath)).value, 17)
   const path = `/geoms/${fuselage}/parms/${length.id}`
-  const actual = await request('PUT', path, { value: 20 })
+  const input = { owner: 'geometry', ownerId: fuselage, parameterId: length.id, value: 20 }
+  const actual = await page.evaluate(input => window.testModeling.parameter.set(input), input)
   assert.equal(actual.actual, 20)
   assert.equal((await request('GET', path)).value, 20)
-  const failure = await page.evaluate(async ({path, value}) => {
-    try { await window.__webvspEngine.request('PUT', path, {value}); return null }
-    catch (error) { return {outcome: error.outcome, actual: error.actual} }
-  }, {path, value: length.upperLimit + 1})
-  assert.deepEqual(failure, {outcome: 'not_written', actual: 20})
+  const failure = await page.evaluate(async input => {
+    try { await window.testModeling.parameter.set(input); return null }
+    catch (error) { return {code: error.code, details: error.details} }
+  }, {...input, value: length.upperLimit + 1})
+  assert.deepEqual(failure, {code: 'ENGINE_ERROR', details: {outcome: 'not_written', actual: 20}})
   assert.equal((await request('GET', path)).value, 20)
+  const closed = await page.evaluate(async input => {
+    window.testModeling.close()
+    try { await window.testModeling.parameter.set(input); return null }
+    catch (error) { return error.code }
+  }, input)
+  assert.equal(closed, 'SESSION_CLOSED')
+  assert.equal((await request('GET', path)).value, 20)
+  const race = await page.evaluate(async input => {
+    const { createBrowserModelingService } = await import('/src/modeling/index.ts')
+    const handle = createBrowserModelingService()
+    const pending = handle.parameter.set(input)
+    handle.close()
+    try { await pending; return null } catch (error) { return error.code }
+  }, {...input, value: 21})
+  assert.equal(race, 'OUTCOME_UNKNOWN')
+  // The queued engine request still runs; close cannot cancel it.
+  assert.equal((await request('GET', path)).value, 21)
   await assert.rejects(() => request('GET', `/geoms/${fuselage}/parms/${ids[0]}`))
   await assert.rejects(() => request('GET', '/xsecs/NOTREAL/parms'))
   await assert.rejects(() => request('GET', '/geoms/NOTREAL/parms'))

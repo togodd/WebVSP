@@ -54,6 +54,38 @@ describe('single parameter write service', () => {
       expect(adapter.set).toHaveBeenCalledTimes(1)
     }
   })
+  it('rejects before dispatch after close, including invalid input', async () => {
+    const controller = new AbortController()
+    const { adapter } = fixture()
+    const service = createParameterWriteService(adapter, controller.signal)
+    controller.abort()
+    await expect(service.set(input)).rejects.toMatchObject({ code: 'SESSION_CLOSED' })
+    await expect(service.set(null as never)).rejects.toMatchObject({ code: 'SESSION_CLOSED' })
+    expect(adapter.set).not.toHaveBeenCalled()
+  })
+  it.each(['resolve', 'reject'] as const)('reports unknown on close after dispatch and consumes late %s', async (settle) => {
+    const controller = new AbortController()
+    let resolve!: (value: { actual: number }) => void
+    let reject!: (reason: Error) => void
+    const adapter = { set: vi.fn(() => new Promise<{ actual: number }>((yes, no) => { resolve = yes; reject = no })) }
+    const service = createParameterWriteService(adapter, controller.signal)
+    const pending = service.set(input)
+    expect(adapter.set).toHaveBeenCalledTimes(1)
+    controller.abort()
+    await expect(pending).rejects.toMatchObject({ code: 'OUTCOME_UNKNOWN' })
+    if (settle === 'resolve') resolve({ actual: input.value })
+    else reject(new Error('late engine failure'))
+    await new Promise(resolve => setTimeout(resolve, 0))
+    expect(adapter.set).toHaveBeenCalledTimes(1)
+  })
+  it('reports unknown if close follows a settled engine response before delivery', async () => {
+    const controller = new AbortController()
+    const adapter = { set: vi.fn(async () => ({ actual: input.value })) }
+    const service = createParameterWriteService(adapter, controller.signal)
+    const pending = service.set(input)
+    controller.abort()
+    await expect(pending).rejects.toMatchObject({ code: 'OUTCOME_UNKNOWN' })
+  })
   it('does not report success for malformed or differing readback', async () => {
     for (const result of [null, {}, { actual: NaN }, { actual: Infinity }, { actual: 2 }]) {
       const { adapter, service } = fixture()

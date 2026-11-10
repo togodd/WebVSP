@@ -4,11 +4,14 @@ import { createParameterService } from './parameterService'
 import type { CrossSectionSurface, EngineParameter, ParameterReadAdapter } from './parameterService'
 import { getEngineSessionId, wasmRequest } from '../api/wasmEngine'
 import { createWriteService } from './writeService'
+import { createParameterWriteService } from './parameterWriteService'
 
 export * from './contracts'
 export type { ModelingReadAdapter } from './readService'
 export { createReadService } from './readService'
 export { createParameterService } from './parameterService'
+export { createParameterWriteService } from './parameterWriteService'
+export type { ParameterOwner, ParameterWriteAdapter, ParameterWriteInput } from './parameterWriteService'
 export type { CrossSectionSurface, EngineParameter, ParameterReadAdapter } from './parameterService'
 
 /** Create a handle for this browser engine. Closing a handle does not stop the engine. */
@@ -30,6 +33,11 @@ export function createBrowserModelingService() {
   }, controller.signal)
   return { ...read, close: () => { controller.abort(); read.close() }, capabilities: () => {
     const result = read.capabilities()
-    return { ...result, features: result.features.map((c) => ['parameter.read', 'geometry.create', 'geometry.move'].includes(c.name) ? { name: c.name, status: 'supported' as const } : c) }
-  }, parameter: createParameterService(adapter, controller.signal), write }
+    return { ...result, features: result.features.map((c) => ['parameter.read', 'parameter.write', 'geometry.create', 'geometry.move'].includes(c.name) ? { name: c.name, status: 'supported' as const } : c) }
+  }, parameter: {
+    ...createParameterService(adapter, controller.signal),
+    ...createParameterWriteService({
+      set: async (owner, ownerId, parameterId, value) => await wasmRequest('PUT', `${path(owner, ownerId)}/${encodeURIComponent(parameterId)}`, { value }) as { actual: number },
+    }, controller.signal),
+  }, write }
 }
