@@ -83,9 +83,11 @@ export function createWriteService(adapter: ModelingWriteAdapter, signal: AbortS
         if (!geom) throw new ModelingError('GEOMETRY_NOT_FOUND', 'Geometry does not exist')
         const origin = await request(() => adapter.geomOrigin(id, ...(identity === undefined ? [] : [identity])))
         if (!validVector(origin)) throw new Error('Invalid origin')
-        const expected = origin.map((n, i) => n + delta[i]) as [number, number, number]
-        if (!validVector(expected) || delta.some((n, i) => n !== 0 && expected[i] === origin[i])) invalid('Delta cannot be represented at this origin')
-        return { type: geom.type, parent: geom.parent, expected }
+        // The adapter may reuse and mutate its returned array during the write.
+        const snapshot: [number, number, number] = [...origin]
+        const expected = snapshot.map((n, i) => n + delta[i]) as [number, number, number]
+        if (!validVector(expected) || delta.some((n, i) => n !== 0 && expected[i] === snapshot[i])) invalid('Delta cannot be represented at this origin')
+        return { type: geom.type, parent: geom.parent, origin: snapshot, expected }
       })
       checkOpen()
       let result: { ok: boolean }
@@ -101,7 +103,18 @@ export function createWriteService(adapter: ModelingWriteAdapter, signal: AbortS
         const geom = model.geoms.find((g) => g.id === id)
         if (!geom || geom.type !== before.type || geom.parent !== before.parent) return unknown()
         const origin = await request(() => adapter.geomOrigin(id, ...(identity === undefined ? [] : [identity])))
-        if (!validVector(origin) || origin.some((n, i) => Math.abs(n - before.expected[i]) > 1e-7 * Math.max(1, Math.abs(delta[i])) + 4 * Number.EPSILON * Math.abs(before.expected[i]))) return unknown()
+        if (!validVector(origin) || origin.some((n, i) => {
+          const requested = delta[i]
+          const roundoff = 4 * Number.EPSILON * Math.abs(before.expected[i])
+          if (requested === 0) return Math.abs(n - before.expected[i]) > 1e-7 + roundoff
+          const represented = Math.abs(before.expected[i] - before.origin[i])
+          const tolerance = 1e-7 * Math.abs(requested) + roundoff
+          // If coordinate precision dominates the request, even an apparently matching
+          // readback cannot reliably verify its magnitude. Never let tolerance hide it.
+          if (tolerance > 1e-6 * Math.min(Math.abs(requested), represented)) return true
+          if (requested > 0 ? n <= before.origin[i] : n >= before.origin[i]) return true
+          return Math.abs(n - before.expected[i]) > tolerance
+        })) return unknown()
         return { geometryId: id, origin: [...origin] }
       } catch { return unknown() }
     },

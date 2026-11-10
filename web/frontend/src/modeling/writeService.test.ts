@@ -173,6 +173,38 @@ describe('modeling write service', () => {
     adapter.geomOrigin.mockResolvedValueOnce([1, 2, 3]).mockResolvedValueOnce([2, 4, 6.01])
     await expect(service.move(move)).rejects.toMatchObject({ code: 'OUTCOME_UNKNOWN' })
   })
+  it('requires every requested component to move in the right direction and magnitude', async () => {
+    for (const [delta, after] of [
+      [[1e-9, 0, 0], [1, 2, 3]],
+      [[1e-9, 0, 0], [1 - 1e-10, 2, 3]],
+      [[-1e-9, 0, 0], [1, 2, 3]],
+      [[1, 1e-9, 0], [2, 2, 3]],
+      [[1e-5, 0, 0], [1 + 1e-10, 2, 3]],
+    ] as [number[], number[]][]) {
+      const { service, adapter } = fixture()
+      adapter.geomOrigin.mockResolvedValueOnce([1, 2, 3]).mockResolvedValueOnce(after as [number, number, number])
+      await expect(service.move({ ...move, delta: delta as [number, number, number] })).rejects.toMatchObject({ code: 'OUTCOME_UNKNOWN' })
+    }
+  })
+  it('takes a stable snapshot even if the adapter mutates its origin array', async () => {
+    const { service, adapter } = fixture()
+    const shared: [number, number, number] = [1, 2, 3]
+    adapter.geomOrigin.mockImplementation(async () => shared)
+    adapter.moveGeoms.mockImplementation(async () => { shared[0] = 2; shared[1] = 4; shared[2] = 6; return { ok: true } })
+    await expect(service.move(move)).resolves.toEqual({ geometryId: 'p', origin: [2, 4, 6] })
+  })
+  it('does not let large-coordinate precision mask an unverifiable move', async () => {
+    for (const after of [1e16, 1e16 + 2, 1e16 + 4]) {
+      const { service, adapter } = fixture()
+      adapter.geomOrigin.mockResolvedValueOnce([1e16, 0, 0]).mockResolvedValueOnce([after, 0, 0])
+      await expect(service.move({ ...move, delta: [4, 0, 0] })).rejects.toMatchObject({ code: 'OUTCOME_UNKNOWN' })
+    }
+  })
+  it('accepts a well-resolved small delta with ordinary rounding', async () => {
+    const { service, adapter } = fixture()
+    adapter.geomOrigin.mockResolvedValueOnce([0, 0, 0]).mockResolvedValueOnce([1e-9 * (1 + 5e-8), 0, 0])
+    await expect(service.move({ ...move, delta: [1e-9, 0, 0] })).resolves.toMatchObject({ geometryId: 'p' })
+  })
   it('accepts small roundoff but not a replaced target', async () => {
     const { service, adapter, model } = fixture()
     adapter.geomOrigin.mockResolvedValueOnce([1, 2, 3]).mockResolvedValueOnce([2 + 1e-8, 4, 6])
