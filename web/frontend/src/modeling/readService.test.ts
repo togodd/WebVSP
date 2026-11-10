@@ -55,6 +55,40 @@ describe('browser-local read service', () => {
     expect(model).toHaveBeenCalledWith({ sessionId: 'tab', modelEpoch: '42' })
     expect([sessions, epochs]).toEqual([1, 1])
   })
+  it('maps identity getter and proxy failures to invalid arguments without calling the adapter', async () => {
+    const model = vi.fn(async () => fixture())
+    const service = createReadService({ model, bbox: async () => null }, 'tab')
+    for (const token of [
+      { get sessionId(): string { throw new Error('private') }, modelEpoch: '42' },
+      { sessionId: 'tab', get modelEpoch(): string { throw new ModelingError('STALE_MODEL', 'private') } },
+      new Proxy({ sessionId: 'tab', modelEpoch: '42' }, { get() { throw new Error('private') } }),
+    ]) {
+      await expect(service.model.getInfo(token)).rejects.toMatchObject({ code: 'INVALID_ARGUMENT', message: 'Expected identity is invalid' })
+      await expect(service.geometry.get('w', token)).rejects.toMatchObject({ code: 'INVALID_ARGUMENT' })
+    }
+    expect(model).not.toHaveBeenCalled()
+  })
+  it('prioritizes close when identity getters close the service', async () => {
+    for (const throws of [false, true]) {
+      const model = vi.fn(async () => fixture())
+      const service = createReadService({ model, bbox: async () => null }, 'tab')
+      const token = { get sessionId() { service.close(); if (throws) throw new Error('private'); return 'tab' }, modelEpoch: '42' }
+      await expect(service.model.getInfo(token)).rejects.toMatchObject({ code: 'SESSION_CLOSED' })
+      await expect(service.model.getInfo(token)).rejects.toMatchObject({ code: 'SESSION_CLOSED' })
+      expect(model).not.toHaveBeenCalled()
+    }
+  })
+  it('compares against the original identity even if the adapter mutates its copy', async () => {
+    const caller = { sessionId: 'tab', modelEpoch: '42' }
+    const model = vi.fn(async (identity?: { sessionId: string; modelEpoch: string }) => {
+      expect(identity).not.toBe(caller)
+      identity!.sessionId = 'other'; identity!.modelEpoch = '43'
+      return { ...fixture(), modelEpoch: '43' }
+    })
+    const service = createReadService({ model, bbox: async () => null }, 'tab')
+    await expect(service.model.getInfo(caller)).rejects.toMatchObject({ code: 'STALE_MODEL' })
+    expect(caller).toEqual({ sessionId: 'tab', modelEpoch: '42' })
+  })
   it('uses the validated engine epoch when its getter changes', async () => {
     const current = fixture()
     let reads = 0

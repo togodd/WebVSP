@@ -79,16 +79,25 @@ export function createReadService(adapter: ModelingReadAdapter, sessionId: strin
   const validEpoch = (epoch: unknown): epoch is string => typeof epoch === 'string' && /^(0|[1-9][0-9]*)$/.test(epoch) && (epoch.length < 20 || (epoch.length === 20 && epoch <= '18446744073709551615'))
   async function getModel(expectedIdentity?: ModelIdentity): Promise<ModelInfo> {
     checkOpen()
+    let validatedIdentity: ModelIdentity | undefined
     if (expectedIdentity !== undefined) {
-      if (!expectedIdentity) throw new ModelingError('INVALID_ARGUMENT', 'Expected identity is invalid')
-      const { sessionId: tokenSessionId, modelEpoch } = expectedIdentity
+      let tokenSessionId: unknown, modelEpoch: unknown
+      try {
+        if (expectedIdentity == null) throw new Error('Invalid identity')
+        tokenSessionId = expectedIdentity.sessionId
+        modelEpoch = expectedIdentity.modelEpoch
+      } catch {
+        checkOpen()
+        throw new ModelingError('INVALID_ARGUMENT', 'Expected identity is invalid')
+      }
+      checkOpen()
       if (typeof tokenSessionId !== 'string' || !tokenSessionId.trim() || !validEpoch(modelEpoch)) throw new ModelingError('INVALID_ARGUMENT', 'Expected identity is invalid')
       if (tokenSessionId !== sessionId) throw new ModelingError('STALE_MODEL', 'Model identity does not match this session')
-      // Copy the validated values before the asynchronous read.
-      expectedIdentity = { sessionId: tokenSessionId, modelEpoch }
+      validatedIdentity = { sessionId: tokenSessionId, modelEpoch }
     }
     const info = await fromEngine(async () => {
-      const model = expectedIdentity ? await adapter.model(expectedIdentity) : await adapter.model()
+      // The adapter must not be able to alter the values used for our comparison.
+      const model = validatedIdentity ? await adapter.model({ ...validatedIdentity }) : await adapter.model()
       try {
         if (!model) throw new Error('Invalid model identity')
         const modelEpoch = model.modelEpoch
@@ -112,7 +121,7 @@ export function createReadService(adapter: ModelingReadAdapter, sessionId: strin
         throw new Error('Invalid model response')
       }
     })
-    if (expectedIdentity && info.identity.modelEpoch !== expectedIdentity.modelEpoch) throw new ModelingError('STALE_MODEL', 'Model identity does not match the snapshot')
+    if (validatedIdentity && info.identity.modelEpoch !== validatedIdentity.modelEpoch) throw new ModelingError('STALE_MODEL', 'Model identity does not match the snapshot')
     return info
   }
   return {
