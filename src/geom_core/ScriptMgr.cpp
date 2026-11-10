@@ -239,6 +239,14 @@ string ScriptMgrSingleton::ReadScriptFromMemory( const string &  module_name, co
             return iter->first;
     }
 
+    // Building a module may execute global initializers. Apply the same barrier as
+    // ExecuteScript before creating it; a cached module above has no such side effect.
+    if ( m_ExecuteScriptGuards )
+    {
+        for ( ExecuteScriptGuard * guard = m_ExecuteScriptGuards; guard; guard = guard->m_Next ) guard->m_Attempted = true;
+        return string();
+    }
+
     //==== Start A New Module ====//
     r = m_ScriptBuilder.StartNewModule( m_ScriptEngine, updated_module_name.c_str() );
     if( r < 0 )        return string();
@@ -284,6 +292,12 @@ bool ScriptMgrSingleton::RemoveScript( const string &  module_name )
         return false;                           // Could not find module name;
     }
 
+    // Discarding a module can execute script destructors for its globals.
+    if ( m_ExecuteScriptGuards )
+    {
+        for ( ExecuteScriptGuard * guard = m_ExecuteScriptGuards; guard; guard = guard->m_Next ) guard->m_Attempted = true;
+        return false;
+    }
     m_ModuleContentMap.erase( iter );
 
     int ret = m_ScriptEngine->DiscardModule( module_name.c_str() );

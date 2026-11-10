@@ -63,8 +63,8 @@ public:
     bool RemoveScript( const string &  module_name );
 
     // Owner-thread only, like ScriptMgr itself. Each live guard rejects ExecuteScript
-    // calls and records attempts independently, including attempts inside nested guards.
-    // This does not prevent module building or execution through other entry points.
+    // calls, new module builds and module removal, recording attempts independently.
+    // This does not prevent execution through other entry points or reject cached module reads.
     class ExecuteScriptGuard
     {
     public:

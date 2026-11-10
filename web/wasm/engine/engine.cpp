@@ -1011,6 +1011,37 @@ void ScriptGuardCheck( int id )
     catch ( int ) {}
     size_t after_extra_guards = count();
     int restored = execute();
+    size_t after_restored = count();
+
+    // This fixed, diagnostic-only module is removed at the end of each check, so the
+    // guarded read is genuinely a new build even when the diagnostic is run again.
+    const string init_name = "WebVSP_Guard_GlobalInitializer_Check";
+    const string init_source =
+        "string webvsp_guard_geom = AddGeom(\"BLANK\"); int main() { return 0; } // WebVSP guard initializer check";
+    string blocked_module;
+    bool build_initial, build_attempted;
+    {
+        ScriptMgrSingleton::ExecuteScriptGuard guard( mgr );
+        build_initial = guard.Attempted();
+        blocked_module = mgr.ReadScriptFromMemory( init_name, init_source );
+        build_attempted = guard.Attempted();
+    }
+    size_t after_blocked_build = count();
+    string init_module = mgr.ReadScriptFromMemory( init_name, init_source );
+    size_t after_build = count();
+    bool remove_initial, remove_attempted, blocked_remove;
+    {
+        ScriptMgrSingleton::ExecuteScriptGuard guard( mgr );
+        remove_initial = guard.Attempted();
+        blocked_remove = mgr.RemoveScript( init_module );
+        remove_attempted = guard.Attempted();
+    }
+    // A successful call demonstrates that the rejected removal left the module intact.
+    int retained_rc = init_module.empty() ? 1 : mgr.ExecuteScript( init_module.c_str(), "int main()" );
+    bool removed = !init_module.empty() && mgr.RemoveScript( init_module );
+    string rebuilt_module = mgr.ReadScriptFromMemory( init_name, init_source );
+    size_t after_rebuild = count();
+    bool removed_rebuilt = !rebuilt_module.empty() && mgr.RemoveScript( rebuilt_module );
     vector< string > after = vsp::FindGeoms();
     vector< string > added;
     for ( const string &geom : after )
@@ -1031,7 +1062,15 @@ void ScriptGuardCheck( int id )
         ",\"nonLifoRc\":" + std::to_string( non_lifo_rc ) + ",\"nonLifoAttempted\":" + boolean( non_lifo_attempted ) +
         ",\"unwindRc\":" + std::to_string( unwind_rc ) + ",\"unwindAttempted\":" + boolean( unwind_attempted ) +
         ",\"afterExtraGuards\":" + std::to_string( after_extra_guards ) + ",\"restoredRc\":" + std::to_string( restored ) +
-        ",\"afterRestored\":" + std::to_string( after.size() ) + ",\"afterCleanup\":" + std::to_string( count() ) + "}";
+        ",\"afterRestored\":" + std::to_string( after_restored ) +
+        ",\"buildInitial\":" + boolean( build_initial ) + ",\"buildAttempted\":" + boolean( build_attempted ) +
+        ",\"buildBlocked\":" + boolean( blocked_module.empty() ) + ",\"afterBlockedBuild\":" + std::to_string( after_blocked_build ) +
+        ",\"buildSucceeded\":" + boolean( !init_module.empty() ) + ",\"afterBuild\":" + std::to_string( after_build ) +
+        ",\"removeInitial\":" + boolean( remove_initial ) + ",\"removeAttempted\":" + boolean( remove_attempted ) +
+        ",\"removeBlocked\":" + boolean( !blocked_remove ) + ",\"retainedRc\":" + std::to_string( retained_rc ) +
+        ",\"removed\":" + boolean( removed ) + ",\"rebuildSucceeded\":" + boolean( !rebuilt_module.empty() ) +
+        ",\"afterRebuild\":" + std::to_string( after_rebuild ) + ",\"removedRebuilt\":" + boolean( removed_rebuilt ) +
+        ",\"afterCleanup\":" + std::to_string( count() ) + "}";
     Result( id, err, json );
 }
 #endif
