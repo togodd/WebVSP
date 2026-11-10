@@ -15,10 +15,12 @@ try {
   await page.evaluate(async () => {
     const { createBrowserModelingService } = await import('/src/modeling/index.ts')
     window.testModeling = createBrowserModelingService()
+    window.secondModeling = createBrowserModelingService()
   })
   const read = () => page.evaluate(() => window.testModeling.model.getInfo())
   const initial = await read()
   assert.equal(initial.geometries.length, 0)
+  assert.equal(await page.evaluate(async () => (await window.secondModeling.model.getInfo()).context.sessionId), initial.context.sessionId)
   const select = page.locator('select').filter({ has: page.locator('option:text-is("FUSELAGE")') }).first()
   await select.selectOption({ label: 'FUSELAGE' })
   await page.getByRole('button', { name: 'Add', exact: true }).first().click()

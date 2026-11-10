@@ -47,6 +47,16 @@ export class WasmEngineError extends Error {
 
 type Pending = { resolve: (v: unknown) => void; reject: (e: unknown) => void }
 
+// Identity of this engine-module lifetime, not a model/file identity or concurrency token.
+let engineSessionId: string | undefined
+export function getEngineSessionId(): string {
+  if (!engineSessionId) {
+    if (!globalThis.crypto?.randomUUID) throw new WasmEngineError(500, 'A secure browser context with crypto.randomUUID is required for modeling sessions')
+    engineSessionId = globalThis.crypto.randomUUID()
+  }
+  return engineSessionId
+}
+
 let modulePromise: Promise<VspModule> | null = null
 let nextId = 1
 const pending = new Map<number, Pending>()

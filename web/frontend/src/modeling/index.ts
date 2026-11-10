@@ -2,7 +2,7 @@ import { api } from '../api/client'
 import { createReadService } from './readService'
 import { createParameterService } from './parameterService'
 import type { CrossSectionSurface, EngineParameter, ParameterReadAdapter } from './parameterService'
-import { wasmRequest } from '../api/wasmEngine'
+import { getEngineSessionId, wasmRequest } from '../api/wasmEngine'
 import { createWriteService } from './writeService'
 
 export * from './contracts'
@@ -11,12 +11,9 @@ export { createReadService } from './readService'
 export { createParameterService } from './parameterService'
 export type { CrossSectionSurface, EngineParameter, ParameterReadAdapter } from './parameterService'
 
-// One browser module owns one engine; multiple service handles share its session identity.
-const sessionId = crypto.randomUUID()
-
 /** Create a handle for this browser engine. Closing a handle does not stop the engine. */
 export function createBrowserModelingService() {
-  const read = createReadService({ model: api.model, bbox: api.bbox }, sessionId)
+  const read = createReadService({ model: api.model, bbox: api.bbox }, getEngineSessionId())
   const path = (owner: 'geometry' | 'crossSection', ownerId: string) => `/${owner === 'geometry' ? 'geoms' : 'xsecs'}/${encodeURIComponent(ownerId)}/parms`
   const adapter: ParameterReadAdapter = {
     surfaces: async (geometryId) => await wasmRequest('GET', `/geoms/${encodeURIComponent(geometryId)}/xsecs`) as CrossSectionSurface[],
