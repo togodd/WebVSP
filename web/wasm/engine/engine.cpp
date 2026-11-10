@@ -900,6 +900,20 @@ vector< string > SplitCsv( const string &s )
 
 enum class MissingParmOwner { None, Geom, XSec };
 
+#ifdef WEBVSP_SCRIPT_GUARD_TEST
+// One-shot fault at the API boundary, only for guarded parameter reads.
+string g_ParmReadFault;
+string g_ParmReadFaultMessage;
+void InjectParmReadFault( const char *point, bool guarded )
+{
+    if ( guarded && g_ParmReadFault == point )
+    {
+        g_ParmReadFault.clear();
+        vsp::ErrorMgrSingleton::getInstance().AddError( vsp::VSP_INVALID_ID, g_ParmReadFaultMessage );
+    }
+}
+#endif
+
 // A present error with an empty message must not look like successful enumeration.
 // Preserve legacy behavior outside guarded parameter reads.
 string TakeParmErrors( bool guarded )
@@ -914,6 +928,9 @@ string TakeParmErrors( bool guarded )
 bool CurrentModelGeom( const string &geom, string &err, MissingParmOwner *missing = nullptr )
 {
     vector< string > geoms = vsp::FindGeoms();
+#ifdef WEBVSP_SCRIPT_GUARD_TEST
+    InjectParmReadFault( "FindGeoms", missing != nullptr );
+#endif
     if ( !( err = TakeParmErrors( missing != nullptr ) ).empty() ) return false;
     if ( std::find( geoms.begin(), geoms.end(), geom ) == geoms.end() )
     {
@@ -942,16 +959,25 @@ void ParmReadFailure( const Job &j, const string &err, MissingParmOwner missing 
 bool GeomXSecs( const string &geom, string &json, bool &found, const string &wanted, string &err, bool guarded = false )
 {
     vector< string > surfaces = vsp::GetXSecSurfIDVec( geom );
+#ifdef WEBVSP_SCRIPT_GUARD_TEST
+    InjectParmReadFault( "GetXSecSurfIDVec", guarded );
+#endif
     if ( !( err = TakeParmErrors( guarded ) ).empty() ) return false;
     json = "[";
     for ( size_t s = 0; s < surfaces.size(); ++s )
     {
         int count = vsp::GetNumXSec( surfaces[s] );
+#ifdef WEBVSP_SCRIPT_GUARD_TEST
+        InjectParmReadFault( "GetNumXSec", guarded );
+#endif
         if ( !( err = TakeParmErrors( guarded ) ).empty() ) return false;
         vector< string > ids;
         for ( int i = 0; i < count; ++i )
         {
             string id = vsp::GetXSec( surfaces[s], i );
+#ifdef WEBVSP_SCRIPT_GUARD_TEST
+            InjectParmReadFault( "GetXSec", guarded );
+#endif
             if ( !( err = TakeParmErrors( guarded ) ).empty() ) return false;
             ids.push_back( id );
             if ( !wanted.empty() && id == wanted ) found = true;
@@ -968,6 +994,9 @@ bool ParmIDs( bool xsec, const string &owner, vector< string > &ids, string &err
     if ( xsec )
     {
         vector< string > geoms = vsp::FindGeoms();
+#ifdef WEBVSP_SCRIPT_GUARD_TEST
+        InjectParmReadFault( "FindGeoms", missing != nullptr );
+#endif
         if ( !( err = TakeParmErrors( missing != nullptr ) ).empty() ) return false;
         bool found = false;
         for ( const string &geom : geoms )
@@ -1675,6 +1704,17 @@ void RunImpl( const Job &j )
     }
     TakeErrors();
 #ifdef WEBVSP_SCRIPT_GUARD_TEST
+    if ( j.op == "parmReadInjection" )
+    {
+        if ( j.a != "clear" && j.a != "FindGeoms" && j.a != "GetXSecSurfIDVec" &&
+             j.a != "GetNumXSec" && j.a != "GetXSec" )
+            return Result( j.id, "Invalid parameter read injection", "" );
+        if ( j.b != "empty" && j.b != "message" && j.a != "clear" )
+            return Result( j.id, "Invalid parameter read injection message", "" );
+        g_ParmReadFault = j.a == "clear" ? "" : j.a;
+        g_ParmReadFaultMessage = j.b == "empty" ? "" : "Injected parameter enumeration error";
+        return Result( j.id, "", "null" );
+    }
     if ( j.op == "serializerInjection" )
     {
         if ( j.a != "clear" && j.a != "model:early" && j.a != "model:middle" && j.a != "model:late" &&
