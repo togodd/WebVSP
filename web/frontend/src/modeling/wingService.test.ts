@@ -65,11 +65,64 @@ describe('wing read view', () => {
     const failure = new ModelingError('ENGINE_ERROR', 'failed')
     vi.mocked(deps.parameters.listSurfaces).mockRejectedValueOnce(failure)
     await expect(service.get('w')).rejects.toBe(failure)
+    const arbitrary = new TypeError('dependency failure')
+    vi.mocked(deps.geometry.get).mockRejectedValueOnce(arbitrary)
+    await expect(service.get('w')).rejects.toBe(arbitrary)
+    vi.mocked(deps.parameters.listSurfaces).mockRejectedValueOnce(arbitrary)
+    await expect(service.get('w')).rejects.toBe(arbitrary)
   })
   it('rejects malformed and duplicate surface or station IDs rather than collapsing them', async () => {
     const deps = dependencies(), service = createWingService(deps)
     for (const response of [null, [null], [{ id: '', xsecs: [] }], [{ id: 'a', xsecs: null }], [{ id: 'a', xsecs: [''] }], [{ id: 'a', xsecs: [] }, { id: 'a', xsecs: [] }], [{ id: 'a', xsecs: ['x', 'x'] }], [{ id: 'a', xsecs: ['x'] }, { id: 'b', xsecs: ['x'] }], Array(1), [{ id: 'a', xsecs: Array(1) }]]) {
       vi.mocked(deps.parameters.listSurfaces).mockResolvedValueOnce(response as never)
+      await expect(service.get('w')).rejects.toMatchObject({ code: 'ENGINE_ERROR' })
+    }
+  })
+  it('snapshots each geometry and context field once before the surface read', async () => {
+    const deps = dependencies()
+    const once = (value: unknown) => vi.fn().mockReturnValueOnce(value).mockReturnValue(undefined)
+    const sessionId = once('s'), engineRevision = once(7), engineVersion = once('v'), id = once('w'), type = once('Wing')
+    const source = { get sessionId() { return sessionId() }, get engineRevision() { return engineRevision() }, get engineVersion() { return engineVersion() } }
+    const geometry = { get id() { return id() }, get type() { return type() } }
+    vi.mocked(deps.geometry.get).mockResolvedValueOnce({ context: source, geometry } as never)
+    vi.mocked(deps.parameters.listSurfaces).mockImplementationOnce(async () => { Object.defineProperty(source, 'sessionId', { value: 'changed' }); return [] })
+    const result = await createWingService(deps).get('w')
+    expect(result.context).toEqual({ sessionId: 's', engineRevision: 7, engineVersion: 'v' })
+    for (const getter of [sessionId, engineRevision, engineVersion, id, type]) expect(getter).toHaveBeenCalledOnce()
+  })
+  it('uses fixed indexed snapshots without consulting array iterators', async () => {
+    const deps = dependencies()
+    const surfaceId = vi.fn().mockReturnValueOnce('a').mockReturnValue('changed')
+    const xsecs = ['root', 'tip']
+    xsecs[Symbol.iterator] = () => { throw new Error('iterator') }
+    const surface = { get id() { return surfaceId() }, xsecs }
+    const surfaces = [surface]
+    surfaces[Symbol.iterator] = () => { throw new Error('iterator') }
+    vi.mocked(deps.parameters.listSurfaces).mockResolvedValueOnce(surfaces)
+    expect((await createWingService(deps).get('w')).surfaces).toEqual([{ id: 'a', stations: [
+      { id: 'root', index: 0, kind: 'rootAirfoilStation' }, { id: 'tip', index: 1, kind: 'wingSection' },
+    ] }])
+    expect(surfaceId).toHaveBeenCalledOnce()
+  })
+  it('converts hostile response getters and proxy traps into ModelingError', async () => {
+    const deps = dependencies(), service = createWingService(deps)
+    const boom = () => { throw new TypeError('hostile') }
+    for (const response of [null, { get context() { return boom() } }, { context, get geometry() { return boom() } }, { context: { get sessionId() { return boom() } }, geometry: {} }]) {
+      vi.mocked(deps.geometry.get).mockResolvedValueOnce(response as never)
+      await expect(service.get('w')).rejects.toBeInstanceOf(ModelingError)
+    }
+    for (const response of [[{ get id() { return boom() }, xsecs: [] }], new Proxy([], { get(target, key) { return key === 'length' ? boom() : Reflect.get(target, key) } }), [{ id: 'a', xsecs: new Proxy([], { getOwnPropertyDescriptor: boom, get(target, key) { return key === 'length' ? 1 : Reflect.get(target, key) } }) }]]) {
+      vi.mocked(deps.parameters.listSurfaces).mockResolvedValueOnce(response as never)
+      await expect(service.get('w')).rejects.toMatchObject({ name: 'ModelingError', code: 'ENGINE_ERROR' })
+    }
+  })
+  it('rejects inherited entries in sparse arrays', async () => {
+    const deps = dependencies(), service = createWingService(deps)
+    const sparse = Array(1), stations = Array(1)
+    Object.setPrototypeOf(sparse, Object.assign(Object.create(Array.prototype), { 0: { id: 'a', xsecs: [] } }))
+    Object.setPrototypeOf(stations, Object.assign(Object.create(Array.prototype), { 0: 'root' }))
+    for (const response of [sparse, [{ id: 'a', xsecs: stations }]]) {
+      vi.mocked(deps.parameters.listSurfaces).mockResolvedValueOnce(response)
       await expect(service.get('w')).rejects.toMatchObject({ code: 'ENGINE_ERROR' })
     }
   })

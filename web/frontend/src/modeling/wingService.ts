@@ -43,25 +43,53 @@ export function createWingService(deps: WingReadDependencies) {
     async get(geometryId: string, identity?: ModelIdentity): Promise<WingView> {
       if (typeof geometryId !== 'string' || !geometryId.trim()) throw new ModelingError('INVALID_ARGUMENT', 'geometryId must be a nonempty string')
       const result = await deps.geometry.get(geometryId, identity)
-      if (!result || !result.context || typeof result.context.sessionId !== 'string' || typeof result.context.engineRevision !== 'number' || !Number.isFinite(result.context.engineRevision) || typeof result.context.engineVersion !== 'string') throw new ModelingError('ENGINE_ERROR', 'Invalid geometry response')
-      const { context, geometry } = result
-      if (!geometry || geometry.id !== geometryId || typeof geometry.type !== 'string' || !geometry.type.trim()) throw new ModelingError('ENGINE_ERROR', 'Invalid geometry response')
-      if (geometry.type.toUpperCase() !== 'WING') throw new ModelingError('UNSUPPORTED_OPERATION', 'Geometry is not a wing', { geometryId })
+      // Dependency rejections are deliberately outside these parsing guards: their
+      // declared errors (and identity) belong to the dependency, not this adapter.
+      let context: ModelContext, geometryType: string
+      try {
+        const sourceContext = result.context, geometry = result.geometry
+        const sessionId = sourceContext.sessionId, engineRevision = sourceContext.engineRevision, engineVersion = sourceContext.engineVersion
+        const id = geometry.id, type = geometry.type
+        if (typeof sessionId !== 'string' || typeof engineRevision !== 'number' || !Number.isFinite(engineRevision) || typeof engineVersion !== 'string' || id !== geometryId || typeof type !== 'string' || !type.trim()) throw new Error('Invalid geometry')
+        context = { sessionId, engineRevision, engineVersion }
+        geometryType = type
+      } catch {
+        throw new ModelingError('ENGINE_ERROR', 'Invalid geometry response')
+      }
+      if (geometryType.toUpperCase() !== 'WING') throw new ModelingError('UNSUPPORTED_OPERATION', 'Geometry is not a wing', { geometryId })
       const surfaces = await deps.parameters.listSurfaces(geometryId, identity)
-      const surfaceIds = new Set<string>(), stationIds = new Set<string>()
-      const validId = (id: unknown): id is string => typeof id === 'string' && !!id.trim()
-      if (!Array.isArray(surfaces)) throw new ModelingError('ENGINE_ERROR', 'Invalid wing surface response')
-      const view = Array.from(surfaces, (surface): WingSurface => {
-        if (!surface || !validId(surface.id) || surfaceIds.has(surface.id) || !Array.isArray(surface.xsecs)) throw new ModelingError('ENGINE_ERROR', 'Invalid wing surface response')
-        surfaceIds.add(surface.id)
-        const stations = Array.from(surface.xsecs, (id, index): WingStation => {
-          if (!validId(id) || stationIds.has(id)) throw new ModelingError('ENGINE_ERROR', 'Invalid wing surface response')
-          stationIds.add(id)
-          return { id, index, kind: index === 0 ? 'rootAirfoilStation' : 'wingSection' }
-        })
-        return { id: surface.id, stations }
-      })
-      return { geometryId, context: { ...context }, surfaces: view }
+      let view: WingSurface[]
+      try {
+        const surfaceIds = new Set<string>(), stationIds = new Set<string>()
+        const validId = (id: unknown): id is string => typeof id === 'string' && !!id.trim()
+        const lengthOf = (array: unknown): number => {
+          if (!Array.isArray(array)) throw new Error('Expected array')
+          const length = array.length
+          if (!Number.isInteger(length) || length < 0 || length > 0xffffffff) throw new Error('Invalid array length')
+          return length
+        }
+        const length = lengthOf(surfaces)
+        view = []
+        for (let i = 0; i < length; i++) {
+          if (!Object.prototype.hasOwnProperty.call(surfaces, i)) throw new Error('Sparse surfaces')
+          const surface = surfaces[i]
+          const id = surface.id, xsecs = surface.xsecs
+          if (!validId(id) || surfaceIds.has(id)) throw new Error('Invalid surface')
+          surfaceIds.add(id)
+          const count = lengthOf(xsecs), stations: WingStation[] = []
+          for (let index = 0; index < count; index++) {
+            if (!Object.prototype.hasOwnProperty.call(xsecs, index)) throw new Error('Sparse stations')
+            const stationId = xsecs[index]
+            if (!validId(stationId) || stationIds.has(stationId)) throw new Error('Invalid station')
+            stationIds.add(stationId)
+            stations.push({ id: stationId, index, kind: index === 0 ? 'rootAirfoilStation' : 'wingSection' })
+          }
+          view.push({ id, stations })
+        }
+      } catch {
+        throw new ModelingError('ENGINE_ERROR', 'Invalid wing surface response')
+      }
+      return { geometryId, context, surfaces: view }
     },
   }
 }
