@@ -28,6 +28,21 @@ describe('read-only fuselage service', () => {
     expect(f.parameter.listSurfaces).toHaveBeenCalledWith('g', undefined)
     expect(Object.keys(f.service)).toEqual(['get'])
   })
+  it.each(['FUSELAGE', 'Fuselage'])('accepts the exact geometry type %s', async (type) => {
+    const f = fixture()
+    f.info.geometry.type = type
+    const result = await f.service.get('g')
+    expect(result.geometry.type).toBe(type)
+    expect(result.length).toEqual(length())
+    expect(result.surfaces).toHaveLength(2)
+  })
+  it.each(['fuselage', 'FUSelage', ' FUSELAGE', 'FUSELAGE ', 'Wing', ''])('rejects other geometry types: %s', async (type) => {
+    const f = fixture()
+    f.info.geometry.type = type
+    await expect(f.service.get('g')).rejects.toMatchObject({ code: 'UNSUPPORTED_OPERATION' })
+    expect(f.parameter.getFuselageLength).not.toHaveBeenCalled()
+    expect(f.parameter.listSurfaces).not.toHaveBeenCalled()
+  })
   it('passes the exact identity to every read without refreshing it', async () => {
     const f = fixture()
     const identity = { sessionId: 's', modelEpoch: 'epoch' }

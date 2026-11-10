@@ -94,6 +94,11 @@ try {
   assert.deepEqual(result.originAfter, result.originBefore)
   assert.equal(result.freshWing.geometryId, result.wing)
   assert.equal(result.freshBody.geometry.id, result.body)
+  assert.ok(['FUSELAGE', 'Fuselage'].includes(result.freshBody.geometry.type), `unexpected engine type: ${result.freshBody.geometry.type}`)
+  assert.deepEqual(result.freshBody.length, result.length)
+  assert.ok(result.freshBody.surfaces.length, 'standard fuselage should have a surface')
+  assert.ok(result.freshBody.surfaces[0].sections.length, 'standard fuselage should have sections')
+  console.log(`Standard engine fuselage type: ${result.freshBody.geometry.type}`)
   for (const name of ['parameter.write', 'geometry.create', 'geometry.move']) {
     assert.equal(result.capabilities.features.find(c => c.name === name).status, 'unsupported', name)
   }

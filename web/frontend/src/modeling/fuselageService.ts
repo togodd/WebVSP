@@ -42,7 +42,7 @@ export function createFuselageService(geometry: FuselageGeometryReader, paramete
       if (!validId(geometryId)) throw new ModelingError('INVALID_ARGUMENT', 'geometryId must be a nonempty string')
       const info = await geometry.get(geometryId, identity)
       if (!info.geometry || info.geometry.id !== geometryId) badData('Geometry response does not match the requested ID')
-      if (info.geometry.type !== 'Fuselage') throw new ModelingError('UNSUPPORTED_OPERATION', 'Geometry is not a Fuselage', { geometryId })
+      if (info.geometry.type !== 'FUSELAGE' && info.geometry.type !== 'Fuselage') throw new ModelingError('UNSUPPORTED_OPERATION', 'Geometry is not a Fuselage', { geometryId })
 
       // The engine enforces uniqueness; still validate the returned identity and metadata.
       const length = await parameter.getFuselageLength(geometryId, identity)
