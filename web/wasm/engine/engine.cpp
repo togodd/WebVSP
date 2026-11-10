@@ -46,6 +46,7 @@
 
 #include "VSP_Geom_API.h"
 #include "APIErrorMgr.h"
+#include "AdvLinkMgr.h"
 #include "DrawObj.h"
 #include "MeshGeom.h"
 #include "NGonMeshGeom.h"
@@ -53,8 +54,8 @@
 #include "Vehicle.h"
 #include "VehicleMgr.h"
 #include "WebProcess.h"
+#include <angelscript.h>
 #ifdef WEBVSP_SCRIPT_GUARD_TEST
-#include "AdvLinkMgr.h"
 #include "ScriptMgr.h"
 #endif
 
@@ -963,6 +964,72 @@ bool ParseModelEpoch( const string &text, uint64_t &epoch )
 // This diagnostic is absent unless explicitly compiled in (e.g. with
 // -DWEBVSP_SCRIPT_GUARD_TEST). It accepts no script or other caller-controlled input.
 #ifdef WEBVSP_SCRIPT_GUARD_TEST
+// Test-only, fixed fixtures survive across jobs; never accepts user-supplied script.
+// Use only a disposable model and do not mutate fixtures between setup and cleanup.
+// Epoch, pointer/name and geom ID checks do not prevent ABA or ID reuse: cleanup
+// could delete another object after intervening mutations, even in the same epoch.
+string g_PreflightFixtureKind, g_PreflightFixtureGeom, g_PreflightFixtureLinkName;
+AdvLink *g_PreflightFixtureLink = nullptr;
+uint64_t g_PreflightFixtureEpoch = 0;
+
+void ScriptPreflightFixture( const Job &j )
+{
+    Vehicle *veh = VehicleMgr.GetVehicle();
+    if ( j.a != "advlink" && j.a != "custom-detached" && j.a != "cleanup" )
+        return Result( j.id, "Unknown preflight fixture", "" );
+    if ( j.a == "cleanup" )
+    {
+        if ( veh && veh->IsModelEpochValid() && veh->GetModelEpoch() == g_PreflightFixtureEpoch )
+        {
+            if ( !g_PreflightFixtureGeom.empty() && veh->FindGeom( g_PreflightFixtureGeom ) )
+                veh->DeleteGeomVec( { g_PreflightFixtureGeom } );
+            if ( g_PreflightFixtureLink )
+            {
+                for ( AdvLink *link : AdvLinkMgr.GetLinks() )
+                    if ( link == g_PreflightFixtureLink && link->GetName() == g_PreflightFixtureLinkName )
+                    {
+                        AdvLinkMgr.DelLink( link );
+                        break;
+                    }
+            }
+        }
+        g_PreflightFixtureKind.clear();
+        g_PreflightFixtureGeom.clear();
+        g_PreflightFixtureLinkName.clear();
+        g_PreflightFixtureLink = nullptr;
+        g_PreflightFixtureEpoch = 0;
+        return Result( j.id, TakeErrors(), "{\"kind\":\"cleanup\",\"id\":\"\",\"detached\":false}" );
+    }
+    if ( !veh || !veh->IsModelEpochValid() ) return Result( j.id, "No valid fixture vehicle", "" );
+    if ( !g_PreflightFixtureKind.empty() ) return Result( j.id, "Clean up the existing fixture first", "" );
+    g_PreflightFixtureEpoch = veh->GetModelEpoch();
+    if ( j.a == "advlink" )
+    {
+        // An unbuilt link is enough: preflight must reject any link, not just valid ones.
+        g_PreflightFixtureLink = AdvLinkMgr.AddLink( "WebVSP_Preflight_Fixture" );
+        if ( !g_PreflightFixtureLink ) return Result( j.id, "Could not create fixture link", "" );
+        g_PreflightFixtureLinkName = g_PreflightFixtureLink->GetName();
+    }
+    else
+    {
+        // CreateGeom inserts directly into the store without attaching to the tree and
+        // does not initialize or execute a custom script.
+        g_PreflightFixtureGeom = veh->CreateGeom( GeomType( CUSTOM_GEOM_TYPE, "WebVSP_Preflight_Fixture" ) );
+        Geom *geom = veh->FindGeom( g_PreflightFixtureGeom );
+        vector< string > tree = vsp::FindGeoms();
+        if ( !geom || geom->GetType().m_Type != CUSTOM_GEOM_TYPE ||
+             std::find( tree.begin(), tree.end(), g_PreflightFixtureGeom ) != tree.end() )
+        {
+            if ( geom ) veh->DeleteGeomVec( { g_PreflightFixtureGeom } );
+            g_PreflightFixtureGeom.clear();
+            return Result( j.id, "Could not create detached custom fixture", "" );
+        }
+    }
+    g_PreflightFixtureKind = j.a;
+    return Result( j.id, TakeErrors(), "{\"kind\":" + Quote( j.a ) + ",\"id\":" + Quote( g_PreflightFixtureGeom ) +
+                   ",\"detached\":" + ( j.a == "custom-detached" ? "true" : "false" ) + "}" );
+}
+
 // Disposable-model integration check: the script may only delete the separately
 // created victim, never the geom/parm whose setter remains on the C++ stack.
 // Both the script and its target are generated here, not supplied by the caller.
@@ -1132,10 +1199,74 @@ void ScriptGuardCheck( int id )
 }
 #endif
 
+// Keep this list identical to GUARDED_OPS in wasmEngine.ts. The exported entry point
+// can be called directly, bypassing the TypeScript bridge.
+bool GuardedOpAllowed( const string &op )
+{
+    return op == "model" || op == "bbox" || op == "origin" || op == "move" ||
+           op == "addGeom" || op == "geomXSecs" || op == "geomParmIDs" ||
+           op == "xsecParmIDs" || op == "geomParm" || op == "xsecParm" ||
+           op == "fuselageLength" || op == "geomSetParm" || op == "xsecSetParm";
+}
+
+bool GuardedWrite( const string &op )
+{
+    return op == "move" || op == "addGeom" || op == "geomSetParm" || op == "xsecSetParm";
+}
+
+// Fail closed for future or malformed type IDs rather than treating the enum range
+// as proof that a newly introduced type is safe.
+bool KnownNonCustomGeomType( int type )
+{
+    switch ( type )
+    {
+    case POD_GEOM_TYPE: case FUSELAGE_GEOM_TYPE: case MS_WING_GEOM_TYPE:
+    case BLANK_GEOM_TYPE: case MESH_GEOM_TYPE: case STACK_GEOM_TYPE:
+    case PT_CLOUD_GEOM_TYPE: case PROP_GEOM_TYPE: case HINGE_GEOM_TYPE:
+    case CONFORMAL_GEOM_TYPE: case ELLIPSOID_GEOM_TYPE: case BOR_GEOM_TYPE:
+    case WIRE_FRAME_GEOM_TYPE: case HUMAN_GEOM_TYPE: case ROUTING_GEOM_TYPE:
+    case AUXILIARY_GEOM_TYPE: case GEAR_GEOM_TYPE: case NGON_GEOM_TYPE:
+    case COBRA_GEOM_TYPE: case CLONE_GEOM_TYPE:
+        return true;
+    default:
+        return false;
+    }
+}
+
+// This is only an initial preflight, not a complete safety guarantee or a script
+// execution barrier. Other reentrant paths and side effects still require review.
+bool SafeWriteContext( Vehicle *veh, const Job &j )
+{
+    if ( asGetActiveContext() || !AdvLinkMgr.GetLinks().empty() ) return false;
+    // The store includes detached/clipboard geoms, not just FindGeoms' model tree.
+    for ( Geom *geom : veh->GetGeomStoreVec() )
+        if ( !geom || geom->GetType().m_Type == CUSTOM_GEOM_TYPE ) return false;
+
+    if ( j.op == "addGeom" )
+    {
+        // Match AddGeom's first name match exactly, including duplicate names.
+        for ( int i = 0; i < veh->GetNumGeomTypes(); ++i )
+        {
+            GeomType type = veh->GetGeomType( i );
+            if ( type.m_Name == j.a )
+                return type.m_FixedFlag && KnownNonCustomGeomType( type.m_Type );
+        }
+        return false;
+    }
+    return true;
+}
+
 void Run( const Job &j )
 {
     if ( j.guarded )
     {
+        if ( !GuardedOpAllowed( j.op ) )
+        {
+            Emit( "{\"t\":\"result\",\"id\":" + std::to_string( j.id ) +
+                  ",\"ok\":false,\"error\":\"Operation is not permitted by the guarded bridge\","
+                  "\"outcome\":\"not_written\",\"actual\":null}" );
+            return;
+        }
         uint64_t expected;
         Vehicle *veh = VehicleMgr.GetVehicle();
         if ( !ParseModelEpoch( j.expected_epoch, expected ) || !veh ||
@@ -1146,9 +1277,17 @@ void Run( const Job &j )
                   "\"outcome\":\"not_written\",\"actual\":null}" );
             return;
         }
+        if ( GuardedWrite( j.op ) && !SafeWriteContext( veh, j ) )
+        {
+            Emit( "{\"t\":\"result\",\"id\":" + std::to_string( j.id ) +
+                  ",\"ok\":false,\"error\":\"UNSAFE_SCRIPT_CONTEXT\",\"code\":\"UNSAFE_SCRIPT_CONTEXT\","
+                  "\"outcome\":\"not_written\",\"actual\":null}" );
+            return;
+        }
     }
     TakeErrors();
 #ifdef WEBVSP_SCRIPT_GUARD_TEST
+    if ( j.op == "scriptPreflightFixture" ) return ScriptPreflightFixture( j );
     if ( j.op == "scriptGuardCheck" ) return ScriptGuardCheck( j.id );
     if ( j.op == "advLinkGuardCheck" ) return AdvLinkGuardCheck( j.id );
 #endif
