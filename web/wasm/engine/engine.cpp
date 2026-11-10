@@ -864,9 +864,13 @@ void ScopedParmWrite( const Job &j, bool xsec )
 
     switch ( type )
     {
-    case vsp::PARM_INT_TYPE:
+    // The public API does not expose the quantization/paired-parameter constraints needed
+    // for safe preflight; reject rather than let the setter silently change another value.
     case vsp::PARM_LIMITED_INT_TYPE:
     case vsp::PARM_POWER_INT_TYPE:
+    case vsp::PARM_NOTEQ_TYPE:
+        return ParmWriteFailure( j.id, "Parm type requires unsupported constraint validation", "not_written", Num( old ) );
+    case vsp::PARM_INT_TYPE:
     case vsp::PARM_BOOL_TYPE:
         if ( std::trunc( j.value ) != j.value ||
              j.value < std::numeric_limits< int >::min() || j.value > std::numeric_limits< int >::max() ||
@@ -875,7 +879,6 @@ void ScopedParmWrite( const Job &j, bool xsec )
         break;
     case vsp::PARM_DOUBLE_TYPE:
     case vsp::PARM_FRACTION_TYPE:
-    case vsp::PARM_NOTEQ_TYPE:
         break;
     default:
         return ParmWriteFailure( j.id, "Unsupported parm type: " + std::to_string( type ), "not_written", Num( old ) );

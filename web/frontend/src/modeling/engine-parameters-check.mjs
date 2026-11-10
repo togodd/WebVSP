@@ -32,6 +32,19 @@ try {
     if (candidate.name === 'Length' && candidate.group === 'Design' && candidate.active) { length = candidate; break }
   }
   assert.ok(length, 'Expected an active fuselage length parameter')
+  let tess
+  for (const id of await request('GET', `/geoms/${fuselage}/parms`)) {
+    const candidate = await request('GET', `/geoms/${fuselage}/parms/${id}`)
+    if (candidate.name === 'Tess_W' && candidate.group === 'Shape') { tess = candidate; break }
+  }
+  assert.ok(tess?.active && tess.value === 17)
+  const tessPath = `/geoms/${fuselage}/parms/${tess.id}`
+  const quantized = await page.evaluate(async path => {
+    try { await window.__webvspEngine.request('PUT', path, {value: 18}); return null }
+    catch (error) { return {outcome: error.outcome, actual: error.actual} }
+  }, tessPath)
+  assert.deepEqual(quantized, {outcome: 'not_written', actual: 17})
+  assert.equal((await request('GET', tessPath)).value, 17)
   const path = `/geoms/${fuselage}/parms/${length.id}`
   const actual = await request('PUT', path, { value: 20 })
   assert.equal(actual.actual, 20)
