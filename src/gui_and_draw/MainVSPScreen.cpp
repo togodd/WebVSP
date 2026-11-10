@@ -388,11 +388,17 @@ void MainVSPScreen::NewModel()
                 savefile = m_ScreenMgr->FileChooser( "Save VSP File", "*.vsp3", vsp::SAVE );
             }
 
-            if ( savefile.compare( "" ) != 0 )
+            if ( savefile.empty() )
             {
-                VehicleMgr.GetVehicle()->SetVSP3FileName( savefile );
-                VehicleMgr.GetVehicle()->WriteXMLFile( savefile, SET_ALL );
+                return;
             }
+
+            VehicleMgr.GetVehicle()->SetVSP3FileName( savefile );
+            if ( !VehicleMgr.GetVehicle()->WriteXMLFile( savefile, SET_ALL ) )
+            {
+                return;
+            }
+            break;
     }
 
     VehicleMgr.GetVehicle()->Renew();
