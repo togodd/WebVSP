@@ -1,12 +1,12 @@
 import { WasmEngineError } from '../api/wasmEngine'
-import { ModelingError } from './contracts'
+import { ModelingError, type ModelIdentity } from './contracts'
 import { raceClose } from './readService'
 
 export type ParameterOwner = 'geometry' | 'crossSection'
 
 /** The adapter must perform one scoped write and return the engine's readback. */
 export interface ParameterWriteAdapter {
-  set(owner: ParameterOwner, ownerId: string, parameterId: string, value: number): Promise<{ actual: number }>
+  set(owner: ParameterOwner, ownerId: string, parameterId: string, value: number, identity?: ModelIdentity): Promise<{ actual: number }>
 }
 
 export interface ParameterWriteInput {
@@ -29,7 +29,7 @@ function validId(value: unknown): value is string {
  */
 export function createParameterWriteService(adapter: ParameterWriteAdapter, signal: AbortSignal = new AbortController().signal) {
   return {
-    async set(input: ParameterWriteInput): Promise<{ actual: number }> {
+    async set(input: ParameterWriteInput, identity?: ModelIdentity): Promise<{ actual: number }> {
       if (signal.aborted) throw new ModelingError('SESSION_CLOSED', 'Modeling session is closed')
       if (!input || typeof input !== 'object' || (input.owner !== 'geometry' && input.owner !== 'crossSection') ||
           !validId(input.ownerId) || !validId(input.parameterId) || typeof input.value !== 'number' || !Number.isFinite(input.value)) {
@@ -42,7 +42,7 @@ export function createParameterWriteService(adapter: ParameterWriteAdapter, sign
       try {
         result = await raceClose(signal, () => {
           dispatched = true
-          return adapter.set(owner, ownerId, parameterId, value)
+          return identity === undefined ? adapter.set(owner, ownerId, parameterId, value) : adapter.set(owner, ownerId, parameterId, value, identity)
         })
         if (signal.aborted) throw new ModelingError('OUTCOME_UNKNOWN', 'The parameter write outcome is unknown; do not automatically retry')
       } catch (error) {
@@ -51,6 +51,7 @@ export function createParameterWriteService(adapter: ParameterWriteAdapter, sign
         if (error instanceof WasmEngineError) {
           const actual = typeof error.actual === 'number' && Number.isFinite(error.actual) ? error.actual : null
           if (error.outcome === 'not_written') {
+            if (identity !== undefined && error.code === 'STALE_MODEL') throw new ModelingError('STALE_MODEL', 'The model identity is stale', { outcome: 'not_written', actual })
             throw new ModelingError('ENGINE_ERROR', 'The parameter was not written', { outcome: 'not_written', actual })
           }
           throw new ModelingError('OUTCOME_UNKNOWN', 'The parameter write may have changed the model; do not automatically retry', { outcome: error.outcome === 'different' ? 'different' : 'unknown', actual })

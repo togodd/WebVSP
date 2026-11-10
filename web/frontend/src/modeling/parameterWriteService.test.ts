@@ -7,8 +7,9 @@ vi.mock('../api/wasmEngine', () => ({
     status: number
     outcome?: 'not_written' | 'different' | 'unknown'
     actual?: number | null
-    constructor(status: number, message: string, outcome?: 'not_written' | 'different' | 'unknown', actual?: number | null) {
-      super(message); this.status = status; this.outcome = outcome; this.actual = actual
+    code?: string
+    constructor(status: number, message: string, outcome?: 'not_written' | 'different' | 'unknown', actual?: number | null, code?: string) {
+      super(message); this.status = status; this.outcome = outcome; this.actual = actual; this.code = code
     }
   },
 }))
@@ -25,6 +26,20 @@ describe('single parameter write service', () => {
     await expect(service.set(input)).resolves.toEqual({ actual: 1.5 })
     await expect(service.set({ ...input, owner: 'crossSection', value: 0 })).resolves.toEqual({ actual: 0 })
     expect(adapter.set.mock.calls).toEqual([['geometry', 'geom', 'parm', 1.5], ['crossSection', 'geom', 'parm', 0]])
+  })
+  it('forwards identity and preserves only a confirmed stale not-written outcome', async () => {
+    const identity = { sessionId: 'session', modelEpoch: 'epoch' }
+    const { adapter, service } = fixture()
+    await service.set(input, identity)
+    expect(adapter.set).toHaveBeenCalledWith('geometry', 'geom', 'parm', 1.5, identity)
+    expect((adapter.set.mock.calls[0] as unknown as [string, string, string, number, typeof identity])[4]).toBe(identity)
+    adapter.set.mockRejectedValue(new WasmEngineError(409, 'secret', 'not_written', null, 'STALE_MODEL'))
+    await expect(service.set(input, identity)).rejects.toMatchObject({ code: 'STALE_MODEL', details: { outcome: 'not_written' } })
+    await expect(service.set(input)).rejects.toMatchObject({ code: 'ENGINE_ERROR' })
+    adapter.set.mockRejectedValue(new WasmEngineError(409, 'secret', 'unknown', null, 'STALE_MODEL'))
+    await expect(service.set(input, identity)).rejects.toMatchObject({ code: 'OUTCOME_UNKNOWN' })
+    adapter.set.mockRejectedValue(new Error('secret'))
+    await expect(service.set(input, identity)).rejects.toMatchObject({ code: 'OUTCOME_UNKNOWN' })
   })
   it('rejects malformed IDs and non-finite or non-numeric values before writing', async () => {
     const { adapter, service } = fixture()
