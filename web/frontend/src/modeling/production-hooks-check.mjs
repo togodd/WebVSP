@@ -18,6 +18,29 @@ const deadline = setTimeout(() => {
 let browser
 try {
   browser = await chromium.launch({ executablePath, headless: true, args: ['--no-sandbox', '--enable-unsafe-swiftshader'] })
+  // Use a separate context and blank same-origin document: the app must not
+  // initialize or drain this instance, and no service worker may intercept it.
+  const rawContext = await browser.newContext({ serviceWorkers: 'block' })
+  const rawPage = await rawContext.newPage()
+  await rawPage.route('**/__production_hooks_blank__', route => route.fulfill({
+    status: 200, contentType: 'text/html', body: '<!doctype html><title>Production WASM export check</title>',
+    headers: { 'Cross-Origin-Opener-Policy': 'same-origin', 'Cross-Origin-Embedder-Policy': 'require-corp', 'Cache-Control': 'no-store' },
+  }))
+  const base = new URL(process.env.WEBVSP_TEST_PAGE ?? 'http://127.0.0.1:5179/')
+  const blankResponse = await rawPage.goto(new URL('/__production_hooks_blank__', base).href)
+  assert.ok(blankResponse?.ok(), 'isolated blank page must load successfully')
+  const barrierTypes = await rawPage.evaluate(async () => {
+    if (!crossOriginIsolated) throw new Error('Cross-origin isolation is required')
+    const { default: createVspModule } = await import('/wasm/vsp.js')
+    const vsp = await createVspModule()
+    return Object.fromEntries(['testBarrierArm', 'testBarrierState', 'testBarrierRelease']
+      .map(name => [name, typeof vsp[name]]))
+  })
+  for (const [name, type] of Object.entries(barrierTypes)) {
+    assert.equal(type, 'undefined', `${name}: must not be exported by production WASM`)
+    console.log(`PASS: ${name} is absent from the initialized production module`)
+  }
+  await rawContext.close()
   const page = await browser.newPage()
   const errors = []
   page.on('pageerror', error => errors.push(`pageerror: ${error.message}`))
