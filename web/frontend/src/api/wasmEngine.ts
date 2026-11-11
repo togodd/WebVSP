@@ -445,23 +445,36 @@ async function askToWrite(handle: FileSystemFileHandle) {
   }
 }
 
+// Logging must not turn one failed file into an interrupted scan or unhandled rejection.
+function reportLinkedError(message: string, err: unknown) {
+  try { console.error(message, err) } catch { /* logging is best effort */ }
+}
+
 /** Copy out linked files OpenVSP has finished writing (changed, then unchanged for a moment). */
 function watchLinked(vsp: VspModule) {
   for (const f of linked.values()) {
-    if (f.writing || !vsp.FS.analyzePath(f.path).exists) continue
-    const st = vsp.FS.stat(f.path)
-    const mtime = st.mtime.getTime()
-    const changed = mtime !== f.mtime || st.size !== f.size
-    if (changed) {
-      Object.assign(f, { mtime, size: st.size, pending: true })
-      continue
+    try {
+      if (f.writing || !vsp.FS.analyzePath(f.path).exists) continue
+      const st = vsp.FS.stat(f.path)
+      const mtime = st.mtime.getTime()
+      const changed = mtime !== f.mtime || st.size !== f.size
+      if (changed) {
+        Object.assign(f, { mtime, size: st.size, pending: true })
+        continue
+      }
+      if (!f.pending) continue
+      // A copy in an ordinary buffer: the module's memory is shared (threads).
+      const bytes = new Uint8Array(vsp.FS.readFile(f.path))
+      f.writing = true
+      f.pending = false
+      // A failed delivery is reported, but the consumed snapshot is not retried.
+      void deliver(f, bytes).catch((err) => {
+        reportLinkedError(`WebVSP: couldn't deliver ${f.name}; snapshot may be lost`, err)
+      }).finally(() => (f.writing = false))
+    } catch (err) {
+      // A transient filesystem failure must not consume pending or block other files.
+      reportLinkedError(`WebVSP: couldn't watch ${f.path}`, err)
     }
-    if (!f.pending) continue
-    f.pending = false
-    // A copy in an ordinary buffer: the module's memory is shared (threads).
-    const bytes = new Uint8Array(vsp.FS.readFile(f.path))
-    f.writing = true
-    void deliver(f, bytes).finally(() => (f.writing = false))
   }
 }
 
