@@ -6,12 +6,7 @@
 // To check compatibility failure, serve the NEW frontend with an OLD engine WASM and
 // run with WEBVSP_EXPECT_OLD_ENGINE=1. This must reject rather than return null/shapes.
 // Use disposable servers/models: this script creates geometry and replaces the model.
-// On failure, diagnostics are saved in a unique temporary directory (or under
-// WEBVSP_TEST_ARTIFACT_DIR). They can contain model IDs and page content.
 import assert from 'node:assert/strict'
-import { mkdtemp, writeFile } from 'node:fs/promises'
-import { tmpdir } from 'node:os'
-import { join } from 'node:path'
 import { chromium } from 'playwright-core'
 
 const executablePath = process.env.WEBVSP_TEST_CHROMIUM
