@@ -22,6 +22,7 @@ import { settleBridgeResult } from './settleBridgeResult'
 import { emitListeners } from './emitListeners'
 import { drainBatch } from './drainBatch'
 import { facadeSubmit } from './facadeSubmit'
+import { stageImport } from './importStaging'
 
 interface VspModule {
   call(id: number, op: string, a: string, b: string, value: number): void
@@ -336,18 +337,29 @@ async function answerFileDialog(vsp: VspModule, d: MDialog) {
     ? [{ description: exts.map((e) => e.toUpperCase()).join(', ') + ' files', accept: { 'application/octet-stream': exts.map((e) => '.' + e) } }]
     : undefined
   try {
-    vsp.FS.mkdirTree(HOME)
     if (!d.mode) {
       // Several files can be picked: all are copied in (e.g. a model with its VSPAERO results,
       // for Load Previous Results), and OpenVSP gets the one its filter asks for.
       const picked = await pickFiles(exts, types)
       if (!picked.length) return answer('')
-      for (const f of picked) vsp.FS.writeFile(`${HOME}/${f.name}`, new Uint8Array(await f.arrayBuffer()))
-      const main = picked.find((f) => exts.some((e) => f.file.name.toLowerCase().endsWith('.' + e.toLowerCase()))) ?? picked[0]
+      // No arbitrary model-size or file-count cap: staging is bounded only by the
+      // safe-integer accounting limit and available memory. It rejects duplicate
+      // basenames before reading, and no FS or linked state changes on failure.
+      const staged = await stageImport(picked, async (f) => new Uint8Array(await f.arrayBuffer()), Number.MAX_SAFE_INTEGER)
+      const mainIndex = Math.max(0, staged.findIndex((f) => exts.some((e) => f.name.toLowerCase().endsWith('.' + e.toLowerCase()))))
+      const main = staged[mainIndex]
+      const handle = picked[mainIndex].handle
       const path = `${HOME}/${main.name}`
-      // File > Save writes the opened file again: that goes back to the file on disk.
-      link(vsp, path, main.handle, main.name)
-      if (main.handle) void askToWrite(main.handle)
+      // Remove every old link before any writes, including pending write-back: it
+      // may discard unsaved changes. This prevents newly imported bytes reaching
+      // old watchers still in the map, but cannot cancel an already-started deliver
+      // and does not make the FS commit atomic or thread-safe.
+      for (const f of staged) linked.delete(`${HOME}/${f.name}`)
+      vsp.FS.mkdirTree(HOME)
+      for (const f of staged) vsp.FS.writeFile(`${HOME}/${f.name}`, f.data)
+      // File > Save writes only the selected main file back to its handle.
+      link(vsp, path, handle, main.name)
+      if (handle) void askToWrite(handle)
       return answer(path)
     }
     const suggested = (d.preset || '').split(/[\\/]/).pop() || (exts[0] ? `Unnamed.${exts[0]}` : 'Unnamed')
@@ -363,6 +375,7 @@ async function answerFileDialog(vsp: VspModule, d: MDialog) {
       name = handle.name
     }
     const path = `${HOME}/${name}`
+    vsp.FS.mkdirTree(HOME)
     link(vsp, path, handle, name)
     answer(path)
   } catch (err) {

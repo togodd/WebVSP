@@ -1,5 +1,6 @@
-// Defect characterization, not a safety test: exit 0 means the overwrite was reproduced.
+// Regression: a secondary import must not be delivered to the previously linked handle.
 // Uses disposable browser contexts and fake handles only, never host disk files.
+// Requires a Vite dev server: its testCall writes a real model as a positive control.
 import { chromium } from 'playwright-core'
 import assert from 'node:assert/strict'
 
@@ -40,13 +41,19 @@ try {
     }
     await open()
     assert.deepEqual(await page.evaluate(() => window.__collisionProbe.events), [])
-    await open()
+    // Positive control: a genuine engine write reaches the first linked handle.
+    await page.evaluate(() => window.__webvspEngine.testCall('writeFile', '/home/web_user/old.vsp3'))
     await page.waitForFunction(() => window.__collisionProbe.events.includes('close:old.vsp3'), null, { timeout: 15000 })
-    const result = await page.evaluate(() => ({ ...window.__collisionProbe, decoded: new TextDecoder().decode(new Uint8Array(window.__collisionProbe.written)) }))
+    assert.deepEqual(await page.evaluate(() => window.__collisionProbe.events), ['createWritable:old.vsp3', 'write:old.vsp3', 'close:old.vsp3'])
+    await page.evaluate(() => { window.__collisionProbe.events = []; window.__collisionProbe.written = null })
+    await open()
+    // The watcher is driven by the 16ms engine tick; allow many cycles after import.
+    await page.waitForTimeout(1000)
+    const result = await page.evaluate(() => ({ ...window.__collisionProbe }))
     assert.equal(result.opens, 2)
-    assert.deepEqual(result.events, ['createWritable:old.vsp3', 'write:old.vsp3', 'close:old.vsp3'])
-    assert.equal(result.decoded, 'SECONDARY COLLISION PAYLOAD')
+    assert.deepEqual(result.events, [])
+    assert.equal(result.written, null)
     assert.deepEqual(errors, [])
-    console.log('DEFECT REPRODUCED: secondary import was delivered to previous fake handle; no real disk was used')
+    console.log('PASS: linked watcher observed a real write but did not deliver the secondary import to the old handle')
   } finally { await context.close() }
 } finally { await browser.close() }
