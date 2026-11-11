@@ -386,6 +386,9 @@ async function answerFileDialog(vsp: VspModule, d: MDialog) {
       name = handle.name
     }
     const path = `${HOME}/${name}`
+    // Only the current exact-path binding is observable here: aliases and writes
+    // detached by an earlier rebind are not covered. Never cancel an active delivery.
+    if (busyImportPath([path], linked)) throw new Error(`Save As rejected: linked file has pending or in-progress write-back: ${path}`)
     vsp.FS.mkdirTree(HOME)
     link(vsp, path, handle, name)
     answer(path)

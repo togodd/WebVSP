@@ -14,6 +14,17 @@ describe('busy import targets', () => {
     expect(linked.get('/home/b')?.pending).toBe(true)
     expect(linked.get('/home/c')?.writing).toBe(true)
   })
+
+  it('uses only the current exact path binding, not aliases or detached bindings', () => {
+    const detached = { pending: false, writing: true }
+    const linked = new Map([['/home/A', detached]])
+    expect(busyImportPath(['/home/a'], linked)).toBeUndefined()
+    linked.set('/home/A', { pending: false, writing: false })
+    expect(busyImportPath(['/home/A'], linked)).toBeUndefined()
+    expect(detached.writing).toBe(true)
+    linked.get('/home/A')!.pending = true
+    expect(busyImportPath(['/home/A'], linked)).toBe('/home/A')
+  })
 })
 
 describe('import staging', () => {
