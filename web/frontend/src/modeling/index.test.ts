@@ -219,6 +219,63 @@ describe('browser facade composite reads', () => {
     }
   })
 
+  const failureStages = [
+    { facade: 'wing' as const, type: 'Wing', operations: ['model', 'geomXSecs'], failure: 'model' },
+    { facade: 'wing' as const, type: 'Wing', operations: ['model', 'geomXSecs'], failure: 'geomXSecs' },
+    { facade: 'fuselage' as const, type: 'Fuselage', operations: ['model', 'fuselageLength', 'geomXSecs'], failure: 'model' },
+    { facade: 'fuselage' as const, type: 'Fuselage', operations: ['model', 'fuselageLength', 'geomXSecs'], failure: 'fuselageLength' },
+    { facade: 'fuselage' as const, type: 'Fuselage', operations: ['model', 'fuselageLength', 'geomXSecs'], failure: 'geomXSecs' },
+  ]
+  const hostileFailures = ['prototypeThrow', 'prototypeClose', 'codeThrow', 'codeClose', 'synchronousClose'] as const
+  it.each(failureStages.flatMap(stage => hostileFailures.map(behavior => ({ ...stage, behavior }))))(
+    '$facade.get normalizes $behavior at $failure without starting later stages',
+    async ({ facade, type, operations, failure, behavior }) => {
+      const engine = vi.mocked(callGuarded)
+      engine.mockReset()
+      const service = createBrowserModelingService()
+      const secret = new Error('private adapter detail')
+      let inspections = 0
+      let rejected: unknown
+      if (behavior.startsWith('prototype')) {
+        rejected = new Proxy({}, { getPrototypeOf() {
+          inspections++
+          if (behavior === 'prototypeClose') service.close()
+          throw secret
+        } })
+      } else if (behavior.startsWith('code')) {
+        rejected = new WasmEngineError(500, 'private adapter detail')
+        Object.defineProperty(rejected, 'code', { get() {
+          inspections++
+          if (behavior === 'codeClose') service.close()
+          throw secret
+        } })
+      } else rejected = secret
+      engine.mockImplementation((op) => {
+        if (op === failure) {
+          if (behavior === 'synchronousClose') service.close()
+          return Promise.reject(rejected)
+        }
+        if (op === 'model') return Promise.resolve(model(type)) as never
+        if (op === 'fuselageLength') return Promise.resolve(length) as never
+        if (op === 'geomXSecs') return Promise.resolve(surfaces) as never
+        throw new Error(`Unexpected operation ${op}`)
+      })
+      try {
+        const error = await service[facade].get('geom', token).then(() => null, error => error)
+        expect(error).toMatchObject({ code: behavior.endsWith('Close') ? 'SESSION_CLOSED' : 'ENGINE_ERROR' })
+        expect(error).not.toBe(secret)
+        expect(error).not.toBe(rejected)
+        expect(error.message).not.toContain('private adapter detail')
+        if (behavior !== 'synchronousClose') expect(inspections).toBeGreaterThan(0)
+        const expected = operations.slice(0, operations.indexOf(failure) + 1)
+        expect(engine.mock.calls).toEqual(expected.map(op => [op, op === 'model' ? '' : 'geom', '', 0, '42', expect.any(AbortSignal)]))
+      } finally {
+        service.close()
+        engine.mockReset()
+      }
+    },
+  )
+
   it.each([
     { facade: 'wing' as const, type: 'Wing', operations: ['model', 'geomXSecs'], stalled: 'model' },
     { facade: 'wing' as const, type: 'Wing', operations: ['model', 'geomXSecs'], stalled: 'geomXSecs' },
