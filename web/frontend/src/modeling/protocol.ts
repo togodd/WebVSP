@@ -1,9 +1,9 @@
 /** Version 1 engine-manifest vocabulary. Recognition is not evidence of readiness or permission. */
-export const MODELING_PROTOCOL_OPERATIONS = [
+export const MODELING_PROTOCOL_OPERATIONS = Object.freeze([
   'modelDiscovery', 'model', 'bbox', 'origin', 'geomXSecs',
   'fuselageXSecShapes', 'wingXSecShapes', 'geomParmIDs', 'xsecParmIDs',
   'geomParm', 'xsecParm', 'fuselageLength', 'guardedEpochV1',
-] as const
+] as const)
 
 export type ModelingProtocolOperation = (typeof MODELING_PROTOCOL_OPERATIONS)[number]
 export type ModelingProtocolResult =

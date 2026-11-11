@@ -41,6 +41,15 @@ describe('untrusted modeling protocol manifest', () => {
     expect(parseModelingProtocol(manifest(proxy.proxy))).toEqual(invalid)
   })
 
+  it('protects the exported vocabulary from external mutation', () => {
+    const original = [...MODELING_PROTOCOL_OPERATIONS]
+    expect(Object.isFrozen(MODELING_PROTOCOL_OPERATIONS)).toBe(true)
+    expect(() => (MODELING_PROTOCOL_OPERATIONS as unknown as string[]).push('bogus')).toThrow()
+    expect(() => { (MODELING_PROTOCOL_OPERATIONS as unknown as string[])[0] = 'bogus' }).toThrow()
+    expect(MODELING_PROTOCOL_OPERATIONS).toEqual(original)
+    expect(parseModelingProtocol(manifest(['modelDiscovery', 'bogus']))).toEqual({ status: 'valid', operations: ['modelDiscovery'] })
+  })
+
   it('returns independent operation arrays', () => {
     const value = manifest(['model', 'futureOperation'])
     const first = parseModelingProtocol(value)
