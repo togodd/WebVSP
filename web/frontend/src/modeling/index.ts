@@ -1,8 +1,10 @@
 import { api } from '../api/client'
 import type { ModelTree } from '../api/types'
-import { callGuarded, discoverModel, getEngineSessionId, WasmEngineError } from '../api/wasmEngine'
+import { callGuarded, discoverModel, discoverModelingProtocol, getEngineSessionId, WasmEngineError } from '../api/wasmEngine'
 import { ModelingError, type ModelIdentity } from './contracts'
-import { createReadService } from './readService'
+import { createReadService, raceClose } from './readService'
+import { parseModelingProtocol } from './protocol'
+export type { ModelingProtocolOperation, ModelingProtocolResult } from './protocol'
 import { createParameterService } from './parameterService'
 import type { CrossSectionShapeSurface, CrossSectionSurface, EngineParameter, ParameterReadAdapter } from './parameterService'
 import type { CreateGeometryInput, MoveGeometryInput } from './writeService'
@@ -85,6 +87,21 @@ export function createBrowserModelingService() {
   }
   return {
     close() { controller.abort(); read.close() },
+    async protocol() {
+      const checkOpen = () => { if (controller.signal.aborted) throw new ModelingError('SESSION_CLOSED', 'Modeling session is closed') }
+      checkOpen()
+      try {
+        const manifest = await raceClose(controller.signal, () => discoverModelingProtocol(controller.signal))
+        checkOpen()
+        const result = parseModelingProtocol(manifest)
+        checkOpen()
+        if (result.status !== 'valid') throw new Error('Invalid protocol manifest')
+        return result
+      } catch {
+        checkOpen()
+        throw new ModelingError('ENGINE_ERROR', 'The OpenVSP engine request failed')
+      }
+    },
     capabilities() {
       const result = read.capabilities()
       return { ...result, features: result.features.map((c) => ['parameter.read', 'wing.read', 'fuselage.read'].includes(c.name) ? { name: c.name, status: 'supported' as const } : ['parameter.write', 'geometry.create', 'geometry.move'].includes(c.name) ? { name: c.name, status: 'unsupported' as const, reason: 'Disabled pending reentrancy safety review' } : c) }

@@ -4,6 +4,7 @@ vi.mock('../api/client', () => ({ api: { model: vi.fn(), bbox: vi.fn() } }))
 vi.mock('../api/wasmEngine', () => ({
   getEngineSessionId: () => 'tab',
   discoverModel: vi.fn(),
+  discoverModelingProtocol: vi.fn(),
   callGuarded: vi.fn(async () => ({ modelEpoch: '42', modelEpochValid: true, fileName: '', rev: 1, version: '', geoms: [], active: [] })),
   WasmEngineError: class extends Error {
     readonly code?: string
@@ -12,8 +13,66 @@ vi.mock('../api/wasmEngine', () => ({
 }))
 
 import { api } from '../api/client'
-import { callGuarded, discoverModel, WasmEngineError } from '../api/wasmEngine'
+import { callGuarded, discoverModel, discoverModelingProtocol, WasmEngineError } from '../api/wasmEngine'
 import { createBrowserModelingService } from './index'
+
+describe('browser protocol declaration', () => {
+  const manifest = (operations: unknown[]) => ({ protocol: 'webvsp-modeling', version: 1, operations })
+
+  it('fetches and validates every time without changing capabilities', async () => {
+    const request = vi.mocked(discoverModelingProtocol)
+    request.mockReset().mockResolvedValueOnce(manifest(['model', 'future', 'guardedEpochV1'])).mockResolvedValueOnce(manifest([]))
+    const service = createBrowserModelingService()
+    const capabilities = service.capabilities()
+    try {
+      expect(await service.protocol()).toEqual({ status: 'valid', operations: ['model', 'guardedEpochV1'] })
+      expect(await service.protocol()).toEqual({ status: 'valid', operations: [] })
+      expect(request).toHaveBeenCalledTimes(2)
+      expect(request).toHaveBeenCalledWith(expect.any(AbortSignal))
+      expect(service.capabilities()).toEqual(capabilities)
+    } finally { service.close(); request.mockReset() }
+  })
+
+  it('maps malformed and unknown-operation errors without inferring an old version or caching failure', async () => {
+    const request = vi.mocked(discoverModelingProtocol)
+    request.mockReset().mockResolvedValueOnce(manifest(['model', 'model']))
+      .mockRejectedValueOnce(new WasmEngineError(400, 'unknown request: modelingProtocol'))
+      .mockResolvedValueOnce(manifest(['model']))
+    const service = createBrowserModelingService()
+    try {
+      await expect(service.protocol()).rejects.toMatchObject({ code: 'ENGINE_ERROR' })
+      await expect(service.protocol()).rejects.toMatchObject({ code: 'ENGINE_ERROR' })
+      expect(await service.protocol()).toEqual({ status: 'valid', operations: ['model'] })
+      expect(request).toHaveBeenCalledTimes(3)
+    } finally { service.close(); request.mockReset() }
+  })
+
+  it.each(['resolve', 'reject'] as const)('closes pending requests and consumes late %s', async (outcome) => {
+    const request = vi.mocked(discoverModelingProtocol)
+    let resolve!: (value: unknown) => void, reject!: (error: Error) => void
+    request.mockReset().mockReturnValue(new Promise((a, b) => { resolve = a; reject = b }))
+    const service = createBrowserModelingService()
+    const pending = service.protocol()
+    service.close()
+    await expect(pending).rejects.toMatchObject({ code: 'SESSION_CLOSED' })
+    if (outcome === 'resolve') resolve(manifest(['model']))
+    else reject(new Error('late'))
+    await Promise.resolve()
+    await expect(service.protocol()).rejects.toMatchObject({ code: 'SESSION_CLOSED' })
+    expect(request).toHaveBeenCalledTimes(1)
+    request.mockReset()
+  })
+
+  it('prioritizes closure caused by a manifest proxy trap', async () => {
+    const request = vi.mocked(discoverModelingProtocol)
+    const service = createBrowserModelingService()
+    request.mockReset().mockResolvedValue(new Proxy(manifest(['model']), {
+      getOwnPropertyDescriptor() { service.close(); throw new Error('private') },
+    }))
+    try { await expect(service.protocol()).rejects.toMatchObject({ code: 'SESSION_CLOSED' }) }
+    finally { service.close(); request.mockReset() }
+  })
+})
 
 describe('browser modeling identity', () => {
   it('discovers without an epoch, propagates failure, and recovers without legacy model', async () => {

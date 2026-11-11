@@ -152,6 +152,14 @@ export async function discoverModel<T = unknown>(signal: AbortSignal): Promise<T
   })
 }
 
+/** Fetch the engine's declaration without requiring a model identity or guarded export. */
+export async function discoverModelingProtocol(signal: AbortSignal): Promise<unknown> {
+  return facadeSubmit(signal, load, readyPromise, (vsp) => {
+    const id = nextId++
+    return submitPending(pending, id, () => vsp.call(id, 'modelingProtocol', '', '', 0))
+  })
+}
+
 /** A model identity token is an opaque decimal string, never a JavaScript number. */
 export interface EngineModelEpoch {
   modelEpoch: string
