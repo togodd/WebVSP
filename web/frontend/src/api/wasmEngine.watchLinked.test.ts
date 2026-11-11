@@ -89,6 +89,25 @@ describe('linked file watcher failure isolation', () => {
     expect(files.state(a)).toMatchObject({ pending: false, writing: false })
   })
 
+  it('does not deliver twice when readFile synchronously reenters the watcher', async () => {
+    const s = await setup()
+    s.content.set(a, 2)
+    files.watch(s.vsp)
+    const original = s.vsp.FS.readFile
+    let reentered = false
+    s.vsp.FS.readFile = path => {
+      if (path === a && !reentered) {
+        reentered = true
+        files.watch(s.vsp)
+      }
+      return original(path)
+    }
+    files.watch(s.vsp)
+    await flush()
+    expect(reentered).toBe(true)
+    expect(s.writes).toEqual(['a.vsp3'])
+  })
+
   it('continues the scan if error logging itself throws', async () => {
     const s = await setup()
     s.content.set(a, 2); s.content.set(b, 2)
