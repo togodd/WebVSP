@@ -1,4 +1,4 @@
-// Characterization, NOT a safety test: exit 0 means the known unsafe rebind was observed.
+// GUI regression: a same-path Save As is cancelled while the old write-back is in flight.
 // Run: WEBVSP_URL=http://127.0.0.1:5179/ CHROMIUM_PATH=/path/to/chrome \
 //      node src/modeling/gui-late-write-rebind-check.mjs
 // Requires web/frontend's installed playwright-core and an existing running WebVSP GUI.
@@ -18,11 +18,13 @@ const browser = await chromium.launch({
 })
 const pageErrors = []
 const downloads = []
+const consoleErrors = []
 let page
 try {
   page = await browser.newPage({ acceptDownloads: false })
   page.on('pageerror', error => pageErrors.push(error.stack || error.message))
   page.on('download', download => downloads.push(download.suggestedFilename()))
+  page.on('console', message => { if (message.type() === 'error') consoleErrors.push(message.text()) })
   await page.addInitScript(() => {
     const events = []
     const queue = []
@@ -30,6 +32,7 @@ try {
     window.race = {
       events,
       queue,
+      handles: {},
       releaseOld() {
         if (!releaseOldClose) throw new Error('old close has not started')
         releaseOldClose()
@@ -78,7 +81,9 @@ try {
   }
   async function queueHandle(id, blockClose = false) {
     await page.evaluate(({ id, blockClose }) => {
-      window.race.queue.push({ id, handle: window.race.makeHandle(id, blockClose) })
+      const handle = window.race.makeHandle(id, blockClose)
+      window.race.handles[id] = handle
+      window.race.queue.push({ id, handle })
     }, { id, blockClose })
   }
 
@@ -89,34 +94,44 @@ try {
   await waitForEvent('old:close-start')
   await queueHandle('new')
   await menu('Save As...')
-  await waitForEvent('new:close-done')
+  await waitForEvent('new:picked')
+  await page.waitForFunction(() => window.__webvspEngine.testFiles.state('/home/web_user/race.vsp3')?.writing, null, { timeout })
+  // A subsequent GUI operation proves the rejected native dialog was answered.
+  await page.getByRole('status').filter({ hasText: 'Save As was rejected' }).waitFor({ timeout })
+  assert.equal(await page.evaluate(() => window.__webvspEngine.testFiles.state('/home/web_user/race.vsp3')?.handle === window.race.handles.old), true, 'old binding must survive cancellation')
+  assert.deepEqual((await page.evaluate(() => window.race.events)).filter(e => e.startsWith('new:')), ['new:picked'], 'rejected handle must not be written')
   await menu('Open...')
   await waitForEvent('bad:getFile-rejected')
   await page.evaluate(() => window.race.releaseOld())
   await waitForEvent('old:close-done')
+  await page.waitForFunction(() => !window.__webvspEngine.testFiles.state('/home/web_user/race.vsp3')?.writing, null, { timeout })
+  await queueHandle('retry')
+  await menu('Save As...')
+  await waitForEvent('retry:close-done')
+  assert.equal(await page.evaluate(() => window.__webvspEngine.testFiles.state('/home/web_user/race.vsp3')?.handle === window.race.handles.retry), true, 'retry must bind the new handle')
   await page.getByRole('button', { name: 'Add', exact: true }).click()
   await menu('Save...')
-  await waitForEvent('new:close-done', 2)
-  // Allow extra unintended write-backs to surface before asserting the complete trace.
+  await waitForEvent('retry:close-done', 2)
   await page.waitForTimeout(1500)
 
   const events = await page.evaluate(() => window.race.events)
   console.log('Observed fake-handle events:', JSON.stringify(events, null, 2))
   const normalized = events.map(event => {
-    const match = /^(old|new):write:(\d+)$/.exec(event)
+    const match = /^(old|new|retry):write:(\d+)$/.exec(event)
     if (!match) return event
     assert(Number(match[2]) > 0, `empty write: ${event}`)
     return `${match[1]}:write`
   })
   assert.deepEqual(normalized, [
     'old:picked', 'old:permission', 'old:create', 'old:write', 'old:close-start',
-    'new:picked', 'new:permission', 'new:create', 'new:write', 'new:close-start', 'new:close-done',
-    'bad:picker', 'bad:getFile-rejected', 'old:close-done',
-    'new:permission', 'new:create', 'new:write', 'new:close-start', 'new:close-done',
-  ], 'event trace differs from the known late-close rebind defect')
+    'new:picked', 'bad:picker', 'bad:getFile-rejected', 'old:close-done',
+    'retry:picked', 'retry:permission', 'retry:create', 'retry:write', 'retry:close-start', 'retry:close-done',
+    'retry:permission', 'retry:create', 'retry:write', 'retry:close-start', 'retry:close-done',
+  ], 'unexpected fake-handle event trace')
   assert.deepEqual(downloads, [], 'unexpected browser download')
   assert.deepEqual(pageErrors, [], 'uncaught page errors')
-  console.log('CHARACTERIZED: unsafe same-path rebind completed while the old close was in flight; exit 0 is NOT a safety pass.')
+  assert.deepEqual(consoleErrors, [], 'unexpected browser console errors')
+  console.log('PASS: busy same-path Save As cancelled, old binding preserved, retry succeeded after close.')
 } catch (error) {
   if (pageErrors.length) console.error('Uncaught page errors:', pageErrors)
   if (downloads.length) console.error('Unexpected downloads:', downloads)
