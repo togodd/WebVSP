@@ -107,6 +107,42 @@ describe('single parameter write service', () => {
     const adapter = { get set(): never { throw new Error('private') } }
     await expect(createParameterWriteService(adapter).set(input)).rejects.toMatchObject({ code: 'OUTCOME_UNKNOWN' })
   })
+  it.each([false, true])('does not interpret a set getter engine error as a write result (closed: %s)', async (closed) => {
+    const controller = new AbortController()
+    const write = vi.fn()
+    const adapter = { get set(): typeof write {
+      if (closed) controller.abort()
+      throw new WasmEngineError(409, 'private', 'not_written', 2, 'STALE_MODEL')
+    } }
+    const error = await createParameterWriteService(adapter, controller.signal)
+      .set(input, { sessionId: 's', modelEpoch: 'e' }).catch(e => e)
+    expect(error.code).toBe(closed ? 'SESSION_CLOSED' : 'OUTCOME_UNKNOWN')
+    expect(error.details?.outcome).not.toBe('not_written')
+    expect(JSON.stringify(error)).not.toContain('private')
+    expect(write).not.toHaveBeenCalled()
+  })
+  it.each(['actual', 'outcome', 'code'] as const)('sanitizes a throwing dispatched error %s getter', async (field) => {
+    const engineError = new WasmEngineError(409, 'private engine', 'not_written', 2, 'STALE_MODEL')
+    Object.defineProperty(engineError, field, { get() { throw new Error('private getter') } })
+    const adapter = { set: vi.fn(async () => { throw engineError }) }
+    const error = await createParameterWriteService(adapter).set(input, { sessionId: 's', modelEpoch: 'e' }).catch(e => e)
+    expect(error.code).toBe('OUTCOME_UNKNOWN')
+    expect(error.details?.outcome).not.toBe('not_written')
+    expect(JSON.stringify(error)).not.toContain('private')
+    expect(adapter.set).toHaveBeenCalledTimes(1)
+  })
+  it.each(['actual', 'outcome', 'code'] as const)('reports unknown when dispatched error %s getter closes the session', async (field) => {
+    const controller = new AbortController()
+    const engineError = new WasmEngineError(409, 'private engine', 'not_written', 2, 'STALE_MODEL')
+    const value = engineError[field]
+    Object.defineProperty(engineError, field, { get() { controller.abort(); return value } })
+    const adapter = { set: vi.fn(async () => { throw engineError }) }
+    const error = await createParameterWriteService(adapter, controller.signal).set(input, { sessionId: 's', modelEpoch: 'e' }).catch(e => e)
+    expect(error.code).toBe('OUTCOME_UNKNOWN')
+    expect(error.details?.outcome).not.toBe('not_written')
+    expect(JSON.stringify(error)).not.toContain('private')
+    expect(adapter.set).toHaveBeenCalledTimes(1)
+  })
   it.each(['resolve', 'reject'] as const)('reports unknown on close after dispatch and consumes late %s', async (settle) => {
     const controller = new AbortController()
     let resolve!: (value: { actual: number }) => void

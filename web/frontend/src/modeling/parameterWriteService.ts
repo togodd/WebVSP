@@ -63,19 +63,27 @@ export function createParameterWriteService(adapter: ParameterWriteAdapter, sign
       } catch (error) {
         if (!dispatched && signal.aborted) throw new ModelingError('SESSION_CLOSED', 'Modeling session is closed')
         if (signal.aborted) throw new ModelingError('OUTCOME_UNKNOWN', 'The parameter write outcome is unknown; do not automatically retry')
-        if (error instanceof WasmEngineError) {
+        // A failure to retrieve the method is not an engine response, even if
+        // the accessor throws an object shaped like one.
+        if (dispatched && error instanceof WasmEngineError) {
           let actual: number | null = null
+          let outcome: WasmEngineError['outcome']
+          let code: WasmEngineError['code']
           try {
             const readback = error.actual
             if (typeof readback === 'number' && Number.isFinite(readback)) actual = readback
+            outcome = error.outcome
+            code = outcome === 'not_written' && identity !== undefined ? error.code : undefined
           } catch {
             throw new ModelingError('OUTCOME_UNKNOWN', 'The parameter write outcome is unknown; do not automatically retry')
           }
-          if (error.outcome === 'not_written') {
-            if (identity !== undefined && error.code === 'STALE_MODEL') throw new ModelingError('STALE_MODEL', 'The model identity is stale', { outcome: 'not_written', actual })
+          // Error properties can themselves synchronously close the session.
+          if (signal.aborted) throw new ModelingError('OUTCOME_UNKNOWN', 'The parameter write outcome is unknown; do not automatically retry')
+          if (outcome === 'not_written') {
+            if (identity !== undefined && code === 'STALE_MODEL') throw new ModelingError('STALE_MODEL', 'The model identity is stale', { outcome: 'not_written', actual })
             throw new ModelingError('ENGINE_ERROR', 'The parameter was not written', { outcome: 'not_written', actual })
           }
-          throw new ModelingError('OUTCOME_UNKNOWN', 'The parameter write may have changed the model; do not automatically retry', { outcome: error.outcome === 'different' ? 'different' : 'unknown', actual })
+          throw new ModelingError('OUTCOME_UNKNOWN', 'The parameter write may have changed the model; do not automatically retry', { outcome: outcome === 'different' ? 'different' : 'unknown', actual })
         }
         throw new ModelingError('OUTCOME_UNKNOWN', 'The parameter write outcome is unknown; do not automatically retry')
       }
