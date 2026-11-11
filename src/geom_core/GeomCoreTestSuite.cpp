@@ -137,7 +137,9 @@ void GeomCoreTestSuite::ReadXMLFreezeTest()
     {
         { std::ofstream file( path ); file << "not xml"; }
         LinkMgr.SetFreezeUpdateFlag( frozen );
-        TEST_ASSERT( veh.ReadXMLFile( path.string() ) == 1 );
+        // libxml recovery may return either no document or an empty document.
+        const int parse_error = veh.ReadXMLFile( path.string() );
+        TEST_ASSERT( parse_error == 1 || parse_error == 2 );
         TEST_ASSERT( LinkMgr.GetFreezeUpdateFlag() == frozen );
 
         { std::ofstream file( path ); file << "<wrong/>"; }
