@@ -1,8 +1,9 @@
 import { describe, expect, it, vi } from 'vitest'
-import { createParameterService } from './parameterService'
+import { createParameterService } from './index'
 import { WasmEngineError } from '../api/wasmEngine'
 import { ModelingError } from './contracts'
 
+vi.mock('../api/client', () => ({ api: {} }))
 vi.mock('../api/wasmEngine', () => ({
   WasmEngineError: class WasmEngineError extends Error {
     status: number
@@ -65,6 +66,40 @@ describe('linkable parameter reads', () => {
     for (const fake of [Object.assign(new Error('secret'), { code: 'GEOMETRY_NOT_FOUND' }), { code: 'CROSS_SECTION_NOT_FOUND', message: 'secret' }, new ModelingError('GEOMETRY_NOT_FOUND', 'secret')]) {
       failure = fake
       for (const call of [...geometry, ...sections]) await expect(call()).rejects.toMatchObject({ code: 'ENGINE_ERROR', message: 'The OpenVSP parameter request failed' })
+    }
+  })
+  it('safely classifies hostile rejection values and honors synchronous close', async () => {
+    const identity = { sessionId: 'session', modelEpoch: 'epoch' }
+    for (const scenario of ['prototypeThrow', 'prototypeClose', 'prototypeCloseThrow', 'codeThrow', 'codeClose', 'codeCloseThrow', 'codeOnce'] as const) {
+      const controller = new AbortController()
+      let reads = 0
+      const engineError = new WasmEngineError(404, 'secret backend message', undefined, undefined, 'GEOMETRY_NOT_FOUND')
+      let failure: unknown
+      if (scenario.startsWith('prototype')) {
+        failure = new Proxy({}, { getPrototypeOf() {
+          reads++
+          if (scenario !== 'prototypeThrow') controller.abort()
+          if (scenario !== 'prototypeClose') throw new Error('secret trap')
+          return null
+        } })
+      } else {
+        Object.defineProperty(engineError, 'code', { get() {
+          reads++
+          if (scenario === 'codeClose' || scenario === 'codeCloseThrow') controller.abort()
+          if (scenario === 'codeThrow' || scenario === 'codeCloseThrow') throw new Error('secret getter')
+          if (reads > 1) throw new Error('code read twice')
+          return 'GEOMETRY_NOT_FOUND'
+        } })
+        failure = engineError
+      }
+      const reject = async (): Promise<never> => { throw failure }
+      const service = createParameterService({ surfaces: reject, fuselageLength: reject, list: reject, get: reject }, controller.signal)
+      const error = await service.listSurfaces('g', identity).catch(e => e)
+      const closed = scenario.includes('Close')
+      const code = closed ? 'SESSION_CLOSED' : scenario === 'codeOnce' ? 'GEOMETRY_NOT_FOUND' : 'ENGINE_ERROR'
+      expect(error).toBeInstanceOf(ModelingError)
+      expect(error.toJSON()).toEqual({ code, message: closed ? 'Modeling session is closed' : code === 'GEOMETRY_NOT_FOUND' ? 'Geometry not found' : 'The OpenVSP parameter request failed' })
+      expect(reads, scenario).toBe(1)
     }
   })
   it('prioritizes stale identity and closed session over backend not-found errors', async () => {

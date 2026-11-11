@@ -85,11 +85,18 @@ export function createParameterService(adapter: ParameterReadAdapter, signal: Ab
     checkOpen()
     try { const result = await raceClose(signal, fn); checkOpen(); const copy = snapshot(result); checkOpen(); return copy } catch (error) {
       checkOpen()
-      if (identity !== undefined && error instanceof WasmEngineError && error.code === 'STALE_MODEL') throw new ModelingError('STALE_MODEL', 'The model identity is stale')
-      if (error instanceof WasmEngineError) {
-        if (owner === 'geometry' && error.code === 'GEOMETRY_NOT_FOUND') throw new ModelingError('GEOMETRY_NOT_FOUND', 'Geometry not found')
-        if (owner === 'crossSection' && error.code === 'CROSS_SECTION_NOT_FOUND') throw new ModelingError('CROSS_SECTION_NOT_FOUND', 'Cross section not found')
+      let code: unknown
+      try {
+        const isEngineError = error instanceof WasmEngineError
+        checkOpen()
+        if (isEngineError) { code = error.code; checkOpen() }
+      } catch {
+        checkOpen()
+        throw new ModelingError('ENGINE_ERROR', 'The OpenVSP parameter request failed')
       }
+      if (identity !== undefined && code === 'STALE_MODEL') throw new ModelingError('STALE_MODEL', 'The model identity is stale')
+      if (owner === 'geometry' && code === 'GEOMETRY_NOT_FOUND') throw new ModelingError('GEOMETRY_NOT_FOUND', 'Geometry not found')
+      if (owner === 'crossSection' && code === 'CROSS_SECTION_NOT_FOUND') throw new ModelingError('CROSS_SECTION_NOT_FOUND', 'Cross section not found')
       throw new ModelingError('ENGINE_ERROR', 'The OpenVSP parameter request failed')
     }
   }
