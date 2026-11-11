@@ -1581,7 +1581,7 @@ void ScriptGuardCheck( int id )
 // can be called directly, bypassing the TypeScript bridge.
 bool GuardedOpAllowed( const string &op )
 {
-    return op == "model" || op == "bbox" || op == "origin" || op == "move" ||
+    return op == "model" || op == "geomTypes" || op == "bbox" || op == "origin" || op == "move" ||
            op == "addGeom" || op == "geomXSecs" || op == "fuselageXSecShapes" || op == "wingXSecShapes" || op == "geomParmIDs" ||
            op == "xsecParmIDs" || op == "geomParm" || op == "xsecParm" ||
            op == "fuselageLength" || op == "geomSetParm" || op == "xsecSetParm";
@@ -1990,7 +1990,14 @@ void RunImpl( const Job &j )
     }
     if ( j.op == "geomTypes" )
     {
-        return Result( j.id, "", StrArray( vsp::GetGeomTypes() ) );
+        if ( !j.guarded ) return Result( j.id, "", StrArray( vsp::GetGeomTypes() ) );
+        // GetGeomTypes() calls ErrorMgr.NoError(). Copy directly from the vehicle
+        // instead so this guarded query does not alter the API's error flag.
+        Vehicle *veh = VehicleMgr.GetVehicle(); // validated by guarded preflight
+        vector< string > types;
+        const int count = veh->GetNumGeomTypes();
+        for ( int i = 0; i < count; ++i ) types.push_back( veh->GetGeomType( i ).m_Name );
+        return Result( j.id, "", StrArray( types ) );
     }
     if ( j.op == "bbox" )
     {
