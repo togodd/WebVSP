@@ -69,6 +69,94 @@ try {
     parameter: ['getCrossSectionParameter', 'getFuselageLength', 'getGeometryParameter', 'listCrossSectionParameterIds', 'listGeometryParameterIds', 'listSurfaces'],
     wing: ['get'], fuselage: ['get'],
   })
+  // Create the fixture only through the mirrored GUI, in this disposable context.
+  const select = page.locator('select').filter({ has: page.locator('option:text-is("FUSELAGE")') }).first()
+  for (const [type, count] of [['FUSELAGE', 1], ['WING', 2]]) {
+    await select.selectOption({ label: type })
+    await page.getByRole('button', { name: 'Add', exact: true }).first().click()
+    await page.waitForFunction(n => window.__webvspModelingReadV1.model.getInfo().then(info => info.geometries.length === n), count, { timeout: 30000 })
+  }
+  const populated = await page.evaluate(async () => {
+    const api = window.__webvspModelingReadV1
+    const info = await api.model.getInfo(), identity = info.identity
+    const fuselage = info.geometries.find(g => g.type.toUpperCase() === 'FUSELAGE')
+    const wing = info.geometries.find(g => g.type.toUpperCase() === 'WING')
+    if (!fuselage || !wing) throw new Error('Missing GUI fixture geometry')
+    const list = await api.geometry.list(identity)
+    const geometry = await api.geometry.get(fuselage.id, identity)
+    const selection = await api.model.getSelection(identity)
+    const bounds = await api.model.getVisibleSurfaceBounds(identity)
+    const surfaces = await api.parameter.listSurfaces(fuselage.id, identity)
+    const wingSurfaces = await api.parameter.listSurfaces(wing.id, identity)
+    const length = await api.parameter.getFuselageLength(fuselage.id, identity)
+    const geometryIds = await api.parameter.listGeometryParameterIds(fuselage.id, identity)
+    const geometryParameter = await api.parameter.getGeometryParameter(fuselage.id, length.id, identity)
+    let sectionId, sectionIds
+    for (const section of surfaces.flatMap(s => s.xsecs)) {
+      const ids = await api.parameter.listCrossSectionParameterIds(section, identity)
+      if (ids.length) { sectionId = section; sectionIds = ids; break }
+    }
+    if (!sectionId) throw new Error('Fixture has no cross-section parameters')
+    const sectionParameter = await api.parameter.getCrossSectionParameter(sectionId, sectionIds[0], identity)
+    return { info, fuselage, wing, list, geometry, selection, bounds, surfaces, wingSurfaces, length, geometryIds, geometryParameter, sectionId, sectionIds, sectionParameter,
+      fuselageView: await api.fuselage.get(fuselage.id, identity), wingView: await api.wing.get(wing.id, identity) }
+  })
+  assert.deepEqual(populated.list.geometries, populated.info.geometries)
+  assert.deepEqual(populated.geometry.geometry, populated.fuselage)
+  assert.deepEqual(populated.selection.geometryIds, populated.info.selectedGeometryIds)
+  assert.ok(populated.bounds && ['min', 'max'].every(k => populated.bounds[k].length === 3 && populated.bounds[k].every(Number.isFinite)))
+  assert.ok(populated.geometryIds.includes(populated.length.id))
+  assert.deepEqual(populated.geometryParameter, populated.length)
+  assert.equal(populated.length.name, 'Length')
+  assert.equal(populated.length.group, 'Design')
+  assert.equal(populated.length.container, populated.fuselage.id)
+  assert.equal(populated.sectionParameter.id, populated.sectionIds[0])
+  assert.equal(populated.fuselageView.geometry.id, populated.fuselage.id)
+  assert.deepEqual(populated.fuselageView.length, populated.length)
+  assert.ok(populated.surfaces.length && populated.surfaces.some(s => s.xsecs.length))
+  assert.ok(populated.wingSurfaces.length && populated.wingSurfaces.some(s => s.xsecs.length))
+  for (const [view, raw, sectionKey] of [[populated.fuselageView.surfaces, populated.surfaces, 'sections'], [populated.wingView.surfaces, populated.wingSurfaces, 'stations']]) {
+    assert.equal(view.length, raw.length)
+    for (let i = 0; i < raw.length; i++) {
+      assert.equal(view[i].id, raw[i].id)
+      assert.deepEqual(view[i][sectionKey].map(s => s.id), raw[i].xsecs)
+      for (const [index, section] of view[i][sectionKey].entries()) {
+        assert.equal(section.index, index)
+        assert.ok(Number.isInteger(section.shape) && section.shape !== -1)
+        if (sectionKey === 'stations') assert.equal(section.kind, index === 0 ? 'rootAirfoilStation' : 'wingSection')
+      }
+    }
+  }
+  assert.equal(populated.wingView.geometryId, populated.wing.id)
+  // OpenVSP's default native curve codes: POINT/ELLIPSE and FOUR_SERIES.
+  assert.deepEqual(populated.fuselageView.surfaces.map(s => s.sections.map(x => x.shape)), [[0, 2, 2, 2, 0]])
+  assert.deepEqual(populated.wingView.surfaces.map(s => s.stations.map(x => x.shape)), [[7, 7]])
+
+  await page.locator('.m-menubar').getByRole('button', { name: 'File', exact: true }).click()
+  await page.locator('.menu-list').getByRole('button', { name: 'New', exact: true }).click()
+  await page.getByRole('dialog').getByRole('button', { name: 'Discard', exact: true }).click()
+  await page.waitForFunction(epoch => window.__webvspModelingReadV1.model.getInfo().then(info => info.identity.modelEpoch !== epoch), populated.info.identity.modelEpoch, { timeout: 30000 })
+  const after = await page.evaluate(async ({ identity, fuselage, wing, length, sectionId, sectionParameter }) => {
+    const api = window.__webvspModelingReadV1
+    const calls = {
+      info: () => api.model.getInfo(identity), selection: () => api.model.getSelection(identity), bounds: () => api.model.getVisibleSurfaceBounds(identity), list: () => api.geometry.list(identity),
+      geometry: () => api.geometry.get(fuselage.id, identity),
+      surfaces: () => api.parameter.listSurfaces(fuselage.id, identity),
+      length: () => api.parameter.getFuselageLength(fuselage.id, identity),
+      geometryIds: () => api.parameter.listGeometryParameterIds(fuselage.id, identity),
+      sectionIds: () => api.parameter.listCrossSectionParameterIds(sectionId, identity),
+      geometryParameter: () => api.parameter.getGeometryParameter(fuselage.id, length.id, identity),
+      sectionParameter: () => api.parameter.getCrossSectionParameter(sectionId, sectionParameter.id, identity),
+      fuselage: () => api.fuselage.get(fuselage.id, identity), wing: () => api.wing.get(wing.id, identity),
+    }
+    const stale = {}
+    for (const [name, call] of Object.entries(calls)) {
+      try { await call(); stale[name] = 'SUCCEEDED' } catch (error) { stale[name] = error.code ?? String(error) }
+    }
+    return { stale, info: await api.model.getInfo() }
+  }, { identity: populated.info.identity, fuselage: populated.fuselage, wing: populated.wing, length: populated.length, sectionId: populated.sectionId, sectionParameter: populated.sectionParameter })
+  assert.equal(after.info.geometries.length, 0)
+  for (const [name, code] of Object.entries(after.stale)) assert.equal(code, 'STALE_MODEL', `${name} must reject stale epoch`)
   assert.ok(paths.some(p => p === '/wasm/vsp.js'))
   assert.equal(paths.filter(p => p === '/wasm/vsp.wasm').length, 1)
   assert.ok(paths.some(p => /^\/assets\/index-.*\.js$/.test(p)))
