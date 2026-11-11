@@ -4,7 +4,9 @@ import { callGuarded, discoverModel, discoverModelingProtocol, getEngineSessionI
 import { ModelingError, type ModelIdentity } from './contracts'
 import { createReadService, raceClose } from './readService'
 import { parseModelingProtocol } from './protocol'
+import { protocolCapabilities } from './protocolCapabilities'
 export type { ModelingProtocolOperation, ModelingProtocolResult } from './protocol'
+export type { ProtocolCapability, ProtocolCapabilityStatus } from './protocolCapabilities'
 import { createParameterService } from './parameterService'
 import type { CrossSectionShapeSurface, CrossSectionSurface, EngineParameter, ParameterReadAdapter } from './parameterService'
 import type { CreateGeometryInput, MoveGeometryInput } from './writeService'
@@ -85,22 +87,28 @@ export function createBrowserModelingService() {
     const t = identity(token), scope = scoped(t)
     try { return await fn(scope, t) } finally { scope.dispose() }
   }
+  async function protocol() {
+    const checkOpen = () => { if (controller.signal.aborted) throw new ModelingError('SESSION_CLOSED', 'Modeling session is closed') }
+    checkOpen()
+    try {
+      const manifest = await raceClose(controller.signal, () => discoverModelingProtocol(controller.signal))
+      checkOpen()
+      const result = parseModelingProtocol(manifest, checkOpen)
+      checkOpen()
+      if (result.status !== 'valid') throw new Error('Invalid protocol manifest')
+      return result
+    } catch {
+      checkOpen()
+      throw new ModelingError('ENGINE_ERROR', 'The OpenVSP engine request failed')
+    }
+  }
   return {
     close() { controller.abort(); read.close() },
-    async protocol() {
-      const checkOpen = () => { if (controller.signal.aborted) throw new ModelingError('SESSION_CLOSED', 'Modeling session is closed') }
-      checkOpen()
-      try {
-        const manifest = await raceClose(controller.signal, () => discoverModelingProtocol(controller.signal))
-        checkOpen()
-        const result = parseModelingProtocol(manifest, checkOpen)
-        checkOpen()
-        if (result.status !== 'valid') throw new Error('Invalid protocol manifest')
-        return result
-      } catch {
-        checkOpen()
-        throw new ModelingError('ENGINE_ERROR', 'The OpenVSP engine request failed')
-      }
+    protocol,
+    async declaredCapabilities() {
+      const declaration = await protocol()
+      if (controller.signal.aborted) throw new ModelingError('SESSION_CLOSED', 'Modeling session is closed')
+      return protocolCapabilities(declaration)
     },
     capabilities() {
       const result = read.capabilities()

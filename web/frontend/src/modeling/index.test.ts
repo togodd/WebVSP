@@ -15,6 +15,7 @@ vi.mock('../api/wasmEngine', () => ({
 import { api } from '../api/client'
 import { callGuarded, discoverModel, discoverModelingProtocol, WasmEngineError } from '../api/wasmEngine'
 import { createBrowserModelingService } from './index'
+import { MODELING_PROTOCOL_OPERATIONS } from './protocol'
 
 describe('browser protocol declaration', () => {
   const manifest = (operations: unknown[]) => ({ protocol: 'webvsp-modeling', version: 1, operations })
@@ -31,6 +32,71 @@ describe('browser protocol declaration', () => {
       expect(request).toHaveBeenCalledWith(expect.any(AbortSignal))
       expect(service.capabilities()).toEqual(capabilities)
     } finally { service.close(); request.mockReset() }
+  })
+
+  it('derives fresh declarations without changing facade capabilities or enabling writes', async () => {
+    const request = vi.mocked(discoverModelingProtocol), guarded = vi.mocked(callGuarded)
+    request.mockReset().mockResolvedValueOnce(manifest([...MODELING_PROTOCOL_OPERATIONS, 'future']))
+      .mockResolvedValueOnce(manifest([]))
+    guarded.mockClear()
+    const service = createBrowserModelingService(), capabilities = service.capabilities()
+    const { declaredCapabilities } = service
+    try {
+      const first = await declaredCapabilities()
+      expect(first.find(c => c.name === 'model.read')).toEqual({ name: 'model.read', status: 'declared', missingOperations: [] })
+      expect(first.find(c => c.name === 'geometry.create')).toEqual({ name: 'geometry.create', status: 'unknown', missingOperations: null })
+      const second = await declaredCapabilities()
+      expect(second.find(c => c.name === 'model.read')).toEqual({ name: 'model.read', status: 'not_declared', missingOperations: ['modelDiscovery', 'model', 'bbox', 'guardedEpochV1'] })
+      expect(request).toHaveBeenCalledTimes(2)
+      expect(service.capabilities()).toEqual(capabilities)
+      await expect(service.write.create({} as never, { sessionId: 'tab', modelEpoch: '42' })).rejects.toMatchObject({ code: 'UNSUPPORTED_OPERATION' })
+      await expect(service.write.move({} as never, { sessionId: 'tab', modelEpoch: '42' })).rejects.toMatchObject({ code: 'UNSUPPORTED_OPERATION' })
+      await expect(service.parameter.set({} as never, { sessionId: 'tab', modelEpoch: '42' })).rejects.toMatchObject({ code: 'UNSUPPORTED_OPERATION' })
+      expect(guarded).not.toHaveBeenCalled()
+    } finally { service.close(); request.mockReset() }
+  })
+
+  it('propagates protocol failures rather than returning unknown and retries fresh', async () => {
+    const request = vi.mocked(discoverModelingProtocol)
+    request.mockReset().mockRejectedValueOnce(new Error('failure')).mockResolvedValueOnce(manifest(['model', 'model']))
+      .mockResolvedValueOnce(manifest([]))
+    const service = createBrowserModelingService()
+    try {
+      await expect(service.declaredCapabilities()).rejects.toMatchObject({ code: 'ENGINE_ERROR' })
+      await expect(service.declaredCapabilities()).rejects.toMatchObject({ code: 'ENGINE_ERROR' })
+      expect((await service.declaredCapabilities()).find(c => c.name === 'model.read')?.status).toBe('not_declared')
+      expect(request).toHaveBeenCalledTimes(3)
+    } finally { service.close(); request.mockReset() }
+  })
+
+  it('propagates closure for pending and subsequent declaration requests', async () => {
+    const request = vi.mocked(discoverModelingProtocol)
+    let reject!: (error: Error) => void
+    request.mockReset().mockReturnValue(new Promise((_resolve, r) => { reject = r }))
+    const service = createBrowserModelingService()
+    const pending = service.declaredCapabilities()
+    service.close()
+    try {
+      await expect(pending).rejects.toMatchObject({ code: 'SESSION_CLOSED' })
+      reject(new Error('late'))
+      await Promise.resolve()
+      await expect(service.declaredCapabilities()).rejects.toMatchObject({ code: 'SESSION_CLOSED' })
+      expect(request).toHaveBeenCalledTimes(1)
+    } finally { request.mockReset() }
+  })
+
+  it('honors closure between protocol completion and declaration derivation', async () => {
+    const request = vi.mocked(discoverModelingProtocol)
+    const service = createBrowserModelingService()
+    let scheduled = false
+    request.mockReset().mockResolvedValue(new Proxy(manifest([]), {
+      getOwnPropertyDescriptor(target, key) {
+        if (!scheduled && key === 'protocol') { scheduled = true; queueMicrotask(() => service.close()) }
+        return Reflect.getOwnPropertyDescriptor(target, key)
+      },
+    }))
+    try { await expect(service.declaredCapabilities()).rejects.toMatchObject({ code: 'SESSION_CLOSED' }) }
+    finally { service.close(); request.mockReset() }
   })
 
   it('maps malformed and unknown-operation errors without inferring an old version or caching failure', async () => {
