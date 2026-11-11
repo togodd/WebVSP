@@ -1,5 +1,20 @@
 import { describe, expect, it, vi } from 'vitest'
-import { normalizeImportName, stageImport } from './importStaging'
+import { busyImportPath, normalizeImportName, stageImport } from './importStaging'
+
+describe('busy import targets', () => {
+  it('checks all exact paths for pending or writing without mutation', () => {
+    const linked = new Map([
+      ['/home/a', { pending: false, writing: false }],
+      ['/home/b', { pending: true, writing: false }],
+      ['/home/c', { pending: false, writing: true }],
+    ])
+    expect(busyImportPath(['/home/missing', '/home/a'], linked)).toBeUndefined()
+    expect(busyImportPath(['/home/a', '/home/b', '/home/c'], linked)).toBe('/home/b')
+    expect(busyImportPath(['/home/c'], linked)).toBe('/home/c')
+    expect(linked.get('/home/b')?.pending).toBe(true)
+    expect(linked.get('/home/c')?.writing).toBe(true)
+  })
+})
 
 describe('import staging', () => {
   it.each(['', '.', '..', './a', '../a', 'a/b', 'a\\b', '\0a', 'a:b', 'a\nb'])(

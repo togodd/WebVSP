@@ -8,6 +8,14 @@ export interface StagedImport {
   readonly data: Uint8Array
 }
 
+/** Return the first target whose current path binding has unfinished write-back. */
+export function busyImportPath(paths: readonly string[], linked: ReadonlyMap<string, { pending: boolean; writing: boolean }>): string | undefined {
+  return paths.find(path => {
+    const binding = linked.get(path)
+    return binding?.pending || binding?.writing
+  })
+}
+
 /**
  * Names are exact, case-sensitive strings: no case folding or Unicode normalization.
  * Only a single path component is accepted; path syntax is never resolved.

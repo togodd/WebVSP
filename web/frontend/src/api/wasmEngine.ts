@@ -22,7 +22,7 @@ import { settleBridgeResult } from './settleBridgeResult'
 import { emitListeners } from './emitListeners'
 import { drainBatch } from './drainBatch'
 import { facadeSubmit } from './facadeSubmit'
-import { stageImport } from './importStaging'
+import { busyImportPath, stageImport } from './importStaging'
 
 interface VspModule {
   call(id: number, op: string, a: string, b: string, value: number): void
@@ -246,7 +246,15 @@ export async function wasmRequest(method: string, path: string, body?: unknown):
 // For the browser console and tests: __webvspEngine.request('POST', '/geoms', { type: 'WING' })
 (window as unknown as Record<string, unknown>).__webvspEngine = {
   request: wasmRequest,
-  ...(import.meta.env.DEV ? { testCall: call, testCallGuarded: submitGuarded } : {}),
+  ...(import.meta.env.DEV ? {
+    testCall: call, testCallGuarded: submitGuarded,
+    testFiles: {
+      answer: answerFileDialog,
+      watch: watchLinked,
+      clear: () => linked.clear(),
+      state: (path: string) => linked.get(path),
+    },
+  } : {}),
 }
 
 /** Stand-in for the WebSocket: "connected" once OpenVSP has started, then its events. */
@@ -350,11 +358,14 @@ async function answerFileDialog(vsp: VspModule, d: MDialog) {
       const main = staged[mainIndex]
       const handle = picked[mainIndex].handle
       const path = `${HOME}/${main.name}`
-      // Remove every old link before any writes, including pending write-back: it
-      // may discard unsaved changes. This prevents newly imported bytes reaching
-      // old watchers still in the map, but cannot cancel an already-started deliver
-      // and does not make the FS commit atomic or thread-safe.
-      for (const f of staged) linked.delete(`${HOME}/${f.name}`)
+      // Check all targets after staging, immediately before the synchronous commit.
+      // Refuse observed pending or in-flight writes in the current path map; no
+      // timeout can prove an in-flight delivery has stopped. This does not cover
+      // unobserved changes or earlier deliveries detached by another rebind.
+      const paths = staged.map(f => `${HOME}/${f.name}`)
+      const busy = busyImportPath(paths, linked)
+      if (busy) throw new Error(`Import rejected: linked file has pending or in-progress write-back: ${busy}`)
+      for (const target of paths) linked.delete(target)
       vsp.FS.mkdirTree(HOME)
       for (const f of staged) vsp.FS.writeFile(`${HOME}/${f.name}`, f.data)
       // File > Save writes only the selected main file back to its handle.
