@@ -4,6 +4,9 @@ import './index.css'
 import App from './App.tsx'
 import { FileErrorNotice } from './FileErrorNotice'
 import { PartialImportNotice } from './PartialImportNotice'
+import { installBrowserReadApi } from './modeling/browserReadApi'
+
+installBrowserReadApi()
 
 /**
  * OpenVSP runs on its own thread in this tab, which needs a cross-origin isolated page. Where the server doesn't send the headers (e.g. GitHub Pages), a service worker adds
