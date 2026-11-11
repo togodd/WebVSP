@@ -23,6 +23,7 @@ import { emitListeners } from './emitListeners'
 import { drainBatch } from './drainBatch'
 import { facadeSubmit } from './facadeSubmit'
 import { busyImportPath, stageImport } from './importStaging'
+import { safelyNotifyFileError } from './fileNotice'
 
 interface VspModule {
   call(id: number, op: string, a: string, b: string, value: number): void
@@ -336,7 +337,10 @@ function link(vsp: VspModule, path: string, handle: FileSystemFileHandle | null,
  * (watchLinked). Chrome/Edge's file pickers remember the last folder.
  */
 async function answerFileDialog(vsp: VspModule, d: MDialog) {
+  let answered = false
   const answer = (path: string) => {
+    if (answered) return
+    answered = true // An exception after delivery must not trigger a second answer.
     vsp.mirrorEvent(JSON.stringify({ op: 'dialog', seq: d.seq, result: path ? 1 : 0, path }))
     emit({ type: 'dialog_done', seq: d.seq })
   }
@@ -364,7 +368,9 @@ async function answerFileDialog(vsp: VspModule, d: MDialog) {
       // unobserved changes or earlier deliveries detached by another rebind.
       const paths = staged.map(f => `${HOME}/${f.name}`)
       const busy = busyImportPath(paths, linked)
-      if (busy) throw new Error(`Import rejected: linked file has pending or in-progress write-back: ${busy}`)
+      if (busy) {
+        try { return answer('') } finally { safelyNotifyFileError({ kind: 'busy', operation: 'open', name: displayName(busy) }) }
+      }
       for (const target of paths) linked.delete(target)
       vsp.FS.mkdirTree(HOME)
       for (const f of staged) vsp.FS.writeFile(`${HOME}/${f.name}`, f.data)
@@ -388,13 +394,17 @@ async function answerFileDialog(vsp: VspModule, d: MDialog) {
     const path = `${HOME}/${name}`
     // Only the current exact-path binding is observable here: aliases and writes
     // detached by an earlier rebind are not covered. Never cancel an active delivery.
-    if (busyImportPath([path], linked)) throw new Error(`Save As rejected: linked file has pending or in-progress write-back: ${path}`)
+    if (busyImportPath([path], linked)) {
+      try { return answer('') } finally { safelyNotifyFileError({ kind: 'busy', operation: 'save', name: displayName(path) }) }
+    }
     vsp.FS.mkdirTree(HOME)
     link(vsp, path, handle, name)
     answer(path)
   } catch (err) {
-    console.error('WebVSP: file dialog failed', err)
-    answer('')
+    try { console.error('WebVSP: file dialog failed', err) } catch { /* logging is best effort */ }
+    if (!answered) {
+      try { answer('') } finally { safelyNotifyFileError({ kind: 'error', operation: d.mode ? 'save' : 'open' }) }
+    }
   }
 }
 
