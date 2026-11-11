@@ -60,6 +60,8 @@ try {
         assert.equal(result.afterOpen.geoms.length, 0)
         result.diagnosticObserved = result.console.some(entry => entry.text.includes(testCase.diagnostic))
         assert.ok(result.diagnosticObserved, `${scenario}: expected parse failure diagnostic`)
+        const alert = page.getByRole('dialog').filter({ hasText: 'Failed to read the selected file' })
+        await alert.getByRole('button', { name: 'OK', exact: true }).click()
         result.steps.push(`${scenario} Open completed; no valid Open`)
       }
       // Create both pods via the Geom Browser, not engine mutation endpoints.

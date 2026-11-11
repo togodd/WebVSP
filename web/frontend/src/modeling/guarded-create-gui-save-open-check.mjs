@@ -126,6 +126,16 @@ try {
     const afterParms = { length: (await fuselageLength(f.id)).value }
     for (const key of Object.keys(beforeParms)) assert.ok(Math.abs(beforeParms[key] - afterParms[key]) < 1e-7, `reopened parameter ${key}`)
     await checkGui()
+    // A successful Open retains its destination: ordinary Save writes the same
+    // fake handle without opening another picker.
+    await page.locator('.m-menubar').getByRole('button', { name: 'File', exact: true }).click()
+    await page.locator('.menu-list').getByRole('button', { name: /^Save\.\.\./ }).click()
+    await page.waitForFunction(() => window.__guardedDelivery.closes === 2, null, { timeout: 30000 })
+    const afterSave = await page.evaluate(() => ({ ...window.__guardedDelivery, bytes: window.__guardedDelivery.bytes?.length }))
+    assert.equal(afterSave.pickSaves, 1)
+    assert.equal(afterSave.creates, 2); assert.equal(afterSave.writes, 2); assert.equal(afterSave.closes, 2)
+    assert.equal(afterSave.downloads, 0)
+    assert.ok(afterSave.bytes > 0)
     assert.deepEqual(errors, [])
     console.log(JSON.stringify({ created: { body: created.body.id, wing: created.wing.id, before: created.before, after: created.after, parameters: beforeParms }, savedBytes: delivery.size, reopened: { body: f.id, wing: w.id, origin: reopenedOrigin, parameters: afterParms } }, null, 2))
     console.log('PASS: direct guarded create/move -> GUI New/Save -> captured fake-handle bytes -> GUI Open; hierarchy, origins and parameters restored')

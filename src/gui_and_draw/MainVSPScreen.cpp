@@ -449,7 +449,11 @@ void MainVSPScreen::ActionCB( void * data )
         {
             VehicleMgr.GetVehicle()->Renew();
             VehicleMgr.GetVehicle()->SetVSP3FileName( openfile );
-            VehicleMgr.GetVehicle()->ReadXMLFile( openfile );
+            if ( VehicleMgr.GetVehicle()->ReadXMLFile( openfile ) != 0 )
+            {
+                VehicleMgr.GetVehicle()->SetVSP3FileName( "Unnamed.vsp3" );
+                VspAlert( "Failed to read the selected file. The previous model has been replaced; the current model is unnamed." );
+            }
 
             if ( VehicleMgr.GetVehicle()->m_ShowNotesScreenParm.Get() )
             {
