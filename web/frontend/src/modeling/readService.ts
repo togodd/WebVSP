@@ -26,30 +26,36 @@ export function raceClose<T>(signal: AbortSignal, fn: () => Promise<T>): Promise
 
 // Engine responses are untrusted at runtime despite the adapter's static types. Copy
 // validated fields so neither extra properties nor later mutations escape the service.
-function copyArray<T>(value: unknown, copyItem: (item: unknown) => T, expectedLength?: number): T[] {
+function copyArray<T>(value: unknown, copyItem: (item: unknown) => T, checkOpen: () => void, expectedLength?: number): T[] {
   if (!Array.isArray(value)) throw new Error('Invalid array')
   const length = value.length
+  checkOpen()
   if (!Number.isSafeInteger(length) || length < 0 || (expectedLength !== undefined && length !== expectedLength)) throw new Error('Invalid array length')
   const copy: T[] = []
   for (let i = 0; i < length; i++) {
-    if (!Object.prototype.hasOwnProperty.call(value, i)) throw new Error('Sparse array')
-    copy.push(copyItem(value[i]))
+    const hasItem = Object.prototype.hasOwnProperty.call(value, i)
+    checkOpen()
+    if (!hasItem) throw new Error('Sparse array')
+    const item = value[i]
+    checkOpen()
+    copy.push(copyItem(item))
+    checkOpen()
   }
   return copy
 }
 
-function stringArray(value: unknown): string[] {
+function stringArray(value: unknown, checkOpen: () => void): string[] {
   return copyArray(value, (item) => {
     if (typeof item !== 'string') throw new Error('Invalid string')
     return item
-  })
+  }, checkOpen)
 }
 
-function boundsVector(value: unknown): [number, number, number] {
+function boundsVector(value: unknown, checkOpen: () => void): [number, number, number] {
   const copy = copyArray(value, (item) => {
     if (typeof item !== 'number' || !Number.isFinite(item)) throw new Error('Invalid bounds')
     return item
-  }, 3)
+  }, checkOpen, 3)
   return [copy[0], copy[1], copy[2]]
 }
 
@@ -62,6 +68,12 @@ export function createReadService(adapter: ModelingReadAdapter, sessionId: strin
   const controller = new AbortController()
   function checkOpen() {
     if (controller.signal.aborted) throw new ModelingError('SESSION_CLOSED', 'Modeling session is closed')
+  }
+  // Each untrusted property access is a separate reentrancy boundary.
+  function field<T, K extends keyof T>(object: T, key: K): T[K] {
+    const value = object[key]
+    checkOpen()
+    return value
   }
   async function fromEngine<T>(read: () => Promise<T>): Promise<T> {
     checkOpen()
@@ -84,8 +96,8 @@ export function createReadService(adapter: ModelingReadAdapter, sessionId: strin
       let tokenSessionId: unknown, modelEpoch: unknown
       try {
         if (expectedIdentity == null) throw new Error('Invalid identity')
-        tokenSessionId = expectedIdentity.sessionId
-        modelEpoch = expectedIdentity.modelEpoch
+        tokenSessionId = field(expectedIdentity, 'sessionId')
+        modelEpoch = field(expectedIdentity, 'modelEpoch')
       } catch {
         checkOpen()
         throw new ModelingError('INVALID_ARGUMENT', 'Expected identity is invalid')
@@ -97,25 +109,28 @@ export function createReadService(adapter: ModelingReadAdapter, sessionId: strin
     }
     const info = await fromEngine(async () => {
       // The adapter must not be able to alter the values used for our comparison.
-      const model = validatedIdentity ? await adapter.model({ ...validatedIdentity }) : await adapter.model()
+      const method = field(adapter, 'model')
+      const model = await Reflect.apply(method, adapter, validatedIdentity ? [{ ...validatedIdentity }] : [])
+      checkOpen()
       try {
         if (!model) throw new Error('Invalid model identity')
-        const modelEpoch = model.modelEpoch
-        if (model.modelEpochValid !== true || !validEpoch(modelEpoch)) throw new Error('Invalid model identity')
-        const { rev, version, fileName, geoms, active } = model
+        const modelEpoch = field(model, 'modelEpoch')
+        if (field(model, 'modelEpochValid') !== true || !validEpoch(modelEpoch)) throw new Error('Invalid model identity')
+        const rev = field(model, 'rev'), version = field(model, 'version'), fileName = field(model, 'fileName'), geoms = field(model, 'geoms'), active = field(model, 'active')
         if (typeof rev !== 'number' || !Number.isFinite(rev) || typeof version !== 'string' || typeof fileName !== 'string' || !Array.isArray(geoms)) throw new Error('Invalid model')
         const geometries = copyArray(geoms, (g): Geometry => {
           if (!g || typeof g !== 'object') throw new Error('Invalid geometry')
-          const { id, name, type, parent, children, shown } = g as Record<string, unknown>
+          const record = g as Record<string, unknown>
+          const id = field(record, 'id'), name = field(record, 'name'), type = field(record, 'type'), parent = field(record, 'parent'), children = field(record, 'children'), shown = field(record, 'shown')
           if (typeof id !== 'string' || typeof name !== 'string' || typeof type !== 'string' || (parent !== null && typeof parent !== 'string') || typeof shown !== 'boolean') throw new Error('Invalid geometry')
-          return { id, name, type, parentId: parent, childIds: stringArray(children), shown }
-        })
+          return { id, name, type, parentId: parent, childIds: stringArray(children, checkOpen), shown }
+        }, checkOpen)
         return {
           identity: { sessionId, modelEpoch },
           context: { sessionId, engineRevision: rev, engineVersion: version },
           fileName,
           geometries,
-          selectedGeometryIds: stringArray(active),
+          selectedGeometryIds: stringArray(active, checkOpen),
         }
       } catch {
         throw new Error('Invalid model response')
@@ -138,11 +153,13 @@ export function createReadService(adapter: ModelingReadAdapter, sessionId: strin
       /** Bounds of shown surfaces only, not all model geometry; a separate non-atomic read. */
       getVisibleSurfaceBounds(): Promise<Bounds | null> {
         return fromEngine(async () => {
-          const bbox = await adapter.bbox()
+          const method = field(adapter, 'bbox')
+          const bbox = await Reflect.apply(method, adapter, [])
+          checkOpen()
           try {
             if (bbox === null) return null
             if (!bbox || typeof bbox !== 'object') throw new Error('Invalid bounds')
-            return { min: boundsVector(bbox.min), max: boundsVector(bbox.max) }
+            return { min: boundsVector(field(bbox, 'min'), checkOpen), max: boundsVector(field(bbox, 'max'), checkOpen) }
           } catch {
             throw new Error('Invalid bounds response')
           }

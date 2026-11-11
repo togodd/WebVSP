@@ -223,6 +223,81 @@ describe('browser-local read service', () => {
     await expect(service.model.getInfo()).rejects.toMatchObject({ code: 'SESSION_CLOSED' })
     expect(model).toHaveBeenCalledTimes(1); expect(bbox).toHaveBeenCalledTimes(1)
   })
+  it('does not invoke adapter methods after their getters close the session', async () => {
+    for (const key of ['model', 'bbox'] as const) {
+      const method = vi.fn(async () => key === 'model' ? fixture() : null)
+      const adapter = { model: async () => fixture(), bbox: async () => null }
+      const service = createReadService(adapter, 'tab')
+      Object.defineProperty(adapter, key, { get() { service.close(); return method } })
+      const pending = key === 'model' ? service.model.getInfo() : service.model.getVisibleSurfaceBounds()
+      await expect(pending).rejects.toMatchObject({ code: 'SESSION_CLOSED' })
+      expect(method).not.toHaveBeenCalled()
+    }
+  })
+  it('stops reading snapshot properties and array entries immediately after close', async () => {
+    for (const kind of ['model', 'geometry', 'array', 'bounds'] as const) {
+      const model = fixture()
+      const bounds = { min: [0, 0, 0], max: [1, 2, 3] }
+      const later = vi.fn()
+      const service = createReadService({ model: async () => model, bbox: async () => bounds as never }, 'tab')
+      if (kind === 'model') {
+        Object.defineProperty(model, 'modelEpoch', { get() { service.close(); return '42' } })
+        Object.defineProperty(model, 'modelEpochValid', { get: later })
+      } else if (kind === 'geometry') {
+        Object.defineProperty(model.geoms[0], 'id', { get() { service.close(); return 'f' } })
+        Object.defineProperty(model.geoms[0], 'name', { get: later })
+      } else if (kind === 'array') {
+        Object.defineProperty(model.active, '0', { get() { service.close(); return 'w' } })
+        model.active.push('other')
+        Object.defineProperty(model.active, '1', { get: later })
+      } else {
+        Object.defineProperty(bounds, 'min', { get() { service.close(); return [0, 0, 0] } })
+        Object.defineProperty(bounds, 'max', { get: later })
+      }
+      const pending = kind === 'bounds' ? service.model.getVisibleSurfaceBounds() : service.model.getInfo()
+      await expect(pending).rejects.toMatchObject({ code: 'SESSION_CLOSED' })
+      expect(later).not.toHaveBeenCalled()
+    }
+  })
+  it('checks close after identity getters and array proxy descriptor traps', async () => {
+    const adapter = { model: vi.fn(async () => fixture()), bbox: async () => null }
+    const service = createReadService(adapter, 'tab')
+    const later = vi.fn(() => '42')
+    await expect(service.model.getInfo({ get sessionId() { service.close(); return 'tab' }, get modelEpoch() { return later() } })).rejects.toMatchObject({ code: 'SESSION_CLOSED' })
+    expect(later).not.toHaveBeenCalled()
+    expect(adapter.model).not.toHaveBeenCalled()
+
+    const model = fixture()
+    const element = vi.fn(() => 'w')
+    let arrayService: ReturnType<typeof createReadService>
+    model.active = new Proxy(['w'], {
+      getOwnPropertyDescriptor(target, key) { arrayService.close(); return Reflect.getOwnPropertyDescriptor(target, key) },
+      get(target, key, receiver) { if (key === '0') return element(); return Reflect.get(target, key, receiver) },
+    })
+    arrayService = createReadService({ model: async () => model, bbox: async () => null }, 'tab')
+    await expect(arrayService.model.getInfo()).rejects.toMatchObject({ code: 'SESSION_CLOSED' })
+    expect(element).not.toHaveBeenCalled()
+  })
+  it('prioritizes close when adapter or snapshot getters throw', async () => {
+    for (const source of ['adapter', 'snapshot'] as const) {
+      const model = fixture()
+      const adapter = { model: async () => model, bbox: async () => null }
+      const service = createReadService(adapter, 'tab')
+      Object.defineProperty(source === 'adapter' ? adapter : model, source === 'adapter' ? 'model' : 'modelEpoch', {
+        get() { service.close(); throw new ModelingError('STALE_MODEL', 'private') },
+      })
+      await expect(service.model.getInfo()).rejects.toMatchObject({ code: 'SESSION_CLOSED', message: 'Modeling session is closed' })
+    }
+  })
+  it('preserves adapter method receivers and error mapping', async () => {
+    const adapter = {
+      model() { expect(this).toBe(adapter); return Promise.resolve(fixture()) },
+      bbox() { expect(this).toBe(adapter); return Promise.resolve(null) },
+    }
+    const service = createReadService(adapter, 'tab')
+    await expect(service.model.getInfo()).resolves.toMatchObject({ identity: { modelEpoch: '42' } })
+    await expect(service.model.getVisibleSurfaceBounds()).resolves.toBeNull()
+  })
   it('does not return a response after close during a pending request', async () => {
     let resolve!: (m: ModelTree) => void
     const service = createReadService({ model: () => new Promise((r) => { resolve = r }), bbox: async () => null }, 'tab')
