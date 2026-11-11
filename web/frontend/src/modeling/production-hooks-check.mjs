@@ -83,6 +83,7 @@ try {
       ['parameterDetachedCleanup', id],
       ['serializerInjection', 'model:early'],
       ['parmReadInjection', 'FindGeoms'],
+      ['protocolErrorStackProbe', ''],
       ['webvspDefinitelyUnknownOperation', ''],
     ]
     const results = []
@@ -97,7 +98,7 @@ try {
     return { id, results }
   })
   assert.ok(result.id)
-  assert.equal(result.results.length, 17)
+  assert.equal(result.results.length, 18)
   for (const { op, before, error, after } of result.results) {
     assert.deepEqual(error, { message: `unknown request: ${op}`, status: 400 }, `${op}: must be rejected by the engine as unknown`)
     assert.equal(before.model.modelEpochValid, true, `${op}: valid model identity`)

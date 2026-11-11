@@ -1729,6 +1729,47 @@ void RunImpl( const Job &j )
             "\"geomParm\",\"xsecParm\",\"fuselageLength\",\"guardedEpochV1\"]}" );
     TakeErrors();
 #ifdef WEBVSP_SCRIPT_GUARD_TEST
+    if ( j.op == "protocolErrorStackProbe" )
+    {
+        // Run both probes synchronously on the engine thread: the GUI pump and
+        // watcher must not consume or add errors between injection and inspection.
+        auto &mgr = vsp::ErrorMgrSingleton::getInstance();
+        auto probe = [&]( const string &op )
+        {
+            mgr.AddError( vsp::VSP_INVALID_ID, "protocol sentinel first" );
+            mgr.AddError( vsp::VSP_INVALID_PTR, "protocol sentinel second" );
+            int before = mgr.GetNumTotalErrors();
+            string nested;
+            string *previous = g_GcProbeCapture;
+            struct RestoreCapture
+            {
+                string *previous;
+                explicit RestoreCapture( string *p ) : previous( p ) {}
+                ~RestoreCapture() { g_GcProbeCapture = previous; }
+            } restore( previous );
+            g_GcProbeCapture = &nested;
+            RunImpl( { -2147483000, op, "", "", 0, false, "" } );
+            int after = mgr.GetNumTotalErrors();
+            string errors = "[";
+            bool first = true;
+            while ( mgr.GetNumTotalErrors() )
+            {
+                vsp::ErrorObj error = mgr.PopLastError();
+                if ( !first ) errors += ",";
+                first = false;
+                errors += "{\"code\":" + std::to_string( static_cast< int >( error.GetErrorCode() ) ) +
+                    ",\"message\":" + Quote( error.GetErrorString() ) + "}";
+            }
+            errors += "]";
+            return "{\"before\":" + std::to_string( before ) + ",\"after\":" + std::to_string( after ) +
+                ",\"errors\":" + errors + ",\"reply\":" + ( nested.empty() ? "null" : nested ) + "}";
+        };
+        string protocol = probe( "modelingProtocol" );
+        string control = probe( "webvspDefinitelyUnknownOperation" );
+        return Result( j.id, "", "{\"protocol\":" + protocol + ",\"control\":" + control +
+            ",\"firstCode\":" + std::to_string( static_cast< int >( vsp::VSP_INVALID_ID ) ) +
+            ",\"secondCode\":" + std::to_string( static_cast< int >( vsp::VSP_INVALID_PTR ) ) + "}" );
+    }
     if ( j.op == "parmReadInjection" )
     {
         if ( j.a != "clear" && j.a != "FindGeoms" && j.a != "GetXSecSurfIDVec" &&
