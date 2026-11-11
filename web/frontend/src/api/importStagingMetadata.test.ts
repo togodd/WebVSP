@@ -75,6 +75,83 @@ describe('optional import metadata preflight', () => {
     expect(sizeReads).toBe(1)
   })
 
+  it('uses preflight names and source references across an awaited read', async () => {
+    const first = { name: 'a', size: 1 }
+    const second = { name: 'b', size: 1 }
+    const sources = [first, second]
+    let release!: (value: Uint8Array) => void
+    const pending = new Promise<Uint8Array>(resolve => { release = resolve })
+    const read = vi.fn((source: typeof first) => source === first ? pending : new Uint8Array([source.size]))
+    const resultPromise = stageImportWithMetadata(sources, read, limits)
+    expect(read).toHaveBeenCalledTimes(1)
+
+    second.name = 'changed'
+    second.size = 2
+    sources[1] = { name: 'c', size: 0 }
+    release(new Uint8Array([7]))
+    const result = await resultPromise
+    expect(read).toHaveBeenNthCalledWith(2, second)
+    expect(result.map(item => item.name)).toEqual(['a', 'b'])
+    // The original source is passed through, not frozen or copied.
+    expect([...result[1].data]).toEqual([2])
+  })
+
+  it('copies the first visible byte range before awaiting the second read', async () => {
+    const backing = new Uint8Array([9, 1, 2, 9])
+    let release!: (value: Uint8Array) => void
+    let secondStarted!: () => void
+    const started = new Promise<void>(resolve => { secondStarted = resolve })
+    const pending = new Promise<Uint8Array>(resolve => { release = resolve })
+    const resultPromise = stageImportWithMetadata([{ name: 'a', size: 0 }, { name: 'b', size: 0 }], source => {
+      if (source.name === 'a') return backing.subarray(1, 3)
+      secondStarted()
+      return pending
+    }, limits)
+    await started
+    backing.fill(0)
+    release(new Uint8Array([3]))
+    const result = await resultPromise
+    expect([...result[0].data]).toEqual([1, 2])
+    expect([...result[1].data]).toEqual([3])
+  })
+
+  it('checks cumulative actual visible bytes after successful metadata preflight', async () => {
+    const read = vi.fn((source: { name: string; size: number }) =>
+      source.name === 'a' ? new Uint8Array([9, 1, 2, 9]).subarray(1, 3) : new Uint8Array([3, 4, 5]))
+    await expect(stageImportWithMetadata([{ name: 'a', size: 0 }, { name: 'b', size: 0 }], read, limits))
+      .rejects.toThrow(/limit/)
+    expect(read).toHaveBeenCalledTimes(2)
+    const accepted = await stageImportWithMetadata([{ name: 'a', size: 0 }], read, { ...limits, maxBytes: 2 })
+    expect([...accepted[0].data]).toEqual([1, 2])
+  })
+
+  it('reads proxy metadata once and propagates proxy failures before data reads', async () => {
+    const accesses: PropertyKey[] = []
+    const source = new Proxy({ name: 'a', size: 1 }, { get(target, key, receiver) {
+      accesses.push(key)
+      return Reflect.get(target, key, receiver)
+    } })
+    const read = vi.fn(() => new Uint8Array([1]))
+    const result = await stageImportWithMetadata([source], read, limits)
+    expect(accesses).toEqual(['name', 'size'])
+    expect(read).toHaveBeenCalledWith(source)
+    expect(result[0].name).toBe('a')
+
+    const error = new Error('proxy metadata')
+    const failing = new Proxy({ name: 'b', size: 0 }, { get(target, key, receiver) {
+      if (key === 'size') throw error
+      return Reflect.get(target, key, receiver)
+    } })
+    read.mockClear()
+    await expect(stageImportWithMetadata([source, failing], read, limits)).rejects.toBe(error)
+    expect(read).not.toHaveBeenCalled()
+  })
+
+  it('rejects a proxied typed array rather than treating it as actual bytes', async () => {
+    const data = new Proxy(new Uint8Array([1]), {})
+    await expect(stageImportWithMetadata([{ name: 'a', size: 1 }], () => data, limits)).rejects.toThrow(TypeError)
+  })
+
   it('propagates metadata getter errors before reading and counts UTF-16 units', async () => {
     const read = vi.fn()
     const error = new Error('metadata')
