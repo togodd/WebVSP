@@ -1,7 +1,7 @@
 /** Exact-string, page-instance-local isolation capacity; not a bound on overall memory. */
 export interface QuarantineReservation {
   /** Invoke once. A throw or rejected result permanently isolates the entire batch. */
-  commit<T>(operation: () => T | PromiseLike<T>): Promise<T>
+  commit<T>(operation: () => T | PromiseLike<T>): Promise<{ value: Awaited<T> }>
   /** Release an uncommitted reservation. Returns false once committing or settled. */
   cancel(): boolean
 }
@@ -81,7 +81,7 @@ export class QuarantineCapacity {
         release()
         return true
       },
-      commit: async <T>(operation: () => T | PromiseLike<T>): Promise<T> => {
+      commit: async <T>(operation: () => T | PromiseLike<T>): Promise<{ value: Awaited<T> }> => {
         if (state !== 'reserved') throw new Error('Reservation already used')
         // Set before calling arbitrary code, including thenable assimilation.
         state = 'committing'
@@ -90,7 +90,9 @@ export class QuarantineCapacity {
           const result = await operation()
           state = 'settled'
           release()
-          return result
+          // Never return the callback result directly: async return would assimilate
+          // a mutable then getter a second time after releasing the reservation.
+          return { value: result }
         } catch (error) {
           state = 'settled'
           for (const key of batch) this.keys.set(key, 'quarantined')

@@ -38,7 +38,7 @@ describe('QuarantineCapacity', () => {
     expect(q.reserve(['bb'])).toEqual({ ok: false, reason: 'conflict' })
     const b = reserved(q.reserve(['c']))
     expect(q.reserve(['d'])).toEqual({ ok: false, reason: 'capacity' })
-    expect(await b.commit(() => 42)).toBe(42)
+    expect(await b.commit(() => 42)).toEqual({ value: 42 })
     finish()
     await expect(committing).rejects.toThrow('failed')
     expect([q.entryCount, q.codeUnits]).toEqual([2, 3])
@@ -66,9 +66,20 @@ describe('QuarantineCapacity', () => {
     expect(q.has('b')).toBe(true)
     expect(q.has('c')).toBe(true)
     const good = reserved(q.reserve(['d']))
-    expect(await good.commit(() => 'ok')).toBe('ok')
+    expect(await good.commit(() => 'ok')).toEqual({ value: 'ok' })
     expect(q.has('a')).toBe(true)
     expect(q.has('b')).toBe(true)
+  })
+
+  it('does not re-assimilate a mutable then getter after release', async () => {
+    const q = new QuarantineCapacity(1, 10)
+    const r = reserved(q.reserve(['key']))
+    let reads = 0
+    const value = { get then() { if (++reads > 1) throw Error('second access'); return undefined } }
+    const result = await r.commit(() => value)
+    expect(result.value).toBe(value)
+    expect(reads).toBe(1)
+    expect(q.has('key')).toBe(false)
   })
 
   it('preserves failed keys under repeated capacity pressure and releases successes', async () => {
