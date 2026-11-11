@@ -8,12 +8,13 @@ if (!executablePath) throw new Error('Set WEBVSP_TEST_CHROMIUM')
 const browser = await chromium.launch({ executablePath, headless: true, args: ['--no-sandbox', '--enable-unsafe-swiftshader'] })
 try {
   const page = await browser.newPage({ serviceWorkers: 'block' })
-  const errors = []
-  page.on('console', m => { if (m.type() === 'error') errors.push(m.text()) })
   await page.goto(process.env.WEBVSP_TEST_PAGE ?? 'http://127.0.0.1:5179/')
   await page.waitForSelector('[data-ready="1"]', { timeout: 120000 })
   const result = await page.evaluate(async () => {
     const api = window.__webvspEngine.testFiles
+    const { useFileNotice } = await import('/src/api/fileNotice.ts')
+    const notices = []
+    const unsubscribe = useFileNotice.subscribe(state => { if (state.notice) notices.push(state.notice) })
     api.clear()
     const files = new Map(), writes = [], answers = []
     let time = 0, release
@@ -58,7 +59,8 @@ try {
     release()
     while (binding.writing) await new Promise(resolve => setTimeout(resolve, 0))
     await api.answer(vsp, dialog(4))
-    return { pending, writing, rejectedPending, rejectedWriting, success: { answer: answers.at(-1), writes, old: new TextDecoder().decode(files.get(oldPath).data), main: new TextDecoder().decode(files.get(mainPath).data), oldUnlinked: !api.state(oldPath) } }
+    unsubscribe()
+    return { pending, writing, rejectedPending, rejectedWriting, notices, success: { answer: answers.at(-1), writes, old: new TextDecoder().decode(files.get(oldPath).data), main: new TextDecoder().decode(files.get(mainPath).data), oldUnlinked: !api.state(oldPath) } }
   })
   assert.equal(result.pending, true)
   assert.equal(result.writing, true)
@@ -76,6 +78,11 @@ try {
   assert.equal(result.success.old, 'replacement')
   assert.equal(result.success.main, 'main')
   assert.equal(result.success.oldUnlinked, true)
-  assert.equal(errors.filter(e => e.includes('Import rejected: linked file has pending or in-progress write-back')).length, 2)
+  assert.equal(result.notices.length, 2)
+  for (const notice of result.notices) {
+    assert.deepEqual({ kind: notice.kind, operation: notice.operation, name: notice.name }, { kind: 'busy', operation: 'open', name: 'old.vsp3' })
+    assert.equal(typeof notice.id, 'number')
+  }
+  assert.ok(result.notices[1].id > result.notices[0].id)
   console.log('PASS: controlled pending and writing reject all targets; settled import succeeds')
 } finally { await browser.close() }

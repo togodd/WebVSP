@@ -7,12 +7,13 @@ if (!executablePath) throw new Error('Set WEBVSP_TEST_CHROMIUM')
 const browser = await chromium.launch({ executablePath, headless: true, args: ['--no-sandbox', '--enable-unsafe-swiftshader'] })
 try {
   const page = await browser.newPage({ serviceWorkers: 'block' })
-  const errors = []
-  page.on('console', m => { if (m.type() === 'error') errors.push(m.text()) })
   await page.goto(process.env.WEBVSP_TEST_PAGE ?? 'http://127.0.0.1:5179/')
   await page.waitForSelector('[data-ready="1"]', { timeout: 120000 })
   const result = await page.evaluate(async () => {
     const api = window.__webvspEngine.testFiles
+    const { useFileNotice } = await import('/src/api/fileNotice.ts')
+    const notices = []
+    const unsubscribe = useFileNotice.subscribe(state => { if (state.notice) notices.push(state.notice) })
     api.clear()
     const files = new Map(), answers = [], delivered = [], mkdirs = []
     let time = 0, release
@@ -57,7 +58,8 @@ try {
     chosen = { name: 'old.vsp3' }
     await api.answer(vsp, { seq: 5, mode: 1, filter: '*.vsp3' })
     const success = { answer: answers.at(-1), rebound: api.state(path) !== binding, handle: api.state(path).handle === chosen }
-    return { pending, writing, other, delivered, success }
+    unsubscribe()
+    return { pending, writing, other, delivered, success, notices }
   })
   for (const conflict of [result.pending, result.writing]) {
     assert.equal(conflict.answer.result, 0)
@@ -72,6 +74,11 @@ try {
   assert.equal(result.success.answer.path, '/home/web_user/old.vsp3')
   assert.equal(result.success.rebound, true)
   assert.equal(result.success.handle, true)
-  assert.equal(errors.filter(e => e.includes('Save As rejected: linked file has pending or in-progress write-back')).length, 2)
+  assert.equal(result.notices.length, 2)
+  for (const notice of result.notices) {
+    assert.deepEqual({ kind: notice.kind, operation: notice.operation, name: notice.name }, { kind: 'busy', operation: 'save', name: 'old.vsp3' })
+    assert.equal(typeof notice.id, 'number')
+  }
+  assert.ok(result.notices[1].id > result.notices[0].id)
   console.log('PASS: Save As rejects pending/writing exact paths, preserves delivery, allows other and settled paths')
 } finally { await browser.close() }
