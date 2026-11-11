@@ -7,6 +7,10 @@
 
 #include "GeomCoreTestSuite.h"
 #include "MeshGeom.h"
+#include "LinkMgr.h"
+#include <filesystem>
+#include <fstream>
+#include <chrono>
 #include <cfloat>  //For DBL_EPSILON
 
 //==== Test GeomXForm ====//
@@ -119,6 +123,37 @@ void GeomCoreTestSuite::VehicleTest()
     //TEST_ASSERT( geom_vec[5] == id1 );
     //TEST_ASSERT( geom_vec[6] == id5 );
 
+}
+
+// Failed and successful reads must both preserve the caller's link freeze state.
+void GeomCoreTestSuite::ReadXMLFreezeTest()
+{
+    namespace fs = std::filesystem;
+    const bool previous = LinkMgr.GetFreezeUpdateFlag();
+    const fs::path path = fs::temp_directory_path() /
+        ( "vsp_read_freeze_" + std::to_string( std::chrono::steady_clock::now().time_since_epoch().count() ) + ".vsp3" );
+    Vehicle veh;
+    for ( bool frozen : { false, true } )
+    {
+        { std::ofstream file( path ); file << "not xml"; }
+        LinkMgr.SetFreezeUpdateFlag( frozen );
+        TEST_ASSERT( veh.ReadXMLFile( path.string() ) == 1 );
+        TEST_ASSERT( LinkMgr.GetFreezeUpdateFlag() == frozen );
+
+        { std::ofstream file( path ); file << "<wrong/>"; }
+        TEST_ASSERT( veh.ReadXMLFile( path.string() ) == 3 );
+        TEST_ASSERT( LinkMgr.GetFreezeUpdateFlag() == frozen );
+
+        { std::ofstream file( path ); file << "<Vsp_Geometry><Version>0</Version></Vsp_Geometry>"; }
+        TEST_ASSERT( veh.ReadXMLFile( path.string() ) == 4 );
+        TEST_ASSERT( LinkMgr.GetFreezeUpdateFlag() == frozen );
+
+        TEST_ASSERT( veh.WriteXMLFile( path.string(), 0 ) );
+        TEST_ASSERT( veh.ReadXMLFile( path.string() ) == 0 );
+        TEST_ASSERT( LinkMgr.GetFreezeUpdateFlag() == frozen );
+    }
+    LinkMgr.SetFreezeUpdateFlag( previous );
+    fs::remove( path );
 }
 
 //==== Test Pod ====//

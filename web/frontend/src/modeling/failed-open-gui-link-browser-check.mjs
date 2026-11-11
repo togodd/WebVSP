@@ -1,7 +1,7 @@
 // Disposable, GUI-only model mutations: compare a fresh model to one immediately
 // after an invalid GUI Open. No valid Open, native picker, or host model file is used.
-// Characterization: expects propagation in the control and the current freeze
-// after invalid Open; exit 0 means the defect was reproduced, NOT that it is fixed.
+// Regression: both the control and the model after invalid Open must propagate
+// a GUI parameter link; exit 0 means both scenarios passed.
 // From web/frontend: WEBVSP_TEST_CHROMIUM=/path/to/chrome node src/modeling/failed-open-gui-link-browser-check.mjs
 // WEBVSP_TEST_PAGE defaults to http://127.0.0.1:5179/. Evidence directory can be
 // set with WEBVSP_TEST_EVIDENCE; defaults to /tmp/webvsp-failed-open-gui-link.
@@ -102,14 +102,8 @@ try {
       assert.ok(Math.abs(result.after.sourceOrigin[0] - (oldX + 3)) < 1e-6, 'GUI source edit must change source')
       result.propagated = Math.abs(result.after.targetLength - (before + 3)) < 1e-6
       result.frozen = Math.abs(result.after.targetLength - before) < 1e-6
-      if (scenario === 'control') {
-        assert.ok(result.propagated, 'normal control must propagate +3 to target')
-        result.steps.push('normal GUI source edit propagated to target')
-      } else {
-        // Characterization of the currently observed defect, not a regression-pass claim.
-        assert.ok(result.frozen, 'expected the currently observed failed-Open freeze; behavior changed')
-        result.steps.push('DEFECT reproduced: target remained unchanged after GUI source edit')
-      }
+      assert.ok(result.propagated, `${scenario}: GUI source edit must propagate +3 to target`)
+      result.steps.push(`${scenario}: GUI source edit propagated +3 to target`)
       assert.deepEqual(result.errors, [])
       result.pass = true
     } catch (error) {

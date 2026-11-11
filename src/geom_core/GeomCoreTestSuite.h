@@ -24,6 +24,7 @@ public:
         TEST_ADD( GeomCoreTestSuite::GeomXFormTest )
         TEST_ADD( GeomCoreTestSuite::ParmTest )
         TEST_ADD( GeomCoreTestSuite::VehicleTest )
+        TEST_ADD( GeomCoreTestSuite::ReadXMLFreezeTest )
         TEST_ADD( GeomCoreTestSuite::PodTest )
         TEST_ADD( GeomCoreTestSuite::XmlTest )
         TEST_ADD( GeomCoreTestSuite::MeshIOTest )
@@ -33,6 +34,7 @@ private:
     void GeomXFormTest();
     void ParmTest();
     void VehicleTest();
+    void ReadXMLFreezeTest();
     void PodTest();
     void XmlTest();
     void MeshIOTest();

@@ -14,6 +14,7 @@
 
 #include <filesystem>
 #include <limits>
+#include <memory>
 
 #include "Vehicle.h"
 
@@ -3579,14 +3580,60 @@ static void PreRegisterNewObjectIDs( xmlNodePtr node )
     }
 }
 
+namespace
+{
+class ReadLinkFreezeGuard
+{
+public:
+    ReadLinkFreezeGuard() : m_Previous( LinkMgr.GetFreezeUpdateFlag() )
+    {
+        LinkMgr.SetFreezeUpdateFlag( true );
+    }
+    ~ReadLinkFreezeGuard() { LinkMgr.SetFreezeUpdateFlag( m_Previous ); }
+private:
+    bool m_Previous;
+};
+
+class ReadRemapGuard
+{
+public:
+    ReadRemapGuard() : m_Token( IDMgr.ResetRemapID() ), m_Active( true ) {}
+    ~ReadRemapGuard()
+    {
+        if ( m_Active )
+        {
+            // Never replace an exception already unwinding with a cleanup exception.
+            try { Reset(); } catch ( ... ) {}
+        }
+    }
+    void Reset()
+    {
+        m_Active = false;
+        IDMgr.ResetRemapID( m_Token );
+    }
+private:
+    string m_Token;
+    bool m_Active;
+};
+
+class FileOpenVersionGuard
+{
+public:
+    explicit FileOpenVersionGuard( int & version ) : m_Version( version ) {}
+    ~FileOpenVersionGuard() { m_Version = -1; }
+private:
+    int & m_Version;
+};
+}
+
 //==== Read File ====//
 int Vehicle::ReadXMLFile( const string & file_name )
 {
     BumpModelEpoch();
-    string lastreset = IDMgr.ResetRemapID();
+    ReadLinkFreezeGuard freeze_guard;
+    ReadRemapGuard remap_guard;
 
-    // Disable link updates when until all geoms are loaded
-    LinkMgr.SetFreezeUpdateFlag( true );
+    // Disable link updates until all geoms are loaded, including the final updates.
 
     //==== Read Xml File ====//
     xmlDocPtr doc;
@@ -3609,29 +3656,27 @@ int Vehicle::ReadXMLFile( const string & file_name )
         }
     }
 
+    std::unique_ptr< xmlDoc, decltype( &xmlFreeDoc ) > doc_guard( doc, &xmlFreeDoc );
     xmlNodePtr root = xmlDocGetRootElement( doc );
     if ( root == nullptr )
     {
         fprintf( stderr, "empty document\n" );
-        xmlFreeDoc( doc );
         return 2;
     }
 
     if ( xmlStrcmp( root->name, ( const xmlChar * )"Vsp_Geometry" ) )
     {
         fprintf( stderr, "document of the wrong type, Vsp Geometry not found\n" );
-        xmlFreeDoc( doc );
         return 3;
     }
 
     //==== Find Version Number ====//
+    FileOpenVersionGuard version_guard( m_FileOpenVersion );
     m_FileOpenVersion = XmlUtil::FindInt( root, "Version", 0 );
 
     if ( m_FileOpenVersion < MIN_FILE_VER )
     {
         fprintf( stderr, "document version not supported \n");
-        xmlFreeDoc( doc );
-        m_FileOpenVersion = -1;
         return 4;
     }
 
@@ -3642,17 +3687,12 @@ int Vehicle::ReadXMLFile( const string & file_name )
     //==== Decode Vehicle from document ====//
     DecodeXml( root );
 
-    //===== Free Doc =====//
-    xmlFreeDoc( doc );
-
-    IDMgr.ResetRemapID( lastreset );
-
+    // Keep the successful-read ordering: free the document and reset IDs before updating,
+    // while link propagation remains frozen through both updates.
+    doc_guard.reset();
+    remap_guard.Reset();
     Update();
     AdvLinkMgr.ForceUpdate();
-
-    LinkMgr.SetFreezeUpdateFlag( false );
-
-    m_FileOpenVersion = -1;
     return 0;
 }
 
