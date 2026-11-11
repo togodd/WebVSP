@@ -368,13 +368,52 @@ describe('linkable parameter reads', () => {
       expect(fn).toHaveBeenCalledTimes(1)
     }
   })
+  describe('shape ID uniqueness', () => {
+    const unused = async (): Promise<never> => { throw new Error('unexpected operation') }
+    for (const kind of ['fuselage', 'wing'] as const) {
+      it(`${kind} rejects duplicate surface and section IDs per response`, async () => {
+        let response: unknown = []
+        const shapes = async () => response as never
+        const service = createParameterService({ surfaces: unused, fuselageLength: unused, list: unused, get: unused, fuselageShapes: shapes, wingShapes: shapes })
+        const call = () => kind === 'wing' ? service.listWingShapes('g') : service.listFuselageShapes('g')
+        for (const valid of [[], [{ id: 's', xsecs: [] }, { id: 't', xsecs: [] }], [{ id: 's', xsecs: [{ id: 's', shape: 0 }, { id: 'x', shape: 1 }] }, { id: 't', xsecs: [{ id: 'y', shape: 2 }] }]]) {
+          response = valid
+          await expect(call()).resolves.toEqual(valid)
+          await expect(call()).resolves.toEqual(valid)
+        }
+        for (const invalid of [
+          [{ id: 's', xsecs: [] }, { id: 's', xsecs: [] }],
+          [{ id: 's', xsecs: [{ id: 'x', shape: 0 }, { id: 'x', shape: 1 }] }],
+          [{ id: 's', xsecs: [{ id: 'x', shape: 0 }] }, { id: 't', xsecs: [{ id: 'x', shape: 1 }] }],
+        ]) {
+          response = invalid
+          await expect(call()).rejects.toMatchObject({ code: 'ENGINE_ERROR', message: 'The OpenVSP parameter request failed' })
+        }
+      })
+      it(`${kind} prioritizes close in duplicate ID getters`, async () => {
+        for (const field of ['surface', 'section'] as const) for (const throws of [false, true]) {
+          const controller = new AbortController()
+          const later = vi.fn()
+          const duplicate = () => { controller.abort(); if (throws) throw new Error('secret'); return field === 'surface' ? 's' : 'x' }
+          const response = field === 'surface'
+            ? [{ id: 's', xsecs: [] }, { get id() { return duplicate() }, get xsecs() { return later() } }]
+            : [{ id: 's', xsecs: [{ id: 'x', shape: 0 }] }, { id: 't', xsecs: [{ get id() { return duplicate() }, get shape() { return later() } }] }]
+          const shapes = async () => response as never
+          const service = createParameterService({ surfaces: unused, fuselageLength: unused, list: unused, get: unused, fuselageShapes: shapes, wingShapes: shapes }, controller.signal)
+          await expect(kind === 'wing' ? service.listWingShapes('g') : service.listFuselageShapes('g')).rejects.toMatchObject({ code: 'SESSION_CLOSED' })
+          expect(later).not.toHaveBeenCalled()
+        }
+      })
+    }
+  })
+
   describe('fuselage shape reads', () => {
     const unused = async (): Promise<never> => { throw new Error('unexpected operation') }
     const base = () => ({ surfaces: unused, fuselageLength: unused, list: unused, get: unused })
     const engineError = { code: 'ENGINE_ERROR', message: 'The OpenVSP parameter request failed' }
 
-    it('preserves unknown signed int32 shapes, duplicates and order in detached snapshots', async () => {
-      const response = [{ id: 's', xsecs: [{ id: 'x', shape: -2147483648 }, { id: 'x', shape: -2 }, { id: 'y', shape: 2147483647 }, { id: 'z', shape: 987 }] }, { id: 's', xsecs: [] }]
+    it('preserves unknown signed int32 shapes and order in detached snapshots', async () => {
+      const response = [{ id: 's', xsecs: [{ id: 'x', shape: -2147483648 }, { id: 'w', shape: -2 }, { id: 'y', shape: 2147483647 }, { id: 'z', shape: 987 }] }, { id: 't', xsecs: [] }]
       const service = createParameterService({ ...base(), fuselageShapes: async () => response })
       const saved = await service.listFuselageShapes('g')
       expect(saved).toEqual(response)
@@ -383,7 +422,7 @@ describe('linkable parameter reads', () => {
       expect(saved[0].xsecs).not.toBe(response[0].xsecs)
       expect(saved[0].xsecs[0]).not.toBe(response[0].xsecs[0])
       response[0].xsecs[0].shape = 42; response[0].id = 'changed'; response.push({ id: 'extra', xsecs: [] })
-      expect(saved).toEqual([{ id: 's', xsecs: [{ id: 'x', shape: -2147483648 }, { id: 'x', shape: -2 }, { id: 'y', shape: 2147483647 }, { id: 'z', shape: 987 }] }, { id: 's', xsecs: [] }])
+      expect(saved).toEqual([{ id: 's', xsecs: [{ id: 'x', shape: -2147483648 }, { id: 'w', shape: -2 }, { id: 'y', shape: 2147483647 }, { id: 'z', shape: 987 }] }, { id: 't', xsecs: [] }])
     })
 
     it('rejects invalid shape values and malformed or sparse structures', async () => {
@@ -533,8 +572,8 @@ describe('linkable parameter reads', () => {
     const base = () => ({ surfaces: unused, fuselageLength: unused, list: unused, get: unused })
     const engineError = { code: 'ENGINE_ERROR', message: 'The OpenVSP parameter request failed' }
 
-    it('preserves unknown signed int32 shapes, duplicates and order in detached snapshots', async () => {
-      const response = [{ id: 's', xsecs: [{ id: 'x', shape: -2147483648 }, { id: 'x', shape: -2 }, { id: 'y', shape: 2147483647 }, { id: 'z', shape: 987 }] }, { id: 's', xsecs: [] }]
+    it('preserves unknown signed int32 shapes and order in detached snapshots', async () => {
+      const response = [{ id: 's', xsecs: [{ id: 'x', shape: -2147483648 }, { id: 'w', shape: -2 }, { id: 'y', shape: 2147483647 }, { id: 'z', shape: 987 }] }, { id: 't', xsecs: [] }]
       const service = createParameterService({ ...base(), wingShapes: async () => response })
       const saved = await service.listWingShapes('g')
       expect(saved).toEqual(response)
@@ -543,7 +582,7 @@ describe('linkable parameter reads', () => {
       expect(saved[0].xsecs).not.toBe(response[0].xsecs)
       expect(saved[0].xsecs[0]).not.toBe(response[0].xsecs[0])
       response[0].xsecs[0].shape = 42; response[0].id = 'changed'; response.push({ id: 'extra', xsecs: [] })
-      expect(saved).toEqual([{ id: 's', xsecs: [{ id: 'x', shape: -2147483648 }, { id: 'x', shape: -2 }, { id: 'y', shape: 2147483647 }, { id: 'z', shape: 987 }] }, { id: 's', xsecs: [] }])
+      expect(saved).toEqual([{ id: 's', xsecs: [{ id: 'x', shape: -2147483648 }, { id: 'w', shape: -2 }, { id: 'y', shape: 2147483647 }, { id: 'z', shape: 987 }] }, { id: 't', xsecs: [] }])
     })
 
     it('rejects invalid shape values and malformed or sparse structures', async () => {

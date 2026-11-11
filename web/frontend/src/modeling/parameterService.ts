@@ -79,14 +79,17 @@ function surfacesSnapshot(value: unknown, checkOpen: () => void): CrossSectionSu
   }, checkOpen)
 }
 function shapesSnapshot(value: unknown, checkOpen: () => void): CrossSectionShapeSurface[] {
+  const surfaceIds = new Set<string>(), sectionIds = new Set<string>()
   return arraySnapshot(value, surface => {
     if (!isRecord(surface)) return invalid()
     const surfaceId = surface.id; checkOpen(); const xsecs = surface.xsecs; checkOpen()
-    if (!isId(surfaceId)) return invalid()
+    if (!isId(surfaceId) || surfaceIds.has(surfaceId)) return invalid()
+    surfaceIds.add(surfaceId)
     return { id: surfaceId, xsecs: arraySnapshot(xsecs, section => {
       if (!isRecord(section)) return invalid()
       const sectionId = section.id; checkOpen(); const shape = section.shape; checkOpen()
-      if (!isId(sectionId) || typeof shape !== 'number' || !Number.isInteger(shape) || shape < -2147483648 || shape > 2147483647 || shape === -1) return invalid()
+      if (!isId(sectionId) || sectionIds.has(sectionId) || typeof shape !== 'number' || !Number.isInteger(shape) || shape < -2147483648 || shape > 2147483647 || shape === -1) return invalid()
+      sectionIds.add(sectionId)
       return { id: sectionId, shape }
     }, checkOpen) }
   }, checkOpen)
