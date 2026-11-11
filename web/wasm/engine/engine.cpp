@@ -174,8 +174,19 @@ std::deque< Job > g_Jobs;
 vector< string > g_Out;                              // JSON messages for take()
 std::map< int, vector< uint8_t > > g_Binary;         // results for takeBinary()
 
+#ifdef WEBVSP_SCRIPT_GUARD_TEST
+// Capture only the nested probe's private result; normal output remains unchanged.
+string *g_GcProbeCapture = nullptr;
+#endif
 void Emit( const string &json )
 {
+#ifdef WEBVSP_SCRIPT_GUARD_TEST
+    if ( g_GcProbeCapture && json.find( "{\"t\":\"result\",\"id\":-2147483000," ) == 0 )
+    {
+        *g_GcProbeCapture = json;
+        return;
+    }
+#endif
     std::lock_guard< std::mutex > lock( g_Mutex );
     g_Out.push_back( json );
 }
@@ -1674,6 +1685,9 @@ bool SafeWriteContext( Vehicle *veh, const Job &j )
     return true;
 }
 
+#ifdef WEBVSP_SCRIPT_GUARD_TEST
+void ScriptNormalGcProbe( const Job &j );
+#endif
 void RunImpl( const Job &j )
 {
     if ( j.guarded )
@@ -1781,6 +1795,7 @@ void RunImpl( const Job &j )
     if ( j.op == "scriptPreflightFixture" ) return ScriptPreflightFixture( j );
     if ( j.op == "scriptGuardCheck" ) return ScriptGuardCheck( j.id );
     if ( j.op == "scriptGcGuardCheck" ) return ScriptGcGuardCheck( j.id );
+    if ( j.op == "scriptNormalGcAutoOff" || j.op == "scriptNormalGcAutoOn" || j.op == "scriptNormalGcPositive" ) return ScriptNormalGcProbe( j );
     if ( j.op == "scriptReleaseGuardCheck" ) return ScriptReleaseGuardCheck( j.id );
     if ( j.op == "advLinkGuardCheck" ) return AdvLinkGuardCheck( j.id );
     if ( j.op == "storedGeomTypesCheck" ) return StoredGeomTypesCheck( j.id );
@@ -2149,6 +2164,10 @@ void Run( const Job &j )
     }
     Emit( result );
 }
+
+#ifdef WEBVSP_SCRIPT_GUARD_TEST
+#include "script_normal_gc_probe.inc"
+#endif
 
 bool g_Gui = false;
 
