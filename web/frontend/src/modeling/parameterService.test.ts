@@ -230,6 +230,58 @@ describe('linkable parameter reads', () => {
     response = new Proxy(['x'], { getOwnPropertyDescriptor() { throw new Error('secret') } })
     await expect(service.listGeometryParameterIds('g')).rejects.toMatchObject({ code: 'ENGINE_ERROR' })
   })
+  it('honors close and errors from snapshot getters for every read', async () => {
+    const parameter = { id: 'p', value: 1, type: 0, name: 'Length', group: 'Design', container: 'g', lowerLimit: 0, upperLimit: 10, active: true }
+    for (const kind of ['surfaces', 'list', 'get', 'fuselageLength'] as const) for (const behavior of ['close', 'closeThrow', 'throw', 'normal'] as const) {
+      const controller = new AbortController()
+      let reads = 0
+      const getter = <T,>(value: T): T => {
+        reads++
+        if (behavior === 'close' || behavior === 'closeThrow') controller.abort()
+        if (behavior === 'throw' || behavior === 'closeThrow') throw new Error('secret')
+        return value
+      }
+      const response = kind === 'surfaces' ? [{ get id() { return getter('s') }, xsecs: ['x'] }]
+        : kind === 'list' ? Object.defineProperty(['p'], '0', { get: () => getter('p') })
+          : { ...parameter, get id() { return getter('p') } }
+      const adapter = { surfaces: async () => response as never, list: async () => response as never, get: async () => response as never, fuselageLength: async () => response as never }
+      const service = createParameterService(adapter, controller.signal)
+      const call = kind === 'surfaces' ? () => service.listSurfaces('g') : kind === 'list' ? () => service.listGeometryParameterIds('g') : kind === 'get' ? () => service.getGeometryParameter('g', 'p') : () => service.getFuselageLength('g')
+      if (behavior === 'normal') await expect(call()).resolves.toEqual(kind === 'surfaces' ? [{ id: 's', xsecs: ['x'] }] : kind === 'list' ? ['p'] : parameter)
+      else await expect(call()).rejects.toMatchObject({ code: behavior === 'throw' ? 'ENGINE_ERROR' : 'SESSION_CLOSED' })
+      expect(reads).toBe(1)
+    }
+  })
+  it('checks close after method lookup, preserves receiver and maps getter errors', async () => {
+    const parameter = { id: 'p', value: 1, type: 0, name: 'Length', group: 'Design', container: 'g', lowerLimit: 0, upperLimit: 10, active: true }
+    const identity = { sessionId: 'session', modelEpoch: 'epoch' }
+    for (const kind of ['surfaces', 'list', 'get', 'fuselageLength'] as const) for (const behavior of ['close', 'closeThrow', 'throw', 'stale', 'notFound', 'normal'] as const) {
+      const controller = new AbortController()
+      const value = kind === 'surfaces' ? [{ id: 's', xsecs: ['x'] }] : kind === 'list' ? ['p'] : parameter
+      const fn = vi.fn(function (this: unknown) { expect(this).toBe(adapter); return Promise.resolve(value) })
+      const adapter = { surfaces: async () => [] as never[], list: async () => [] as string[], get: async () => parameter, fuselageLength: async () => parameter }
+      let reads = 0
+      Object.defineProperty(adapter, kind, { get() {
+        reads++
+        if (behavior === 'close' || behavior === 'closeThrow') controller.abort()
+        if (behavior === 'throw' || behavior === 'closeThrow') throw new Error('secret')
+        if (behavior === 'stale') throw new WasmEngineError(409, 'secret', undefined, undefined, 'STALE_MODEL')
+        if (behavior === 'notFound') throw new WasmEngineError(404, 'secret', undefined, undefined, 'GEOMETRY_NOT_FOUND')
+        return fn
+      } })
+      const service = createParameterService(adapter, controller.signal)
+      const call = kind === 'surfaces' ? () => service.listSurfaces('g', identity) : kind === 'list' ? () => service.listGeometryParameterIds('g', identity) : kind === 'get' ? () => service.getGeometryParameter('g', 'p', identity) : () => service.getFuselageLength('g', identity)
+      if (behavior === 'normal') {
+        await expect(call()).resolves.toEqual(value)
+        expect(fn).toHaveBeenCalledTimes(1)
+        expect(fn).toHaveBeenCalledWith(...(kind === 'list' ? ['geometry', 'g', identity] : kind === 'get' ? ['geometry', 'g', 'p', identity] : ['g', identity]))
+      } else {
+        await expect(call()).rejects.toMatchObject({ code: behavior === 'throw' ? 'ENGINE_ERROR' : behavior === 'stale' ? 'STALE_MODEL' : behavior === 'notFound' ? 'GEOMETRY_NOT_FOUND' : 'SESSION_CLOSED' })
+        expect(fn).not.toHaveBeenCalled()
+      }
+      expect(reads).toBe(1)
+    }
+  })
   it('rejects invalid inputs and sanitizes backend errors', async () => {
     const service = createParameterService({ fuselageLength: async () => { throw new Error('secret') }, surfaces: async () => { throw new Error('secret') }, list: async () => [], get: async () => { throw new Error('secret') } })
     expect(() => service.listSurfaces('')).toThrowError(expect.objectContaining({ code: 'INVALID_ARGUMENT' }))

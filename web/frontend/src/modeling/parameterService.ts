@@ -64,9 +64,14 @@ function surfacesSnapshot(value: unknown): CrossSectionSurface[] {
 }
 export function createParameterService(adapter: ParameterReadAdapter, signal: AbortSignal = new AbortController().signal) {
   function checkOpen() { if (signal.aborted) throw new ModelingError('SESSION_CLOSED', 'Modeling session is closed') }
+  function method<K extends keyof ParameterReadAdapter>(key: K): ParameterReadAdapter[K] {
+    const fn = adapter[key]
+    checkOpen()
+    return fn
+  }
   async function read<T>(fn: () => Promise<unknown>, snapshot: (result: unknown) => T, owner: 'geometry' | 'crossSection', identity?: ModelIdentity): Promise<T> {
     checkOpen()
-    try { const result = await raceClose(signal, fn); checkOpen(); return snapshot(result) } catch (error) {
+    try { const result = await raceClose(signal, fn); checkOpen(); const copy = snapshot(result); checkOpen(); return copy } catch (error) {
       checkOpen()
       if (identity !== undefined && error instanceof WasmEngineError && error.code === 'STALE_MODEL') throw new ModelingError('STALE_MODEL', 'The model identity is stale')
       if (error instanceof WasmEngineError) {
@@ -78,13 +83,13 @@ export function createParameterService(adapter: ParameterReadAdapter, signal: Ab
   }
   return {
     /** Only surfaces and cross sections reachable through the current model's geometry. */
-    listSurfaces(geometryId: string, identity?: ModelIdentity) { checkOpen(); const owner = id(geometryId, 'geometryId'); return read(() => identity === undefined ? adapter.surfaces(owner) : adapter.surfaces(owner, identity), surfacesSnapshot, 'geometry', identity) },
+    listSurfaces(geometryId: string, identity?: ModelIdentity) { checkOpen(); const owner = id(geometryId, 'geometryId'); return read(() => identity === undefined ? method('surfaces').call(adapter, owner) : method('surfaces').call(adapter, owner, identity), surfacesSnapshot, 'geometry', identity) },
     /** The engine resolves and checks the unique geometry-owned Design/Length parameter. */
-    getFuselageLength(geometryId: string, identity?: ModelIdentity) { checkOpen(); const owner = id(geometryId, 'geometryId'); return read(() => identity === undefined ? adapter.fuselageLength(owner) : adapter.fuselageLength(owner, identity), result => { const parameter = parameterSnapshot(result); if (parameter.name !== 'Length' || parameter.group !== 'Design' || parameter.container !== owner) return invalid(); return parameter }, 'geometry', identity) },
+    getFuselageLength(geometryId: string, identity?: ModelIdentity) { checkOpen(); const owner = id(geometryId, 'geometryId'); return read(() => identity === undefined ? method('fuselageLength').call(adapter, owner) : method('fuselageLength').call(adapter, owner, identity), result => { const parameter = parameterSnapshot(result); if (parameter.name !== 'Length' || parameter.group !== 'Design' || parameter.container !== owner) return invalid(); return parameter }, 'geometry', identity) },
     /** IDs returned by OpenVSP's linkable parameter list; not all internal parameters. */
-    listGeometryParameterIds(geometryId: string, identity?: ModelIdentity) { checkOpen(); const owner = id(geometryId, 'geometryId'); return read(() => identity === undefined ? adapter.list('geometry', owner) : adapter.list('geometry', owner, identity), idsSnapshot, 'geometry', identity) },
-    listCrossSectionParameterIds(sectionId: string, identity?: ModelIdentity) { checkOpen(); const owner = id(sectionId, 'sectionId'); return read(() => identity === undefined ? adapter.list('crossSection', owner) : adapter.list('crossSection', owner, identity), idsSnapshot, 'crossSection', identity) },
-    getGeometryParameter(geometryId: string, parameterId: string, identity?: ModelIdentity) { checkOpen(); const owner = id(geometryId, 'geometryId'), parm = id(parameterId, 'parameterId'); return read(() => identity === undefined ? adapter.get('geometry', owner, parm) : adapter.get('geometry', owner, parm, identity), result => { const parameter = parameterSnapshot(result); if (parameter.id !== parm) return invalid(); return parameter }, 'geometry', identity) },
-    getCrossSectionParameter(sectionId: string, parameterId: string, identity?: ModelIdentity) { checkOpen(); const owner = id(sectionId, 'sectionId'), parm = id(parameterId, 'parameterId'); return read(() => identity === undefined ? adapter.get('crossSection', owner, parm) : adapter.get('crossSection', owner, parm, identity), result => { const parameter = parameterSnapshot(result); if (parameter.id !== parm) return invalid(); return parameter }, 'crossSection', identity) },
+    listGeometryParameterIds(geometryId: string, identity?: ModelIdentity) { checkOpen(); const owner = id(geometryId, 'geometryId'); return read(() => identity === undefined ? method('list').call(adapter, 'geometry', owner) : method('list').call(adapter, 'geometry', owner, identity), idsSnapshot, 'geometry', identity) },
+    listCrossSectionParameterIds(sectionId: string, identity?: ModelIdentity) { checkOpen(); const owner = id(sectionId, 'sectionId'); return read(() => identity === undefined ? method('list').call(adapter, 'crossSection', owner) : method('list').call(adapter, 'crossSection', owner, identity), idsSnapshot, 'crossSection', identity) },
+    getGeometryParameter(geometryId: string, parameterId: string, identity?: ModelIdentity) { checkOpen(); const owner = id(geometryId, 'geometryId'), parm = id(parameterId, 'parameterId'); return read(() => identity === undefined ? method('get').call(adapter, 'geometry', owner, parm) : method('get').call(adapter, 'geometry', owner, parm, identity), result => { const parameter = parameterSnapshot(result); if (parameter.id !== parm) return invalid(); return parameter }, 'geometry', identity) },
+    getCrossSectionParameter(sectionId: string, parameterId: string, identity?: ModelIdentity) { checkOpen(); const owner = id(sectionId, 'sectionId'), parm = id(parameterId, 'parameterId'); return read(() => identity === undefined ? method('get').call(adapter, 'crossSection', owner, parm) : method('get').call(adapter, 'crossSection', owner, parm, identity), result => { const parameter = parameterSnapshot(result); if (parameter.id !== parm) return invalid(); return parameter }, 'crossSection', identity) },
   }
 }
