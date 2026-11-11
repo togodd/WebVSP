@@ -99,6 +99,67 @@ export async function stageImport<T extends ImportSource>(
   return staged
 }
 
+export interface ImportMetadataSource extends ImportSource {
+  readonly size: number
+}
+
+/** All limits are caller-selected; names are measured in UTF-16 code units. */
+export interface ImportMetadataLimits {
+  readonly maxCount: number
+  readonly maxBytes: number
+  readonly maxNameLength: number
+  readonly maxTotalNameLength: number
+}
+
+/**
+ * Opt-in preflight: snapshot and check every name and declared size before the
+ * first data read. The existing stageImport still checks actual copied bytes.
+ * Declared sizes can be wrong, getters/proxies can have arbitrary effects, and
+ * neither limits nor preflight bound actual total memory or source allocations.
+ * Callers must also synchronize mutable sources and choose appropriate limits.
+ */
+export async function stageImportWithMetadata<T extends ImportMetadataSource>(
+  sources: readonly T[],
+  getData: (source: T) => Uint8Array | Promise<Uint8Array>,
+  limits: ImportMetadataLimits,
+): Promise<StagedImport[]> {
+  if (limits == null || typeof limits !== 'object') throw new TypeError('Invalid import metadata limits')
+  const { maxCount, maxBytes, maxNameLength, maxTotalNameLength } = limits
+  for (const limit of [maxCount, maxBytes, maxNameLength, maxTotalNameLength]) {
+    if (!Number.isSafeInteger(limit) || limit < 0) throw new RangeError('Invalid import metadata limit')
+  }
+  if (!Array.isArray(sources) || typeof getData !== 'function') throw new TypeError('Invalid import sources')
+  const count = sources.length
+  if (!Number.isSafeInteger(count) || count < 0) throw new RangeError('Invalid import count')
+  if (count === 0) throw new TypeError('Invalid import sources')
+  if (count > maxCount) throw new RangeError('Import count limit exceeded')
+
+  const inputs: { source: T; name: string }[] = []
+  const seen = new Set<string>()
+  let totalBytes = 0
+  let totalNameLength = 0
+  for (let i = 0; i < count; i++) {
+    const source = sources[i]
+    if (source == null || typeof source !== 'object') throw new TypeError('Invalid import source')
+    const rawName = source.name
+    if (typeof rawName !== 'string') throw new TypeError('Invalid import name')
+    const nameLength = rawName.length
+    if (nameLength > maxNameLength || nameLength > maxTotalNameLength - totalNameLength) {
+      throw new RangeError('Import name length limit exceeded')
+    }
+    const name = normalizeImportName(rawName)
+    if (seen.has(name)) throw new TypeError('Duplicate import basename')
+    const size = source.size
+    if (!Number.isSafeInteger(size) || size < 0) throw new RangeError('Invalid import metadata')
+    if (size > maxBytes - totalBytes) throw new RangeError('Import byte limit exceeded')
+    totalNameLength += nameLength
+    totalBytes += size
+    seen.add(name)
+    inputs.push({ source, name })
+  }
+  return stageImport(inputs, input => getData(input.source), maxBytes)
+}
+
 const typedArrayPrototype = Object.getPrototypeOf(Uint8Array.prototype) as object
 const typedArrayByteLength = Object.getOwnPropertyDescriptor(typedArrayPrototype, 'byteLength')!.get!
 const typedArraySet = Uint8Array.prototype.set
