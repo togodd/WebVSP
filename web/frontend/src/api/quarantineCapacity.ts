@@ -2,6 +2,8 @@
 export interface QuarantineReservation {
   /** Invoke once. A throw or rejected result permanently isolates the entire batch. */
   commit<T>(operation: () => T | PromiseLike<T>): Promise<{ value: Awaited<T> }>
+  /** Invoke once synchronously. Throws and thenables isolate the entire batch. */
+  commitSync<T>(operation: () => T): { value: T }
   /** Release an uncommitted reservation. Returns false once committing or settled. */
   cancel(): boolean
 }
@@ -80,6 +82,26 @@ export class QuarantineCapacity {
         state = 'settled'
         release()
         return true
+      },
+      commitSync: <T>(operation: () => T): { value: T } => {
+        if (state !== 'reserved') throw new Error('Reservation already used')
+        // Keep the reservation locked while calling both the operation and its then getter.
+        state = 'committing'
+        try {
+          if (typeof operation !== 'function') throw new TypeError('Invalid commit operation')
+          const value = operation()
+          if (value !== null && (typeof value === 'object' || typeof value === 'function') &&
+              typeof (value as { then?: unknown }).then === 'function') {
+            throw new TypeError('Synchronous commit cannot return a thenable')
+          }
+          state = 'settled'
+          release()
+          return { value }
+        } catch (error) {
+          state = 'settled'
+          for (const key of batch) this.keys.set(key, 'quarantined')
+          throw error
+        }
       },
       commit: async <T>(operation: () => T | PromiseLike<T>): Promise<{ value: Awaited<T> }> => {
         if (state !== 'reserved') throw new Error('Reservation already used')
