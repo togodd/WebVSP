@@ -282,6 +282,57 @@ describe('linkable parameter reads', () => {
       expect(reads).toBe(1)
     }
   })
+  it('stops snapshot reads immediately after synchronous close', async () => {
+    const parameter = { id: 'p', value: 1, type: 0, name: 'Length', group: 'Design', container: 'g', lowerLimit: 0, upperLimit: 10, active: true }
+    for (const scenario of ['parameter', 'surface', 'arrayElement', 'arrayLength', 'arrayDescriptor', 'nestedElement'] as const) {
+      const controller = new AbortController()
+      const later = vi.fn(() => { throw new Error('read after close') })
+      let response: unknown
+      if (scenario === 'parameter') response = { ...parameter, get id() { controller.abort(); return 'p' }, get value() { return later() } }
+      else if (scenario === 'surface') response = [{ get id() { controller.abort(); return 's' }, get xsecs() { return later() } }]
+      else if (scenario === 'arrayElement' || scenario === 'nestedElement') {
+        const array = ['a', 'b']
+        Object.defineProperty(array, '0', { get() { controller.abort(); return 'a' } })
+        Object.defineProperty(array, '1', { get: later })
+        response = scenario === 'nestedElement' ? [{ id: 's', xsecs: array }, { get id() { return later() }, xsecs: [] }] : array
+      } else {
+        response = new Proxy(['a'], {
+          get(target, key, receiver) {
+            if (scenario === 'arrayLength' && key === 'length') controller.abort()
+            if (key === '0') later()
+            return Reflect.get(target, key, receiver)
+          },
+          getOwnPropertyDescriptor(target, key) {
+            if (scenario === 'arrayDescriptor') controller.abort()
+            else later()
+            return Reflect.getOwnPropertyDescriptor(target, key)
+          },
+        })
+      }
+      const adapter = { surfaces: async () => response as never, list: async () => response as never, get: async () => response as never, fuselageLength: async () => response as never }
+      const service = createParameterService(adapter, controller.signal)
+      const call = scenario === 'parameter' ? service.getGeometryParameter('g', 'p') : scenario === 'surface' || scenario === 'nestedElement' ? service.listSurfaces('g') : service.listGeometryParameterIds('g')
+      await expect(call).rejects.toMatchObject({ code: 'SESSION_CLOSED' })
+      expect(later, scenario).not.toHaveBeenCalled()
+    }
+  })
+  it('never reads adapter function call property and preserves its receiver', async () => {
+    const parameter = { id: 'p', value: 1, type: 0, name: 'Length', group: 'Design', container: 'g', lowerLimit: 0, upperLimit: 10, active: true }
+    for (const kind of ['surfaces', 'list', 'get', 'fuselageLength'] as const) {
+      const controller = new AbortController()
+      const callGetter = vi.fn(() => { controller.abort(); throw new Error('must not access call') })
+      const result = kind === 'surfaces' ? [{ id: 's', xsecs: ['x'] }] : kind === 'list' ? ['p'] : parameter
+      const fn = vi.fn(function (this: unknown) { expect(this).toBe(adapter); return Promise.resolve(result) })
+      Object.defineProperty(fn, 'call', { get: callGetter })
+      const adapter = { surfaces: async () => [] as never[], list: async () => [] as string[], get: async () => parameter, fuselageLength: async () => parameter }
+      Object.defineProperty(adapter, kind, { value: fn })
+      const service = createParameterService(adapter, controller.signal)
+      const promise = kind === 'surfaces' ? service.listSurfaces('g') : kind === 'list' ? service.listGeometryParameterIds('g') : kind === 'get' ? service.getGeometryParameter('g', 'p') : service.getFuselageLength('g')
+      await expect(promise).resolves.toEqual(result)
+      expect(callGetter).not.toHaveBeenCalled()
+      expect(fn).toHaveBeenCalledTimes(1)
+    }
+  })
   it('rejects invalid inputs and sanitizes backend errors', async () => {
     const service = createParameterService({ fuselageLength: async () => { throw new Error('secret') }, surfaces: async () => { throw new Error('secret') }, list: async () => [], get: async () => { throw new Error('secret') } })
     expect(() => service.listSurfaces('')).toThrowError(expect.objectContaining({ code: 'INVALID_ARGUMENT' }))
