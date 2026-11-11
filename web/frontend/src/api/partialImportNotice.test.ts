@@ -1,5 +1,5 @@
 import { beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
-import { dismissPartialImport, usePartialImportNotice } from './partialImportNotice'
+import { dismissPartialImport, notifyPartialImport, usePartialImportNotice } from './partialImportNotice'
 import { notifyFileError } from './fileNotice'
 
 type Files = { answer(vsp: unknown, dialog: unknown): Promise<void>; clear(): void }
@@ -59,8 +59,34 @@ describe('partial import warning', () => {
       notifyFileError({ kind: 'error', operation: 'open' })
       vi.advanceTimersByTime(11000)
       expect(usePartialImportNotice.getState().notices).toEqual(ids)
-      dismissPartialImport(ids[0]); expect(usePartialImportNotice.getState().notices).toEqual([ids[1]])
+      expect(ids).toHaveLength(1)
+      dismissPartialImport(ids[0]); expect(usePartialImportNotice.getState().notices).toEqual([])
     } finally { vi.useRealTimers() }
+  })
+  it('coalesces repeated warnings and ignores stale dismissals under pressure', () => {
+    notifyPartialImport()
+    const oldId = usePartialImportNotice.getState().notices[0]
+    for (let i = 0; i < 10000; i++) notifyPartialImport()
+    const current = usePartialImportNotice.getState().notices
+    expect(current).toHaveLength(1)
+    expect(current[0]).toBeGreaterThan(oldId)
+    dismissPartialImport(oldId)
+    expect(usePartialImportNotice.getState().notices).toEqual(current)
+    dismissPartialImport(current[0])
+    expect(usePartialImportNotice.getState().notices).toEqual([])
+  })
+  it('isolates each throwing subscriber, preserves order and supports unsubscribe', () => {
+    const calls: string[] = []
+    const first = usePartialImportNotice.subscribe(() => { calls.push('bad-1'); throw Error('bad') })
+    const second = usePartialImportNotice.subscribe(() => { calls.push('good') })
+    const third = usePartialImportNotice.subscribe(() => { calls.push('bad-2'); throw Error('bad') })
+    try {
+      expect(() => { notifyPartialImport(); notifyPartialImport() }).not.toThrow()
+      expect(calls).toEqual(['bad-1', 'good', 'bad-2', 'bad-1', 'good', 'bad-2'])
+      first(); second(); third()
+      notifyPartialImport()
+      expect(calls).toHaveLength(6)
+    } finally { first(); second(); third() }
   })
   it('answers once even if a severe notice subscriber throws', async () => {
     const s = setup('write')
