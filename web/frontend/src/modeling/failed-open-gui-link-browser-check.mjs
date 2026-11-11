@@ -1,7 +1,7 @@
-// Disposable, GUI-only model mutations: compare a fresh model to one immediately
-// after an invalid GUI Open. No valid Open, native picker, or host model file is used.
-// Regression: both the control and the model after invalid Open must propagate
-// a GUI parameter link; exit 0 means both scenarios passed.
+// Disposable, GUI-only model mutations: compare a fresh model to models after
+// three distinct invalid GUI Opens. Each scenario uses a fresh browser context.
+// No valid Open, native picker, or host model file is used. Exit 0 requires all
+// GUI links to propagate and each Open to reach its intended failure branch.
 // From web/frontend: WEBVSP_TEST_CHROMIUM=/path/to/chrome node src/modeling/failed-open-gui-link-browser-check.mjs
 // WEBVSP_TEST_PAGE defaults to http://127.0.0.1:5179/. Evidence directory can be
 // set with WEBVSP_TEST_EVIDENCE; defaults to /tmp/webvsp-failed-open-gui-link.
@@ -15,21 +15,30 @@ const evidenceDir = process.env.WEBVSP_TEST_EVIDENCE ?? '/tmp/webvsp-failed-open
 await mkdir(evidenceDir, { recursive: true })
 const browser = await chromium.launch({ executablePath, headless: true, args: ['--no-sandbox', '--enable-unsafe-swiftshader'] })
 const results = []
+const scenarios = [
+  { name: 'control' },
+  { name: 'wrong-root', contents: '<?xml version="1.0"?><Not_Vsp_Geometry/>', diagnostic: 'document of the wrong type' },
+  { name: 'old-version', contents: '<?xml version="1.0"?><Vsp_Geometry><Version>0</Version></Vsp_Geometry>', diagnostic: 'document version not supported' },
+  { name: 'non-xml', contents: 'not xml', diagnostic: 'could not parse XML document' },
+]
 try {
-  for (const scenario of ['control', 'invalid-open']) {
+  for (const testCase of scenarios) {
+    const scenario = testCase.name
     const context = await browser.newContext({ viewport: { width: 1600, height: 1000 }, serviceWorkers: 'block' })
     const page = await context.newPage()
     const result = { scenario, steps: [], errors: [] }
     results.push(result)
     page.on('pageerror', error => result.errors.push(error.message))
+    result.console = []
+    page.on('console', message => result.console.push({ type: message.type(), text: message.text() }))
     try {
-      await page.addInitScript(() => {
+      await page.addInitScript(({ contents, name }) => {
         window.__testPicker = { opens: 0 }
         window.showOpenFilePicker = async () => {
           window.__testPicker.opens++
-          return [{ name: 'invalid.vsp3', getFile: async () => new File(['not xml'], 'invalid.vsp3') }]
+          return [{ name: `${name}.vsp3`, getFile: async () => new File([contents], `${name}.vsp3`) }]
         }
-      })
+      }, { contents: testCase.contents ?? '', name: scenario })
       await page.goto(process.env.WEBVSP_TEST_PAGE ?? 'http://127.0.0.1:5179/')
       await page.waitForSelector('[data-ready="1"]', { timeout: 120000 })
       assert.equal(await page.evaluate(() => crossOriginIsolated), true)
@@ -42,14 +51,16 @@ try {
       const initial = await model()
       assert.equal(initial.geoms.length, 0)
       result.initial = initial
-      if (scenario === 'invalid-open') {
+      if (testCase.contents) {
         await menu('File', 'Open...')
         await page.waitForFunction(epoch => window.__webvspEngine.request('GET', '/model').then(m => m.modelEpoch !== epoch), initial.modelEpoch, { timeout: 30000 })
         result.afterOpen = await model()
         result.pickerOpens = await page.evaluate(() => window.__testPicker.opens)
         assert.equal(result.pickerOpens, 1)
         assert.equal(result.afterOpen.geoms.length, 0)
-        result.steps.push('invalid Open completed; no valid Open')
+        result.diagnosticObserved = result.console.some(entry => entry.text.includes(testCase.diagnostic))
+        assert.ok(result.diagnosticObserved, `${scenario}: expected parse failure diagnostic`)
+        result.steps.push(`${scenario} Open completed; no valid Open`)
       }
       // Create both pods via the Geom Browser, not engine mutation endpoints.
       for (let n = 1; n <= 2; n++) {
