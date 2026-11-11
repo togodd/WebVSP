@@ -391,8 +391,9 @@ async function answerFileDialog(vsp: VspModule, d: MDialog) {
     if (w.showSaveFilePicker) {
       try {
         handle = await w.showSaveFilePicker({ id: 'webvsp', suggestedName: suggested, types })
-      } catch {
-        return answer('') // cancelled
+      } catch (err) {
+        if (isPickerAbort(err)) return answer('')
+        throw err
       }
       name = handle.name
     }
@@ -423,7 +424,11 @@ interface Picked {
   arrayBuffer: () => Promise<ArrayBuffer>
 }
 
-function pickFiles(exts: string[], types: unknown): Promise<Picked[]> {
+function isPickerAbort(err: unknown): boolean {
+  return err instanceof DOMException && err.name === 'AbortError'
+}
+
+async function pickFiles(exts: string[], types: unknown): Promise<Picked[]> {
   const picked = (file: File, handle: FileSystemFileHandle | null): Picked => ({
     file,
     name: file.name,
@@ -432,10 +437,15 @@ function pickFiles(exts: string[], types: unknown): Promise<Picked[]> {
   })
   const w = window as unknown as { showOpenFilePicker?: (o: unknown) => Promise<FileSystemFileHandle[]> }
   if (w.showOpenFilePicker) {
-    return w
-      .showOpenFilePicker({ id: 'webvsp', types, excludeAcceptAllOption: false, multiple: true })
-      .then((handles) => Promise.all(handles.map(async (h) => picked(await h.getFile(), h))))
-      .catch(() => [])
+    let handles: FileSystemFileHandle[]
+    try {
+      handles = await w.showOpenFilePicker({ id: 'webvsp', types, excludeAcceptAllOption: false, multiple: true })
+    } catch (err) {
+      if (isPickerAbort(err)) return []
+      throw err
+    }
+    // getFile errors are failures even if they happen to be named AbortError.
+    return Promise.all(handles.map(async (h) => picked(await h.getFile(), h)))
   }
   return new Promise((resolve) => {
     const input = document.createElement('input')
