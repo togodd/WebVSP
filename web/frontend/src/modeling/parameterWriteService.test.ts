@@ -78,6 +78,35 @@ describe('single parameter write service', () => {
     await expect(service.set(null as never)).rejects.toMatchObject({ code: 'SESSION_CLOSED' })
     expect(adapter.set).not.toHaveBeenCalled()
   })
+  it.each([false, true])('does not dispatch if the adapter set getter closes (throws: %s)', async (throws) => {
+    const controller = new AbortController()
+    const write = vi.fn(async () => ({ actual: input.value }))
+    let reads = 0
+    const adapter = { get set() {
+      reads++
+      controller.abort()
+      if (throws) throw new Error('private')
+      return write
+    } }
+    const service = createParameterWriteService(adapter, controller.signal)
+    await expect(service.set(input)).rejects.toMatchObject({ code: 'SESSION_CLOSED' })
+    expect(reads).toBe(1)
+    expect(write).not.toHaveBeenCalled()
+  })
+  it('preserves the adapter receiver and reports unknown once the write starts', async () => {
+    const controller = new AbortController()
+    const adapter = { set: vi.fn(function (this: unknown) {
+      expect(this).toBe(adapter)
+      controller.abort()
+      return Promise.resolve({ actual: input.value })
+    }) }
+    await expect(createParameterWriteService(adapter, controller.signal).set(input)).rejects.toMatchObject({ code: 'OUTCOME_UNKNOWN' })
+    expect(adapter.set).toHaveBeenCalledTimes(1)
+  })
+  it('sanitizes an adapter getter failure without close', async () => {
+    const adapter = { get set(): never { throw new Error('private') } }
+    await expect(createParameterWriteService(adapter).set(input)).rejects.toMatchObject({ code: 'OUTCOME_UNKNOWN' })
+  })
   it.each(['resolve', 'reject'] as const)('reports unknown on close after dispatch and consumes late %s', async (settle) => {
     const controller = new AbortController()
     let resolve!: (value: { actual: number }) => void

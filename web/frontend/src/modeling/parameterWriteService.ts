@@ -53,12 +53,15 @@ export function createParameterWriteService(adapter: ParameterWriteAdapter, sign
       let result: { actual: number }
       try {
         result = await raceClose(signal, () => {
+          const method = adapter.set
+          // Accessors can synchronously close the session before the write starts.
+          if (signal.aborted) throw new ModelingError('SESSION_CLOSED', 'Modeling session is closed')
           dispatched = true
-          return identityCopy === undefined ? adapter.set(owner, ownerId, parameterId, value) : adapter.set(owner, ownerId, parameterId, value, { ...identityCopy })
+          return Reflect.apply(method, adapter, identityCopy === undefined ? [owner, ownerId, parameterId, value] : [owner, ownerId, parameterId, value, { ...identityCopy }])
         })
         if (signal.aborted) throw new ModelingError('OUTCOME_UNKNOWN', 'The parameter write outcome is unknown; do not automatically retry')
       } catch (error) {
-        if (!dispatched) throw new ModelingError('SESSION_CLOSED', 'Modeling session is closed')
+        if (!dispatched && signal.aborted) throw new ModelingError('SESSION_CLOSED', 'Modeling session is closed')
         if (signal.aborted) throw new ModelingError('OUTCOME_UNKNOWN', 'The parameter write outcome is unknown; do not automatically retry')
         if (error instanceof WasmEngineError) {
           let actual: number | null = null
