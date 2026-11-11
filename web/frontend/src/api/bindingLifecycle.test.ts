@@ -1,7 +1,89 @@
+/// <reference types="node" />
 import { describe, expect, it } from 'vitest'
+import { runInNewContext } from 'node:vm'
 import { BindingLifecycle } from './bindingLifecycle'
 
 describe('BindingLifecycle (standalone lane)', () => {
+  it('validates and copies quota configuration', () => {
+    for (const value of [-1, 1.5, NaN, Infinity, Number.MAX_SAFE_INTEGER + 1]) {
+      expect(() => new BindingLifecycle({ maxSnapshots: value, maxBytes: 0 })).toThrow(RangeError)
+      expect(() => new BindingLifecycle({ maxSnapshots: 0, maxBytes: value })).toThrow(RangeError)
+    }
+    const limits = { maxSnapshots: 1, maxBytes: 1 }
+    const model = new BindingLifecycle(limits)
+    limits.maxSnapshots = 100
+    const binding = model.bind('/a')
+    model.capture(binding, new Uint8Array(1))
+    expect(() => model.capture(binding, new Uint8Array(0))).toThrow('quota')
+  })
+
+  it('accounts for every terminal state until explicitly released', () => {
+    const model = new BindingLifecycle({ maxSnapshots: 3, maxBytes: 6 })
+    const a = model.bind('/a')
+    const done = model.capture(a, new Uint8Array([1, 2]))
+    const failed = model.capture(a, new Uint8Array([3, 4]))
+    const discarded = model.capture(a, new Uint8Array([5, 6]))
+    model.start(done)
+    model.closeStarted(done)
+    model.complete(done)
+    model.start(failed)
+    model.fail(failed, 'failure')
+    model.invalidate(a)
+    const b = model.bind('/b')
+    expect(() => model.capture(b, new Uint8Array())).toThrow('quota')
+    expect(model.failure(failed)).toBe('failure')
+    expect([...model.bytes(discarded)]).toEqual([5, 6])
+    model.release(done)
+    const replacement = model.capture(b, new Uint8Array([7, 8]))
+    expect(() => model.capture(b, new Uint8Array())).toThrow('quota')
+    model.release(failed)
+    model.release(discarded)
+    expect(() => model.status(failed)).toThrow('unknown snapshot')
+    expect(() => model.bytes(done)).toThrow('unknown snapshot')
+    expect(() => model.release(done)).toThrow('unknown snapshot')
+    expect(model.status(replacement)).toBe('pending')
+  })
+
+  it('enforces byte quota independently, preserving existing snapshots on rejection', () => {
+    const model = new BindingLifecycle({ maxSnapshots: 10, maxBytes: 3 })
+    const binding = model.bind('/a')
+    const first = model.capture(binding, new Uint8Array([1, 2]))
+    expect(() => model.capture(binding, new Uint8Array([3, 4]))).toThrow('quota')
+    expect([...model.bytes(first)]).toEqual([1, 2])
+    const second = model.capture(binding, new Uint8Array([3]))
+    expect(second.sequence).toBe(first.sequence + 1n)
+    expect(model.start(first)).toBe(true)
+    model.fail(first, 'failed')
+    expect(() => model.capture(binding, new Uint8Array([4]))).toThrow('quota')
+    model.release(first)
+    expect([...model.bytes(model.capture(binding, new Uint8Array([4, 5]))) ]).toEqual([4, 5])
+    expect(model.start(second)).toBe(true)
+  })
+
+  it('rejects releasing pending, started, closing and forged tokens', () => {
+    const model = new BindingLifecycle({ maxSnapshots: 1, maxBytes: 1 })
+    const binding = model.bind('/a')
+    const snapshot = model.capture(binding, new Uint8Array([1]))
+    expect(() => model.release({ ...snapshot })).toThrow('unknown snapshot')
+    expect(() => model.release(snapshot)).toThrow('not releasable')
+    model.start(snapshot)
+    expect(() => model.release(snapshot)).toThrow('not releasable')
+    model.closeStarted(snapshot)
+    expect(() => model.release(snapshot)).toThrow('not releasable')
+    expect(() => model.capture(binding, new Uint8Array())).toThrow('quota')
+    model.complete(snapshot)
+    model.release(snapshot)
+    expect(model.capture(binding, new Uint8Array([2])).sequence).toBe(snapshot.sequence + 1n)
+  })
+
+  it('supports zero limits and empty snapshots', () => {
+    const noSnapshots = new BindingLifecycle({ maxSnapshots: 0, maxBytes: 10 })
+    expect(() => noSnapshots.capture(noSnapshots.bind('/'), new Uint8Array())).toThrow('quota')
+    const noBytes = new BindingLifecycle({ maxSnapshots: 1, maxBytes: 0 })
+    const binding = noBytes.bind('/')
+    expect(() => noBytes.capture(binding, new Uint8Array([1]))).toThrow('quota')
+    expect(noBytes.capture(binding, new Uint8Array()).sequence).toBe(1n)
+  })
   it('copies captured bytes and returns copies, with immutable generation metadata', () => {
     const model = new BindingLifecycle()
     const binding = model.bind('/a')
@@ -16,51 +98,67 @@ describe('BindingLifecycle (standalone lane)', () => {
     expect(model.capture(binding, input).sequence).toBeGreaterThan(first.sequence)
   })
 
-  it('rechecks binding after a reentrant input iterator and does not leave a stale pending snapshot', () => {
-    const model = new BindingLifecycle()
-    const old = model.bind('/a')
-    const input = new Uint8Array([1])
-    let current = old
+  it('does not invoke a malicious iterator or overridden length during capture', () => {
+    const model = new BindingLifecycle({ maxSnapshots: 2, maxBytes: 2 })
+    const binding = model.bind('/a')
+    const input = new Uint8Array([1, 2])
     input[Symbol.iterator] = function* () {
-      current = model.bind('/a')
-      yield 1
-      return undefined
+      model.bind('/a')
+      while (true) yield 9
     }
-    expect(() => model.capture(old, input)).toThrow('binding is not current')
-    const next = model.capture(current, new Uint8Array([2]))
-    expect(model.start(next)).toBe(true)
+    Object.defineProperty(input, 'length', { get() { throw new Error('reentered') } })
+    const snapshot = model.capture(binding, input)
+    expect([...model.bytes(snapshot)]).toEqual([1, 2])
+    expect(model.start(snapshot)).toBe(true)
   })
 
-  it('assigns sequence after reentrant capture so sequence matches FIFO insertion order', () => {
-    const model = new BindingLifecycle()
+  it('copies only the selected subarray, including across realms', () => {
+    const model = new BindingLifecycle({ maxSnapshots: 2, maxBytes: 4 })
     const binding = model.bind('/a')
-    const input = new Uint8Array([1])
-    let inner: ReturnType<typeof model.capture> | undefined
-    input[Symbol.iterator] = function* () {
-      inner = model.capture(binding, new Uint8Array([2]))
-      yield 1
-      return undefined
-    }
-    const outer = model.capture(binding, input)
-    expect(inner).toBeDefined()
-    if (!inner) throw new Error('iterator did not run')
-    expect(inner.sequence).toBeLessThan(outer.sequence)
-    expect(model.start(outer)).toBe(false)
-    expect(model.start(inner)).toBe(true)
-    model.closeStarted(inner)
-    model.complete(inner)
-    expect(model.start(outer)).toBe(true)
+    const local = new Uint8Array([9, 1, 2, 9]).subarray(1, 3)
+    const foreign = runInNewContext('new Uint8Array([9, 3, 4, 9]).subarray(1, 3)') as Uint8Array
+    expect([...model.bytes(model.capture(binding, local))]).toEqual([1, 2])
+    expect([...model.bytes(model.capture(binding, foreign))]).toEqual([3, 4])
   })
 
-  it('leaves no partial snapshot when copying throws', () => {
-    const model = new BindingLifecycle()
+  it('rejects detached input without consuming quota or sequence', () => {
+    const model = new BindingLifecycle({ maxSnapshots: 1, maxBytes: 1 })
     const binding = model.bind('/a')
     const input = new Uint8Array([1])
-    input[Symbol.iterator] = function* () { yield 1; throw new Error('copy failed') }
-    expect(() => model.capture(binding, input)).toThrow('copy failed')
-    const next = model.capture(binding, new Uint8Array([2]))
-    expect(next.sequence).toBe(1n)
-    expect(model.start(next)).toBe(true)
+    structuredClone(input.buffer, { transfer: [input.buffer] })
+    expect(() => model.capture(binding, input)).toThrow()
+    expect(model.capture(binding, new Uint8Array([2])).sequence).toBe(1n)
+  })
+
+  it('rejects out-of-bounds resizable buffer views when supported', () => {
+    const ResizableArrayBuffer = ArrayBuffer as unknown as new (length: number, options: { maxByteLength: number }) => ArrayBuffer & { resize?: (length: number) => void }
+    const buffer = new ResizableArrayBuffer(4, { maxByteLength: 8 })
+    if (typeof buffer.resize !== 'function') return
+    const input = new Uint8Array(buffer, 2, 2)
+    buffer.resize(1)
+    const model = new BindingLifecycle({ maxSnapshots: 1, maxBytes: 1 })
+    const binding = model.bind('/a')
+    expect(() => model.capture(binding, input)).toThrow()
+    expect(model.capture(binding, new Uint8Array([2])).sequence).toBe(1n)
+  })
+
+  it('captures a SharedArrayBuffer view at a caller-provided synchronization boundary', () => {
+    if (typeof SharedArrayBuffer === 'undefined') return
+    const model = new BindingLifecycle({ maxSnapshots: 1, maxBytes: 2 })
+    const input = new Uint8Array(new SharedArrayBuffer(4), 1, 2)
+    input.set([1, 2])
+    const snapshot = model.capture(model.bind('/a'), input)
+    input[0] = 9
+    expect([...model.bytes(snapshot)]).toEqual([1, 2])
+  })
+
+  it('rejects proxies and other typed-array types without invoking traps', () => {
+    const model = new BindingLifecycle()
+    const binding = model.bind('/a')
+    const proxy = new Proxy(new Uint8Array([1]), { get() { throw new Error('trap') } })
+    expect(() => model.capture(binding, proxy)).toThrow('expected Uint8Array')
+    expect(() => model.capture(binding, new Int8Array([1]) as unknown as Uint8Array)).toThrow('expected Uint8Array')
+    expect(model.capture(binding, new Uint8Array([2])).sequence).toBe(1n)
   })
 
   it('keeps the new pending snapshot unchanged when a started old operation fails', () => {
