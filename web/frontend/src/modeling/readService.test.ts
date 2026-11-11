@@ -289,6 +289,26 @@ describe('browser-local read service', () => {
       await expect(service.model.getInfo()).rejects.toMatchObject({ code: 'SESSION_CLOSED', message: 'Modeling session is closed' })
     }
   })
+  it('safely classifies untrusted adapter rejections and prioritizes reentrant close', async () => {
+    for (const behavior of ['prototypeThrow', 'prototypeClose', 'codeThrow', 'codeClose', 'stale'] as const) {
+      let service: ReturnType<typeof createReadService>
+      const secret = new Error('private classification failure')
+      const stale = new ModelingError('STALE_MODEL', 'private backend message')
+      const error = behavior.startsWith('prototype')
+        ? new Proxy({}, { getPrototypeOf() { if (behavior === 'prototypeClose') service.close(); throw secret } })
+        : Object.defineProperty(stale, 'code', { get() {
+          if (behavior === 'codeClose') service.close()
+          if (behavior === 'codeThrow') throw secret
+          return 'STALE_MODEL'
+        } })
+      service = createReadService({ model: async () => { throw error }, bbox: async () => null }, 'tab')
+      const result = await service.model.getInfo().catch(e => e)
+      expect(result).toBeInstanceOf(ModelingError)
+      expect(result.code).toBe(behavior === 'prototypeClose' || behavior === 'codeClose' ? 'SESSION_CLOSED' : behavior === 'stale' ? 'STALE_MODEL' : 'ENGINE_ERROR')
+      expect(result.message).not.toContain('private')
+      expect(result).not.toBe(error)
+    }
+  })
   it('preserves adapter method receivers and error mapping', async () => {
     const adapter = {
       model() { expect(this).toBe(adapter); return Promise.resolve(fixture()) },

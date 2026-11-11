@@ -83,7 +83,18 @@ export function createReadService(adapter: ModelingReadAdapter, sessionId: strin
       return result
     } catch (error) {
       checkOpen()
-      if (error instanceof ModelingError && error.code === 'STALE_MODEL') throw error
+      let stale = false
+      try {
+        const modelingError = error instanceof ModelingError
+        checkOpen()
+        if (modelingError) {
+          stale = error.code === 'STALE_MODEL'
+          checkOpen()
+        }
+      } catch {
+        checkOpen()
+      }
+      if (stale) throw new ModelingError('STALE_MODEL', 'The model identity is stale')
       throw new ModelingError('ENGINE_ERROR', 'The OpenVSP engine request failed')
     }
   }
