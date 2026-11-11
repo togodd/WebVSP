@@ -24,6 +24,7 @@ import { drainBatch } from './drainBatch'
 import { facadeSubmit } from './facadeSubmit'
 import { stageImport, unsafeLinkedPath } from './importStaging'
 import { safelyNotifyFileError } from './fileNotice'
+import { safelyNotifyPartialImport } from './partialImportNotice'
 
 interface VspModule {
   call(id: number, op: string, a: string, b: string, value: number): void
@@ -338,6 +339,7 @@ function link(vsp: VspModule, path: string, handle: FileSystemFileHandle | null,
  */
 async function answerFileDialog(vsp: VspModule, d: MDialog) {
   let answered = false
+  let importCommitStarted = false
   const answer = (path: string) => {
     if (answered) return
     answered = true // An exception after delivery must not trigger a second answer.
@@ -370,13 +372,17 @@ async function answerFileDialog(vsp: VspModule, d: MDialog) {
       if (busy) {
         try { return answer('') } finally { safelyNotifyFileError({ kind: 'busy', operation: 'open', name: displayName(busy) }) }
       }
+      // From this point an exception can follow a side effect, including link removal.
+      importCommitStarted = true
       for (const target of paths) linked.delete(target)
       vsp.FS.mkdirTree(HOME)
       for (const f of staged) vsp.FS.writeFile(`${HOME}/${f.name}`, f.data)
       // File > Save writes only the selected main file back to its handle.
       link(vsp, path, handle, main.name)
       if (handle) void askToWrite(handle)
-      return answer(path)
+      answer(path)
+      importCommitStarted = false
+      return
     }
     const suggested = (d.preset || '').split(/[\\/]/).pop() || (exts[0] ? `Unnamed.${exts[0]}` : 'Unnamed')
     const w = window as unknown as { showSaveFilePicker?: (o: unknown) => Promise<FileSystemFileHandle> }
@@ -401,7 +407,10 @@ async function answerFileDialog(vsp: VspModule, d: MDialog) {
     answer(path)
   } catch (err) {
     try { console.error('WebVSP: file dialog failed', err) } catch { /* logging is best effort */ }
-    if (!answered) {
+    if (importCommitStarted) {
+      // Answer first even if UI subscribers fail; a delivered answer is never repeated.
+      try { if (!answered) answer('') } finally { safelyNotifyPartialImport() }
+    } else if (!answered) {
       try { answer('') } finally { safelyNotifyFileError({ kind: 'error', operation: d.mode ? 'save' : 'open' }) }
     }
   }

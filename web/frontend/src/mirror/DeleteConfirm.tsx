@@ -22,6 +22,12 @@ export function DeleteConfirm() {
   useEffect(() => {
     if (!open) return
     const onKey = (e: KeyboardEvent) => {
+      // A focused notice is outside this modal: never turn its Enter into a delete.
+      if (e.target instanceof Element && e.target.closest('[data-partial-import-notice]')) {
+        e.preventDefault()
+        e.stopImmediatePropagation()
+        return
+      }
       e.stopPropagation()
       if (e.key === 'Escape') {
         e.preventDefault()

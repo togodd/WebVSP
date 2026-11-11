@@ -29,6 +29,10 @@ import { sendMirror, useMirror } from './store'
 export function useBlenderKeys() {
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
+      if (isImportNotice(e)) {
+        if (!viewKeysFree()) blockNotice(e)
+        return
+      }
       if (useTransform.getState().mode) return transformKey(e)
       const t = e.target as HTMLElement | null
       if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.tagName === 'SELECT' || t.isContentEditable)) return
@@ -56,6 +60,10 @@ export function useBlenderKeys() {
     // While G / R runs, a click applies it and a right click cancels; neither reaches the view
     // (no orbit, no selection).
     const onPointer = (e: PointerEvent) => {
+      if (isImportNotice(e)) {
+        if (!viewKeysFree()) blockNotice(e)
+        return
+      }
       if (!useTransform.getState().mode) return
       if (e.button !== 0 && e.button !== 2) return
       e.preventDefault()
@@ -65,6 +73,10 @@ export function useBlenderKeys() {
       swallowUntil = performance.now() + 600
     }
     const swallow = (e: Event) => {
+      if (isImportNotice(e)) {
+        if (!viewKeysFree()) blockNotice(e)
+        return
+      }
       if (performance.now() < swallowUntil || useTransform.getState().mode) {
         e.preventDefault()
         e.stopPropagation()
@@ -86,6 +98,10 @@ let swallowUntil = 0
 
 /** The 3D view's keys are free: no prompt open and the results viewer (which covers it) shut. */
 const viewKeysFree = () => !useMirror.getState().dialogs.length && !document.querySelector('.modal-backdrop') && !useViewer.getState().open
+
+// Notices may be dismissed during a transform, but never through a modal or the viewer.
+const isImportNotice = (e: Event) => e.target instanceof Element && !!e.target.closest('[data-partial-import-notice]')
+const blockNotice = (e: Event) => { e.preventDefault(); e.stopImmediatePropagation() }
 
 /** A key while G / R runs: X / Y / Z hold an axis, digits type the value, Enter applies, Esc
  *  cancels, G / R switch to the other. Every other key is kept from the page meanwhile. */
