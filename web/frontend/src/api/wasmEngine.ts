@@ -514,6 +514,9 @@ function watchLinked(vsp: VspModule) {
       if (!f.pending) continue
       // A copy in an ordinary buffer: the module's memory is shared (threads).
       const bytes = new Uint8Array(vsp.FS.readFile(f.path))
+      // Synchronous FS hooks can reenter and invalidate this binding or quarantine
+      // its path. Do not consume the pending snapshot in that case.
+      if (importQuarantine.has(f.path) || linked.get(f.path) !== f) continue
       f.writing = true
       f.pending = false
       // A failed delivery is reported, but the consumed snapshot is not retried.

@@ -68,6 +68,27 @@ describe('linked file watcher failure isolation', () => {
     expect(files.state(a)).toMatchObject({ pending: false, writing: false })
   })
 
+  it('does not deliver a snapshot after synchronous replacement during read', async () => {
+    const s = await setup()
+    s.content.set(a, 2)
+    files.watch(s.vsp)
+    const original = s.vsp.FS.readFile
+    s.vsp.FS.readFile = path => {
+      if (path === a) {
+        // Simulate an external synchronous invalidation, then rebind in the callback.
+        // The test-only clear is not a claim that normal Emscripten FS does this.
+        files.clear()
+        ;(window as unknown as { showSaveFilePicker?: unknown }).showSaveFilePicker = undefined
+        void files.answer(s.vsp, { mode: 1, seq: 2, preset: 'a.vsp3' })
+      }
+      return original(path)
+    }
+    files.watch(s.vsp)
+    await flush()
+    expect(s.writes).toEqual([])
+    expect(files.state(a)).toMatchObject({ pending: false, writing: false })
+  })
+
   it('continues the scan if error logging itself throws', async () => {
     const s = await setup()
     s.content.set(a, 2); s.content.set(b, 2)
