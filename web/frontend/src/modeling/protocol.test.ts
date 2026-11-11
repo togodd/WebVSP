@@ -41,6 +41,36 @@ describe('untrusted modeling protocol manifest', () => {
     expect(parseModelingProtocol(manifest(proxy.proxy))).toEqual(invalid)
   })
 
+  it.each(['protocol', 'version', 'operations', 'length', '0', '1', '2'] as const)(
+    'stops after the %s descriptor trap closes parsing, with or without a trap error', (closingKey) => {
+      for (const throwAfterClose of [false, true]) {
+        let closed = false
+        const accessed: string[] = []
+        const getter = vi.fn(() => 'model')
+        const ops = ['model', 'bbox', 'origin']
+        Object.defineProperty(ops, '2', { get: getter, configurable: true })
+        const trap = (target: object, key: PropertyKey) => {
+          accessed.push(String(key))
+          if (key === closingKey) {
+            closed = true
+            if (throwAfterClose) throw new Error('descriptor trap error')
+          }
+          return Reflect.getOwnPropertyDescriptor(target, key)
+        }
+        const input = new Proxy(manifest(new Proxy(ops, { getOwnPropertyDescriptor: trap })), {
+          getOwnPropertyDescriptor: trap,
+        })
+        const checkOpen = () => { if (closed) throw new Error('closed') }
+        const order = ['protocol', 'version', 'operations', 'length', '0', '1', '2']
+
+        // Neither a close check nor the trap's own error may escape the parser.
+        expect(parseModelingProtocol(input, checkOpen)).toEqual(invalid)
+        expect(accessed).toEqual(order.slice(0, order.indexOf(closingKey) + 1))
+        expect(getter).not.toHaveBeenCalled()
+      }
+    },
+  )
+
   it('protects the exported vocabulary from external mutation', () => {
     const original = [...MODELING_PROTOCOL_OPERATIONS]
     expect(Object.isFrozen(MODELING_PROTOCOL_OPERATIONS)).toBe(true)
