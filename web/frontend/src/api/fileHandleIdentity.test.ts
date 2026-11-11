@@ -30,6 +30,26 @@ describe('file handle identity evidence', () => {
     expect(await compareFileHandles(a, rejecting)).toBe('unknown')
   })
 
+  it.each(['left', 'right'] as const)('returns unknown on %s rejection without canceling the other comparison', async side => {
+    let finish!: (value: boolean) => void
+    const pending = vi.fn(() => new Promise<boolean>(r => { finish = r }))
+    const fail = vi.fn(async () => { throw new Error('private') })
+    const a = { isSameEntry: side === 'left' ? fail : pending }
+    const b = { isSameEntry: side === 'right' ? fail : pending }
+    expect(await compareFileHandles(a, b)).toBe('unknown')
+    expect(pending).toHaveBeenCalledOnce()
+    finish(true)
+  })
+
+  it('does not promise order-independent results for stateful handles', async () => {
+    let count = 0
+    const a = { isSameEntry: async () => { count++; return true } }
+    const b = { isSameEntry: async () => count === 1 }
+    expect(await compareFileHandles(a, b)).toBe('same')
+    count = 0
+    expect(await compareFileHandles(b, a)).toBe('unknown')
+  })
+
   it('waits for both comparisons instead of inferring from the first', async () => {
     let resolve!: (value: boolean) => void
     const a = handle(true), b = { isSameEntry: vi.fn(() => new Promise<boolean>(r => { resolve = r })) }

@@ -4,8 +4,12 @@ export type FileHandleIdentity = 'same' | 'different' | 'unknown'
 type ComparableHandle = { isSameEntry(other: ComparableHandle): Promise<boolean> }
 
 /**
- * Conservative symmetric comparison. Missing methods, errors, or inconsistent
- * answers are unknown. A pending comparison has no timeout or cancellation.
+ * For honest, stable handles, compare in both directions; inconsistent results,
+ * missing methods or errors are unknown. Identical references bypass comparison,
+ * even if invalid. Answers are evidence, not proof of current existence, permission,
+ * path identity, or write safety. Side-effectful handles can give order-dependent
+ * answers. Rejection returns unknown without canceling the other comparison; if one
+ * stays pending and neither rejects, this stays pending. There is no timeout.
  * Callers must independently control resource limits and registration races.
  */
 export async function compareFileHandles(a: ComparableHandle, b: ComparableHandle): Promise<FileHandleIdentity> {
