@@ -1,0 +1,51 @@
+import { describe, expect, it, vi } from 'vitest'
+import { MODELING_PROTOCOL_OPERATIONS, parseModelingProtocol } from './protocol'
+
+const manifest = (operations: unknown = []) => ({ protocol: 'webvsp-modeling', version: 1, operations })
+const invalid = { status: 'invalid', operations: [] }
+
+describe('untrusted modeling protocol manifest', () => {
+  it('recognizes the agreed engine vocabulary without claiming readiness', () => {
+    expect(MODELING_PROTOCOL_OPERATIONS).toEqual(['modelDiscovery', 'model', 'bbox', 'origin', 'geomXSecs', 'fuselageXSecShapes', 'wingXSecShapes', 'geomParmIDs', 'xsecParmIDs', 'geomParm', 'xsecParm', 'fuselageLength', 'guardedEpochV1'])
+    const input = manifest([...MODELING_PROTOCOL_OPERATIONS, 'futureOperation'])
+    expect(parseModelingProtocol(input)).toEqual({ status: 'valid', operations: [...MODELING_PROTOCOL_OPERATIONS] })
+    expect(parseModelingProtocol(manifest([]))).toEqual({ status: 'valid', operations: [] })
+  })
+
+  it('rejects invalid envelope, unknown versions and malformed operations', () => {
+    for (const value of [null, undefined, [], 'text', {}, { ...manifest(), protocol: 'other' }, { ...manifest(), version: 2 }, { ...manifest(), version: '1' }, manifest(null), manifest([1]), manifest(['']), manifest(['x'.repeat(257)]), manifest(Array(1025).fill('x'))]) {
+      expect(parseModelingProtocol(value)).toEqual(invalid)
+    }
+    expect(parseModelingProtocol(manifest(['model', 'model']))).toEqual(invalid)
+    expect(parseModelingProtocol(manifest(['unknown', 'unknown']))).toEqual(invalid)
+    expect(parseModelingProtocol(manifest(['model', 1]))).toEqual(invalid)
+  })
+
+  it('does not call getters, and rejects inherited and sparse fields', () => {
+    const getter = vi.fn(() => 'webvsp-modeling')
+    expect(parseModelingProtocol({ get protocol() { return getter() }, version: 1, operations: [] })).toEqual(invalid)
+    expect(getter).not.toHaveBeenCalled()
+    expect(parseModelingProtocol(Object.assign(Object.create({ protocol: 'webvsp-modeling' }), { version: 1, operations: [] }))).toEqual(invalid)
+    const ops = ['model']
+    Object.defineProperty(ops, '0', { get: getter })
+    expect(parseModelingProtocol(manifest(ops))).toEqual(invalid)
+    expect(getter).not.toHaveBeenCalled()
+    expect(parseModelingProtocol(manifest(Array(1)))).toEqual(invalid)
+  })
+
+  it('fails closed for throwing and revoked proxies', () => {
+    expect(parseModelingProtocol(new Proxy(manifest(), { getOwnPropertyDescriptor() { throw Error('trap') } }))).toEqual(invalid)
+    expect(parseModelingProtocol(manifest(new Proxy(['model'], { getOwnPropertyDescriptor() { throw Error('trap') } })))).toEqual(invalid)
+    const proxy = Proxy.revocable([], {})
+    proxy.revoke()
+    expect(parseModelingProtocol(manifest(proxy.proxy))).toEqual(invalid)
+  })
+
+  it('returns independent operation arrays', () => {
+    const value = manifest(['model', 'futureOperation'])
+    const first = parseModelingProtocol(value)
+    expect(first).toEqual({ status: 'valid', operations: ['model'] })
+    first.operations.length = 0
+    expect(parseModelingProtocol(value)).toEqual({ status: 'valid', operations: ['model'] })
+  })
+})
