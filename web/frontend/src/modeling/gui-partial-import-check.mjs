@@ -15,7 +15,8 @@ try {
     if (!api) throw new Error('DEV testFiles unavailable')
     api.clear()
     const data = new Map(), answers = [], writes = []
-    window.showOpenFilePicker = async () => [{ getFile: async () => new File(['abcdef'], 'partial.vsp3') }]
+    let currentSeq = 0
+    window.showOpenFilePicker = async () => [{ getFile: async () => new File(['abcdef'], `partial-${currentSeq}.vsp3`) }]
     const vsp = {
       mirrorEvent: s => answers.push(JSON.parse(s)),
       FS: {
@@ -25,17 +26,19 @@ try {
         writeFile: (p, bytes) => { writes.push(p); data.set(p, Array.from(bytes.slice(0, 3))); throw Error('injected after partial write') },
       },
     }
-    window.__partialTest = { data, answers, writes, fail: seq => api.answer(vsp, { seq, mode: 0, filter: '*.vsp3' }) }
+    window.__partialTest = { data, answers, writes, fail: seq => { currentSeq = seq; return api.answer(vsp, { seq, mode: 0, filter: '*.vsp3' }) } }
   })
   // An independent focused control proves the notification itself does not move focus.
   await page.evaluate(() => { const b = document.createElement('button'); b.id = 'focus-sentinel'; b.textContent = 'sentinel'; document.body.append(b); b.focus() })
   await page.evaluate(() => window.__partialTest.fail(101))
   const alert = page.getByRole('alert').filter({ hasText: 'Import may have only partially completed' })
   await alert.waitFor()
-  assert.deepEqual(await page.evaluate(() => ({ bytes: window.__partialTest.data.get('/home/web_user/partial.vsp3'), writes: window.__partialTest.writes, answers: window.__partialTest.answers, focus: document.activeElement.id })), {
-    bytes: [97, 98, 99], writes: ['/home/web_user/partial.vsp3'], answers: [{ op: 'dialog', seq: 101, result: 0, path: '' }], focus: 'focus-sentinel',
+  await alert.getByText(/model may not be written back to the original file/).waitFor()
+  await alert.getByText(/save under a different name/).waitFor()
+  assert.deepEqual(await page.evaluate(() => ({ bytes: window.__partialTest.data.get('/home/web_user/partial-101.vsp3'), writes: window.__partialTest.writes, answers: window.__partialTest.answers, focus: document.activeElement.id })), {
+    bytes: [97, 98, 99], writes: ['/home/web_user/partial-101.vsp3'], answers: [{ op: 'dialog', seq: 101, result: 0, path: '' }], focus: 'focus-sentinel',
   })
-  await page.evaluate(async () => { const { notifyFileError } = await import('/src/api/fileNotice.ts'); notifyFileError({ kind: 'error', operation: 'open' }) })
+  await page.evaluate(async () => { const url = performance.getEntriesByType('resource').map(e => e.name).find(url => new URL(url).pathname === '/src/api/fileNotice.ts'); const { notifyFileError } = await import(url); notifyFileError({ kind: 'error', operation: 'open' }) })
   await page.getByRole('status').getByText('Open failed. Check the file and try again.').waitFor()
   assert.equal(await alert.count(), 1)
   await page.waitForTimeout(10500) // Longer than the ordinary notice's 10-second lifetime.

@@ -11,7 +11,9 @@ beforeAll(async () => {
 })
 beforeEach(() => { files.clear(); usePartialImportNotice.setState({ notices: [] }) })
 
+let nameSequence = 0
 function setup(failure: 'mkdir' | 'write' | 'link' | 'stage') {
+  const name = `partial-${++nameSequence}.vsp3`
   const data = new Map<string, Uint8Array>()
   let mkdirSideEffect = false
   const fs = {
@@ -21,7 +23,7 @@ function setup(failure: 'mkdir' | 'write' | 'link' | 'stage') {
     stat: () => ({ mtime: new Date(0), size: 1 }),
   }
   const mirrorEvent = vi.fn()
-  Object.assign(window, { showOpenFilePicker: async () => [{ getFile: async () => ({ name: 'a.vsp3', arrayBuffer: async () => { if (failure === 'stage') throw Error('read error'); return new Uint8Array([1]).buffer } }) }] })
+  Object.assign(window, { showOpenFilePicker: async () => [{ getFile: async () => ({ name, arrayBuffer: async () => { if (failure === 'stage') throw Error('read error'); return new Uint8Array([1]).buffer } }) }] })
   return { fs, data, mirrorEvent, get mkdirSideEffect() { return mkdirSideEffect }, run: () => files.answer({ FS: fs, mirrorEvent }, { seq: 7, mode: 0, filter: '*.vsp3' }) }
 }
 

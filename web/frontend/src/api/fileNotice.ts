@@ -1,6 +1,6 @@
 import { create } from 'zustand'
 
-export type FileNotice = { id: number; kind: 'busy' | 'error'; operation: 'open' | 'save'; name?: string }
+export type FileNotice = { id: number; kind: 'busy' | 'error' | 'quarantine'; operation: 'open' | 'save'; name?: string }
 
 type State = { notice: FileNotice | null }
 export const useFileNotice = create<State>(() => ({ notice: null }))

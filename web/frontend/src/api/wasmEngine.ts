@@ -325,11 +325,15 @@ interface LinkedFile {
   writing: boolean
 }
 const linked = new Map<string, LinkedFile>()
+// Exact virtual paths only, for this page lifetime. No recovery or alias guarantees.
+const importQuarantine = new Set<string>()
 
 function link(vsp: VspModule, path: string, handle: FileSystemFileHandle | null, name: string) {
   const exists = vsp.FS.analyzePath(path).exists
   const st = exists ? vsp.FS.stat(path) : null
-  linked.set(path, { path, handle, name, mtime: st ? st.mtime.getTime() : 0, size: st ? st.size : -1, pending: false, writing: false })
+  const binding = { path, handle, name, mtime: st ? st.mtime.getTime() : 0, size: st ? st.size : -1, pending: false, writing: false }
+  linked.set(path, binding)
+  return binding
 }
 
 /**
@@ -340,6 +344,8 @@ function link(vsp: VspModule, path: string, handle: FileSystemFileHandle | null,
 async function answerFileDialog(vsp: VspModule, d: MDialog) {
   let answered = false
   let importCommitStarted = false
+  let commitPaths: string[] = []
+  let newBinding: LinkedFile | undefined
   const answer = (path: string) => {
     if (answered) return
     answered = true // An exception after delivery must not trigger a second answer.
@@ -368,17 +374,22 @@ async function answerFileDialog(vsp: VspModule, d: MDialog) {
       // Metadata is only an observation: aliases, ABA and concurrent writes can
       // still escape this check. Never update the watcher baseline here.
       const paths = staged.map(f => `${HOME}/${f.name}`)
+      const quarantined = paths.find(target => importQuarantine.has(target))
+      if (quarantined) {
+        try { return answer('') } finally { safelyNotifyFileError({ kind: 'quarantine', operation: 'open', name: displayName(quarantined) }) }
+      }
       const busy = unsafeLinkedPath(paths, linked, vsp.FS)
       if (busy) {
         try { return answer('') } finally { safelyNotifyFileError({ kind: 'busy', operation: 'open', name: displayName(busy) }) }
       }
       // From this point an exception can follow a side effect, including link removal.
+      commitPaths = paths
       importCommitStarted = true
       for (const target of paths) linked.delete(target)
       vsp.FS.mkdirTree(HOME)
       for (const f of staged) vsp.FS.writeFile(`${HOME}/${f.name}`, f.data)
       // File > Save writes only the selected main file back to its handle.
-      link(vsp, path, handle, main.name)
+      newBinding = link(vsp, path, handle, main.name)
       if (handle) void askToWrite(handle)
       answer(path)
       importCommitStarted = false
@@ -398,6 +409,9 @@ async function answerFileDialog(vsp: VspModule, d: MDialog) {
       name = handle.name
     }
     const path = `${HOME}/${name}`
+    if (importQuarantine.has(path)) {
+      try { return answer('') } finally { safelyNotifyFileError({ kind: 'quarantine', operation: 'save', name: displayName(path) }) }
+    }
     // Only the current exact-path binding is observable here: aliases and writes
     // detached by an earlier rebind are not covered. Never cancel an active delivery.
     if (unsafeLinkedPath([path], linked, vsp.FS)) {
@@ -407,6 +421,11 @@ async function answerFileDialog(vsp: VspModule, d: MDialog) {
     link(vsp, path, handle, name)
     answer(path)
   } catch (err) {
+    if (importCommitStarted) {
+      // Isolate before logging, answering or notifying: any of those may reenter.
+      for (const target of commitPaths) importQuarantine.add(target)
+      if (newBinding && linked.get(newBinding.path) === newBinding) linked.delete(newBinding.path)
+    }
     try { console.error('WebVSP: file dialog failed', err) } catch { /* logging is best effort */ }
     if (importCommitStarted) {
       // Answer first even if UI subscribers fail; a delivered answer is never repeated.
@@ -482,7 +501,9 @@ function reportLinkedError(message: string, err: unknown) {
 function watchLinked(vsp: VspModule) {
   for (const f of linked.values()) {
     try {
-      if (f.writing || !vsp.FS.analyzePath(f.path).exists) continue
+      // A reentrant chooser can replace the binding before a commit throws. Keep
+      // that unrelated object intact, but never initiate delivery from this path.
+      if (importQuarantine.has(f.path) || f.writing || !vsp.FS.analyzePath(f.path).exists) continue
       const st = vsp.FS.stat(f.path)
       const mtime = st.mtime.getTime()
       const changed = mtime !== f.mtime || st.size !== f.size
