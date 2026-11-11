@@ -16,9 +16,12 @@ export interface EngineParameter {
   active: boolean
 }
 export interface CrossSectionSurface { id: string; xsecs: string[] }
+/** Native XSEC_CRV_TYPE integer, observed at read time; unknown values are preserved. */
+export interface CrossSectionShapeSurface { id: string; xsecs: { id: string; shape: number }[] }
 export interface ParameterReadAdapter {
   surfaces(geometryId: string, identity?: ModelIdentity): Promise<CrossSectionSurface[]>
   fuselageLength(geometryId: string, identity?: ModelIdentity): Promise<EngineParameter>
+  fuselageShapes?(geometryId: string, identity?: ModelIdentity): Promise<CrossSectionShapeSurface[]>
   list(owner: 'geometry' | 'crossSection', ownerId: string, identity?: ModelIdentity): Promise<string[]>
   get(owner: 'geometry' | 'crossSection', ownerId: string, parameterId: string, identity?: ModelIdentity): Promise<EngineParameter>
 }
@@ -103,6 +106,21 @@ export function createParameterService(adapter: ParameterReadAdapter, signal: Ab
   return {
     /** Only surfaces and cross sections reachable through the current model's geometry. */
     listSurfaces(geometryId: string, identity?: ModelIdentity) { checkOpen(); const owner = id(geometryId, 'geometryId'); return read(() => identity === undefined ? Reflect.apply(method('surfaces'), adapter, [owner]) : Reflect.apply(method('surfaces'), adapter, [owner, identity]), result => surfacesSnapshot(result, checkOpen), 'geometry', identity) },
+    /** Reads native curve shape codes for sections belonging to this Fuselage. */
+    listFuselageShapes(geometryId: string, identity?: ModelIdentity) {
+      checkOpen(); const owner = id(geometryId, 'geometryId')
+      return read(() => identity === undefined ? Reflect.apply(method('fuselageShapes')!, adapter, [owner]) : Reflect.apply(method('fuselageShapes')!, adapter, [owner, identity]), result => arraySnapshot(result, surface => {
+        if (!isRecord(surface)) return invalid()
+        const surfaceId = surface.id; checkOpen(); const xsecs = surface.xsecs; checkOpen()
+        if (!isId(surfaceId)) return invalid()
+        return { id: surfaceId, xsecs: arraySnapshot(xsecs, section => {
+          if (!isRecord(section)) return invalid()
+          const sectionId = section.id; checkOpen(); const shape = section.shape; checkOpen()
+          if (!isId(sectionId) || typeof shape !== 'number' || !Number.isInteger(shape) || shape < -2147483648 || shape > 2147483647 || shape === -1) return invalid()
+          return { id: sectionId, shape }
+        }, checkOpen) }
+      }, checkOpen), 'geometry', identity)
+    },
     /** The engine resolves and checks the unique geometry-owned Design/Length parameter. */
     getFuselageLength(geometryId: string, identity?: ModelIdentity) { checkOpen(); const owner = id(geometryId, 'geometryId'); return read(() => identity === undefined ? Reflect.apply(method('fuselageLength'), adapter, [owner]) : Reflect.apply(method('fuselageLength'), adapter, [owner, identity]), result => { const parameter = parameterSnapshot(result, checkOpen); if (parameter.name !== 'Length' || parameter.group !== 'Design' || parameter.container !== owner) return invalid(); return parameter }, 'geometry', identity) },
     /** IDs returned by OpenVSP's linkable parameter list; not all internal parameters. */

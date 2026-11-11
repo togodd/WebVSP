@@ -29,6 +29,7 @@
 //     Single scoped write, not a transaction. Success value: {actual}; failure: error,
 //     outcome ("not_written", "different", or "unknown") and actual (null if unknown).
 //   geomXSecs(a=geom id)                [{id, xsecs:[ids]}] in XSec surface/index order
+//   fuselageXSecShapes(a=geom id)       [{id, xsecs:[{id, shape}]}] in surface/index order
 //   geomParmIDs(a=geom id), xsecParmIDs(a=xsec id)   linkable parm IDs
 //   geomParm(a=geom id, b=parm id), xsecParm(a=xsec id, b=parm id)   parm metadata
 //     Metadata: {id,value,type,name,group,container,lowerLimit,upperLimit,active}.
@@ -1579,7 +1580,7 @@ void ScriptGuardCheck( int id )
 bool GuardedOpAllowed( const string &op )
 {
     return op == "model" || op == "bbox" || op == "origin" || op == "move" ||
-           op == "addGeom" || op == "geomXSecs" || op == "geomParmIDs" ||
+           op == "addGeom" || op == "geomXSecs" || op == "fuselageXSecShapes" || op == "geomParmIDs" ||
            op == "xsecParmIDs" || op == "geomParm" || op == "xsecParm" ||
            op == "fuselageLength" || op == "geomSetParm" || op == "xsecSetParm";
 }
@@ -1722,7 +1723,7 @@ void RunImpl( const Job &j )
     if ( j.op == "parmReadInjection" )
     {
         if ( j.a != "clear" && j.a != "FindGeoms" && j.a != "GetXSecSurfIDVec" &&
-             j.a != "GetNumXSec" && j.a != "GetXSec" )
+             j.a != "GetNumXSec" && j.a != "GetXSec" && j.a != "GetXSecShape" )
             return Result( j.id, "Invalid parameter read injection", "" );
         if ( j.b != "empty" && j.b != "message" && j.a != "clear" )
             return Result( j.id, "Invalid parameter read injection message", "" );
@@ -1864,6 +1865,52 @@ void RunImpl( const Job &j )
         return Result( j.id, "", "null" );
     }
 #endif
+    if ( j.op == "fuselageXSecShapes" )
+    {
+        string err;
+        MissingParmOwner missing = MissingParmOwner::None;
+        if ( !CurrentModelGeom( j.a, err, j.guarded ? &missing : nullptr ) ) return ParmReadFailure( j, err, missing );
+        Vehicle *veh = VehicleMgr.GetVehicle();
+        Geom *geom = veh ? veh->FindGeom( j.a ) : nullptr;
+        if ( !geom || geom->GetType().m_Type != FUSELAGE_GEOM_TYPE ) return Result( j.id, "Geom is not a fuselage", "" );
+        vector< string > surfaces = vsp::GetXSecSurfIDVec( j.a );
+#ifdef WEBVSP_SCRIPT_GUARD_TEST
+        InjectParmReadFault( "GetXSecSurfIDVec", j.guarded );
+#endif
+        if ( !( err = TakeParmErrors( j.guarded ) ).empty() ) return Result( j.id, err, "" );
+        std::set< string > surface_ids, xsec_ids;
+        string json = "[";
+        for ( size_t s = 0; s < surfaces.size(); ++s )
+        {
+            const string &surface = surfaces[s];
+            if ( surface.empty() || !surface_ids.insert( surface ).second ) return Result( j.id, "Invalid or duplicate XSec surface", "" );
+            int count = vsp::GetNumXSec( surface );
+#ifdef WEBVSP_SCRIPT_GUARD_TEST
+            InjectParmReadFault( "GetNumXSec", j.guarded );
+#endif
+            if ( !( err = TakeParmErrors( j.guarded ) ).empty() ) return Result( j.id, err, "" );
+            if ( count < 0 ) return Result( j.id, "Invalid XSec count", "" );
+            json += ( s ? "," : "" ) + string( "{\"id\":" ) + Quote( surface ) + ",\"xsecs\":[";
+            for ( int i = 0; i < count; ++i )
+            {
+                string xsec = vsp::GetXSec( surface, i );
+#ifdef WEBVSP_SCRIPT_GUARD_TEST
+                InjectParmReadFault( "GetXSec", j.guarded );
+#endif
+                if ( !( err = TakeParmErrors( j.guarded ) ).empty() ) return Result( j.id, err, "" );
+                if ( xsec.empty() || !xsec_ids.insert( xsec ).second ) return Result( j.id, "Invalid or duplicate XSec", "" );
+                int shape = vsp::GetXSecShape( xsec );
+#ifdef WEBVSP_SCRIPT_GUARD_TEST
+                InjectParmReadFault( "GetXSecShape", j.guarded );
+#endif
+                if ( !( err = TakeParmErrors( j.guarded ) ).empty() ) return Result( j.id, err, "" );
+                if ( shape == vsp::XS_UNDEFINED ) return Result( j.id, "Undefined XSec shape", "" );
+                json += ( i ? "," : "" ) + string( "{\"id\":" ) + Quote( xsec ) + ",\"shape\":" + std::to_string( shape ) + "}";
+            }
+            json += "]}";
+        }
+        return Result( j.id, "", json + "]" );
+    }
     if ( j.op == "geomXSecs" )
     {
         string json, err;

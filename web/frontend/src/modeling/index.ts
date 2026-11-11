@@ -4,7 +4,7 @@ import { callGuarded, discoverModel, getEngineSessionId, WasmEngineError } from 
 import { ModelingError, type ModelIdentity } from './contracts'
 import { createReadService } from './readService'
 import { createParameterService } from './parameterService'
-import type { CrossSectionSurface, EngineParameter, ParameterReadAdapter } from './parameterService'
+import type { CrossSectionShapeSurface, CrossSectionSurface, EngineParameter, ParameterReadAdapter } from './parameterService'
 import type { CreateGeometryInput, MoveGeometryInput } from './writeService'
 import type { ParameterWriteInput } from './parameterWriteService'
 import { createWingService } from './wingService'
@@ -16,7 +16,7 @@ export { createReadService } from './readService'
 export { createParameterService } from './parameterService'
 export { createParameterWriteService } from './parameterWriteService'
 export type { ParameterOwner, ParameterWriteAdapter, ParameterWriteInput } from './parameterWriteService'
-export type { CrossSectionSurface, EngineParameter, ParameterReadAdapter } from './parameterService'
+export type { CrossSectionShapeSurface, CrossSectionSurface, EngineParameter, ParameterReadAdapter } from './parameterService'
 
 /** Identity guarding detects replacement at each engine job, not concurrent edits or reentrancy. */
 export function createBrowserModelingService() {
@@ -70,6 +70,7 @@ export function createBrowserModelingService() {
     const dispose = () => { controller.signal.removeEventListener('abort', abort); readScoped.close() }
     const adapter: ParameterReadAdapter = {
       surfaces: (id) => call<CrossSectionSurface[]>('geomXSecs', id),
+      fuselageShapes: (id) => call<CrossSectionShapeSurface[]>('fuselageXSecShapes', id),
       fuselageLength: (id) => call<EngineParameter>('fuselageLength', id),
       list: (owner, id) => call<string[]>(owner === 'geometry' ? 'geomParmIDs' : 'xsecParmIDs', id),
       get: (owner, id, parm) => call<EngineParameter>(owner === 'geometry' ? 'geomParm' : 'xsecParm', id, parm),

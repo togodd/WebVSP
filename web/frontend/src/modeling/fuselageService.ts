@@ -1,6 +1,6 @@
 import { ModelingError } from './contracts'
 import type { Geometry, ModelContext, ModelIdentity } from './contracts'
-import type { EngineParameter, CrossSectionSurface } from './parameterService'
+import type { EngineParameter, CrossSectionShapeSurface } from './parameterService'
 
 /** Only the existing read operations are required; no engine or UI state is captured. */
 export interface FuselageGeometryReader {
@@ -8,14 +8,14 @@ export interface FuselageGeometryReader {
 }
 export interface FuselageParameterReader {
   getFuselageLength(geometryId: string, identity?: ModelIdentity): Promise<EngineParameter>
-  listSurfaces(geometryId: string, identity?: ModelIdentity): Promise<CrossSectionSurface[]>
+  listFuselageShapes(geometryId: string, identity?: ModelIdentity): Promise<CrossSectionShapeSurface[]>
 }
 export interface FuselageSection {
   id: string
   /** Zero-based index within this XSec surface, not an index across all surfaces. */
   index: number
-  /** This read API does not expose the section's shape. */
-  shape: null
+  /** Observed native XSEC_CRV_TYPE integer; unknown values are preserved. */
+  shape: number
 }
 export interface FuselageSurface { id: string; index: number; sections: FuselageSection[] }
 export interface FuselageSnapshot {
@@ -49,7 +49,8 @@ function snapshotArray<T, U>(value: T[], item: (value: T, index: number) => U): 
  * Read-only, linkable-parameter view of a Fuselage. Requests are independent async
  * reads, not a transaction. ID/owner validation catches some inconsistent results,
  * but cannot guarantee atomicity or detect a model replacement that reuses IDs.
- * Shape, dimensions other than Design/Length, and derived geometry are not inferred.
+ * Shape is an observed native curve type, not a permanent ID or parameter guarantee.
+ * Dimensions other than Design/Length and derived geometry are not inferred.
  * Dependency errors (including SESSION_CLOSED) propagate unchanged.
  */
 export function createFuselageService(geometry: FuselageGeometryReader, parameter: FuselageParameterReader) {
@@ -82,7 +83,7 @@ export function createFuselageService(geometry: FuselageGeometryReader, paramete
         return result
       })
 
-      const raw = await parameter.listSurfaces(geometryId, identity)
+      const raw = await parameter.listFuselageShapes(geometryId, identity)
       const surfaces = inspect(() => {
         const surfaceIds = new Set<string>(), sectionIds = new Set<string>()
         return snapshotArray(raw, (surface, index): FuselageSurface => {
@@ -90,10 +91,13 @@ export function createFuselageService(geometry: FuselageGeometryReader, paramete
           const id = surface.id, xsecs = surface.xsecs
           if (!validId(id) || surfaceIds.has(id)) return badData('Invalid or ambiguous XSec surface')
           surfaceIds.add(id)
-          const sections = snapshotArray(xsecs, (sectionId, index): FuselageSection => {
+          const sections = snapshotArray(xsecs, (section, index): FuselageSection => {
+            if (!section) return badData('Invalid XSec')
+            const sectionId = section.id, shape = section.shape
             if (!validId(sectionId) || sectionIds.has(sectionId)) return badData('Invalid or ambiguous XSec ID')
+            if (!Number.isInteger(shape) || shape < -2147483648 || shape > 2147483647 || shape === -1) return badData('Invalid XSec shape')
             sectionIds.add(sectionId)
-            return { id: sectionId, index, shape: null }
+            return { id: sectionId, index, shape }
           })
           return { id, index, sections }
         })
