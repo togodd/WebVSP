@@ -93,7 +93,7 @@ export function createBrowserModelingService() {
       try {
         const manifest = await raceClose(controller.signal, () => discoverModelingProtocol(controller.signal))
         checkOpen()
-        const result = parseModelingProtocol(manifest)
+        const result = parseModelingProtocol(manifest, checkOpen)
         checkOpen()
         if (result.status !== 'valid') throw new Error('Invalid protocol manifest')
         return result

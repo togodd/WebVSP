@@ -63,6 +63,23 @@ describe('browser protocol declaration', () => {
     request.mockReset()
   })
 
+  it('stops inspecting a manifest after a proxy trap closes the session', async () => {
+    const request = vi.mocked(discoverModelingProtocol)
+    const service = createBrowserModelingService()
+    const inspected: PropertyKey[] = []
+    request.mockReset().mockResolvedValue(new Proxy(manifest(['model']), {
+      getOwnPropertyDescriptor(target, key) {
+        inspected.push(key)
+        if (key === 'protocol') service.close()
+        return Reflect.getOwnPropertyDescriptor(target, key)
+      },
+    }))
+    try {
+      await expect(service.protocol()).rejects.toMatchObject({ code: 'SESSION_CLOSED' })
+      expect(inspected).toEqual(['protocol'])
+    } finally { service.close(); request.mockReset() }
+  })
+
   it('prioritizes closure caused by a manifest proxy trap', async () => {
     const request = vi.mocked(discoverModelingProtocol)
     const service = createBrowserModelingService()

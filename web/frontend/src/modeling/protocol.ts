@@ -30,18 +30,23 @@ function ownValue(object: object, key: PropertyKey): unknown {
  * or prove a proxy is truthful. Parse JSON first when that distinction matters.
  * A valid result only describes a declaration, never engine readiness or authorization.
  */
-export function parseModelingProtocol(input: unknown): ModelingProtocolResult {
+export function parseModelingProtocol(input: unknown, checkOpen: () => void = () => {}): ModelingProtocolResult {
   try {
-    if (typeof input !== 'object' || input === null || Array.isArray(input)) throw new Error('Invalid manifest')
-    if (ownValue(input, 'protocol') !== 'webvsp-modeling' || ownValue(input, 'version') !== 1) throw new Error('Unsupported protocol')
-    const operations = ownValue(input, 'operations')
-    if (!Array.isArray(operations)) throw new Error('Invalid operations')
-    const length = ownValue(operations, 'length')
+    checkOpen()
+    const isArray = Array.isArray(input); checkOpen()
+    if (typeof input !== 'object' || input === null || isArray) throw new Error('Invalid manifest')
+    const protocol = ownValue(input, 'protocol'); checkOpen()
+    const version = ownValue(input, 'version'); checkOpen()
+    if (protocol !== 'webvsp-modeling' || version !== 1) throw new Error('Unsupported protocol')
+    const operations = ownValue(input, 'operations'); checkOpen()
+    const operationsArray = Array.isArray(operations); checkOpen()
+    if (!operationsArray) throw new Error('Invalid operations')
+    const length = ownValue(operations as object, 'length'); checkOpen()
     if (typeof length !== 'number' || !Number.isSafeInteger(length) || length < 0 || length > MAX_OPERATIONS) throw new Error('Invalid length')
     const seen = new Set<string>()
     const recognized: ModelingProtocolOperation[] = []
     for (let i = 0; i < length; i++) {
-      const op = ownValue(operations, String(i))
+      const op = ownValue(operations as object, String(i)); checkOpen()
       if (typeof op !== 'string' || op.length === 0 || op.length > MAX_OPERATION_LENGTH || seen.has(op)) throw new Error('Invalid operation')
       seen.add(op)
       if (known.has(op)) recognized.push(op as ModelingProtocolOperation)
