@@ -145,6 +145,50 @@ describe('modeling write service', () => {
       await expect(service.move(move)).rejects.toMatchObject({ code: 'SESSION_CLOSED' })
     }
   })
+  it('does not dispatch when a write method getter aborts, whether it returns or throws', async () => {
+    for (const op of ['create', 'move'] as const) {
+      for (const behavior of ['return', 'throw'] as const) {
+        const { adapter } = fixture()
+        const controller = new AbortController()
+        const method = op === 'create' ? 'addGeom' : 'moveGeoms'
+        const write = adapter[method]
+        let reads = 0
+        Object.defineProperty(adapter, method, { get() {
+          reads++
+          controller.abort()
+          if (behavior === 'throw') throw new Error('getter failed')
+          return write
+        } })
+        const service = createWriteService(adapter, controller.signal)
+        const pending = op === 'create' ? service.create({ type: 'Wing', parentId: null }) : service.move(move)
+        await expect(pending).rejects.toMatchObject({ code: 'SESSION_CLOSED' })
+        expect(reads).toBe(1)
+        expect(write).not.toHaveBeenCalled()
+        expect(adapter.model).toHaveBeenCalledTimes(1)
+        expect(adapter.geomOrigin).toHaveBeenCalledTimes(op === 'move' ? 1 : 0)
+      }
+    }
+  })
+  it('preserves the adapter receiver and reports unknown when a dispatched write aborts', async () => {
+    for (const op of ['create', 'move'] as const) {
+      const { adapter } = fixture()
+      const controller = new AbortController()
+      const method = op === 'create' ? 'addGeom' : 'moveGeoms'
+      const write = adapter[method]
+      Object.defineProperty(adapter, method, { get() {
+        return function (this: unknown, ...args: unknown[]) {
+          const result = Reflect.apply(write, this, args)
+          controller.abort()
+          return result
+        }
+      } })
+      const service = createWriteService(adapter, controller.signal)
+      const pending = op === 'create' ? service.create({ type: 'Wing', parentId: null }) : service.move(move)
+      await expect(pending).rejects.toMatchObject({ code: 'OUTCOME_UNKNOWN' })
+      expect(write).toHaveBeenCalledTimes(1)
+      expect(write.mock.contexts[0]).toBe(adapter)
+    }
+  })
   it('reports unknown after dispatch, including pending readback, without further requests', async () => {
     for (const op of ['create', 'move'] as const) {
       for (const stage of ['write', 'readback'] as const) {

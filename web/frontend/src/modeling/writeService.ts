@@ -105,9 +105,16 @@ export function createWriteService(adapter: ModelingWriteAdapter, signal: AbortS
       })
       checkOpen()
       let result: { id: string }
+      let dispatched = false
       try {
-        result = await request(() => adapter.addGeom(type, parentId, ...identityArgs(identity)))
+        result = await request(() => {
+          const method = adapter.addGeom
+          checkOpen()
+          dispatched = true
+          return Reflect.apply(method, adapter, [type, parentId, ...identityArgs(identity)])
+        })
       } catch (e) {
+        if (!dispatched && signal.aborted) checkOpen()
         if (!signal.aborted && isStale(e) && e.outcome === 'not_written') return stale()
         return unknown()
       }
@@ -147,9 +154,16 @@ export function createWriteService(adapter: ModelingWriteAdapter, signal: AbortS
       })
       checkOpen()
       let result: { ok: boolean }
+      let dispatched = false
       try {
-        result = await request(() => adapter.moveGeoms([id], [delta[0], delta[1], delta[2]], ...identityArgs(identity)))
+        result = await request(() => {
+          const method = adapter.moveGeoms
+          checkOpen()
+          dispatched = true
+          return Reflect.apply(method, adapter, [[id], [delta[0], delta[1], delta[2]], ...identityArgs(identity)])
+        })
       } catch (e) {
+        if (!dispatched && signal.aborted) checkOpen()
         if (!signal.aborted && isStale(e) && e.outcome === 'not_written') return stale()
         return unknown()
       }
