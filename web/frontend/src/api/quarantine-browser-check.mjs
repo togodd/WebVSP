@@ -32,7 +32,7 @@ try {
             writes.push(p); data.set(p, { bytes: new Uint8Array(bytes), time: 1 })
             if (fail && p.endsWith('b.dat')) {
               fail = false
-              // Reentrant save creates a replacement binding on an about-to-be quarantined path.
+              // The import reservation rejects a reentrant save before any binding can be created.
               window.showSaveFilePicker = undefined
               nested = api.answer(vsp, { seq: 90, mode: 1, filter: '*.dat', preset: 'b.dat' })
               throw Error('injected failure after second write')
@@ -58,11 +58,11 @@ try {
         return { answers: t.answers, writes: t.writes, bindingA: !!t.api.state(t.home + 'a.vsp3'), bindingB: !!t.api.state(t.home + 'b.dat'), cExists: t.data.has(t.home + 'c.dat') }
       })
       assert.deepEqual(initial.answers, [
-        { op: 'dialog', seq: 90, result: 1, path: '/home/web_user/b.dat' },
+        { op: 'dialog', seq: 90, result: 0, path: '' },
         { op: 'dialog', seq: 1, result: 0, path: '' },
       ])
       assert.deepEqual(initial.writes, ['/home/web_user/a.vsp3', '/home/web_user/b.dat'])
-      assert.equal(initial.bindingA, false); assert.equal(initial.bindingB, true); assert.equal(initial.cExists, false)
+      assert.equal(initial.bindingA, false); assert.equal(initial.bindingB, false); assert.equal(initial.cExists, false)
       await page.evaluate(() => { const t = window.__quarantineCheck; t.change('b.dat'); t.watch(); t.watch() })
       assert.deepEqual(await page.evaluate(() => ({ reads: window.__quarantineCheck.reads, deliveries: window.__quarantineCheck.deliveries })), { reads: [], deliveries: [] })
       // Every staged target is rejected, including the never-written third target.

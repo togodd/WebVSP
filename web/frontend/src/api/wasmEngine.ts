@@ -25,6 +25,7 @@ import { facadeSubmit } from './facadeSubmit'
 import { stageImport, unsafeLinkedPath } from './importStaging'
 import { safelyNotifyFileError } from './fileNotice'
 import { safelyNotifyPartialImport } from './partialImportNotice'
+import { QuarantineCapacity } from './quarantineCapacity'
 
 interface VspModule {
   call(id: number, op: string, a: string, b: string, value: number): void
@@ -326,7 +327,9 @@ interface LinkedFile {
 }
 const linked = new Map<string, LinkedFile>()
 // Exact virtual paths only, for this page lifetime. No recovery or alias guarantees.
-const importQuarantine = new Set<string>()
+const importQuarantine = new QuarantineCapacity(4096, 1024 * 1024)
+// Save does not consume isolation capacity, but must block synchronous save reentry.
+const savingPaths = new Set<string>()
 
 function link(vsp: VspModule, path: string, handle: FileSystemFileHandle | null, name: string) {
   const exists = vsp.FS.analyzePath(path).exists
@@ -344,7 +347,6 @@ function link(vsp: VspModule, path: string, handle: FileSystemFileHandle | null,
 async function answerFileDialog(vsp: VspModule, d: MDialog) {
   let answered = false
   let importCommitStarted = false
-  let commitPaths: string[] = []
   let newBinding: LinkedFile | undefined
   const answer = (path: string) => {
     if (answered) return
@@ -362,9 +364,10 @@ async function answerFileDialog(vsp: VspModule, d: MDialog) {
       // for Load Previous Results), and OpenVSP gets the one its filter asks for.
       const picked = await pickFiles(exts, types)
       if (!picked.length) return answer('')
-      // No arbitrary model-size or file-count cap: staging is bounded only by the
-      // safe-integer accounting limit and available memory. It rejects duplicate
-      // basenames before reading, and no FS or linked state changes on failure.
+      // Staging itself has no practical file-size or count cap: it is bounded only
+      // by safe-integer accounting and available memory. The separate quarantine
+      // reservation below can reject a batch after staging. Duplicate basenames are
+      // rejected before reading; staging failure does not change FS or linked state.
       const staged = await stageImport(picked, async (f) => new Uint8Array(await f.arrayBuffer()), Number.MAX_SAFE_INTEGER)
       const mainIndex = Math.max(0, staged.findIndex((f) => exts.some((e) => f.name.toLowerCase().endsWith('.' + e.toLowerCase()))))
       const main = staged[mainIndex]
@@ -374,24 +377,35 @@ async function answerFileDialog(vsp: VspModule, d: MDialog) {
       // Metadata is only an observation: aliases, ABA and concurrent writes can
       // still escape this check. Never update the watcher baseline here.
       const paths = staged.map(f => `${HOME}/${f.name}`)
-      const quarantined = paths.find(target => importQuarantine.has(target))
-      if (quarantined) {
-        try { return answer('') } finally { safelyNotifyFileError({ kind: 'quarantine', operation: 'open', name: displayName(quarantined) }) }
+      const unavailable = paths.find(target => importQuarantine.has(target) || savingPaths.has(target))
+      if (unavailable) {
+        const kind = importQuarantine.status(unavailable) === 'quarantined' ? 'quarantine' : 'busy'
+        try { return answer('') } finally { safelyNotifyFileError({ kind, operation: 'open', name: displayName(unavailable) }) }
       }
-      const busy = unsafeLinkedPath(paths, linked, vsp.FS)
+      const result = importQuarantine.reserve(paths)
+      if (!result.ok) {
+        const blocked = paths.find(target => importQuarantine.has(target))
+        const kind = result.reason === 'capacity' ? 'capacity' : blocked
+          ? (importQuarantine.status(blocked) === 'quarantined' ? 'quarantine' : 'busy') : 'error'
+        try { return answer('') } finally { safelyNotifyFileError({ kind, operation: 'open', name: blocked && displayName(blocked) }) }
+      }
+      const reservation = result.reservation
+      let busy: string | undefined
+      try { busy = unsafeLinkedPath(paths, linked, vsp.FS) } catch (error) { reservation.cancel(); throw error }
       if (busy) {
+        reservation.cancel()
         try { return answer('') } finally { safelyNotifyFileError({ kind: 'busy', operation: 'open', name: displayName(busy) }) }
       }
-      // From this point an exception can follow a side effect, including link removal.
-      commitPaths = paths
+      // The entire mutation and answer are synchronous and held under the reservation.
       importCommitStarted = true
-      for (const target of paths) linked.delete(target)
-      vsp.FS.mkdirTree(HOME)
-      for (const f of staged) vsp.FS.writeFile(`${HOME}/${f.name}`, f.data)
-      // File > Save writes only the selected main file back to its handle.
-      newBinding = link(vsp, path, handle, main.name)
-      if (handle) void askToWrite(handle)
-      answer(path)
+      reservation.commitSync(() => {
+        for (const target of paths) linked.delete(target)
+        vsp.FS.mkdirTree(HOME)
+        for (const f of staged) vsp.FS.writeFile(`${HOME}/${f.name}`, f.data)
+        newBinding = link(vsp, path, handle, main.name)
+        if (handle) void askToWrite(handle)
+        answer(path)
+      })
       importCommitStarted = false
       return
     }
@@ -409,21 +423,24 @@ async function answerFileDialog(vsp: VspModule, d: MDialog) {
       name = handle.name
     }
     const path = `${HOME}/${name}`
-    if (importQuarantine.has(path)) {
-      try { return answer('') } finally { safelyNotifyFileError({ kind: 'quarantine', operation: 'save', name: displayName(path) }) }
+    if (importQuarantine.has(path) || savingPaths.has(path)) {
+      const kind = importQuarantine.status(path) === 'quarantined' ? 'quarantine' : 'busy'
+      try { return answer('') } finally { safelyNotifyFileError({ kind, operation: 'save', name: displayName(path) }) }
     }
-    // Only the current exact-path binding is observable here: aliases and writes
-    // detached by an earlier rebind are not covered. Never cancel an active delivery.
-    if (unsafeLinkedPath([path], linked, vsp.FS)) {
-      try { return answer('') } finally { safelyNotifyFileError({ kind: 'busy', operation: 'save', name: displayName(path) }) }
-    }
-    vsp.FS.mkdirTree(HOME)
-    link(vsp, path, handle, name)
-    answer(path)
+    // Lock before the metadata preflight: FS hooks and answer can reenter synchronously.
+    // A failed save is not an import and does not permanently quarantine the path.
+    savingPaths.add(path)
+    try {
+      if (unsafeLinkedPath([path], linked, vsp.FS)) {
+        try { return answer('') } finally { safelyNotifyFileError({ kind: 'busy', operation: 'save', name: displayName(path) }) }
+      }
+      vsp.FS.mkdirTree(HOME)
+      link(vsp, path, handle, name)
+      answer(path)
+    } finally { savingPaths.delete(path) }
   } catch (err) {
     if (importCommitStarted) {
-      // Isolate before logging, answering or notifying: any of those may reenter.
-      for (const target of commitPaths) importQuarantine.add(target)
+      // commitSync isolated the whole batch before control returned here.
       if (newBinding && linked.get(newBinding.path) === newBinding) linked.delete(newBinding.path)
     }
     try { console.error('WebVSP: file dialog failed', err) } catch { /* logging is best effort */ }
@@ -503,7 +520,7 @@ function watchLinked(vsp: VspModule) {
     try {
       // A reentrant chooser can replace the binding before a commit throws. Keep
       // that unrelated object intact, but never initiate delivery from this path.
-      if (importQuarantine.has(f.path) || f.writing || !vsp.FS.analyzePath(f.path).exists) continue
+      if (importQuarantine.has(f.path) || savingPaths.has(f.path) || f.writing || !vsp.FS.analyzePath(f.path).exists) continue
       const st = vsp.FS.stat(f.path)
       const mtime = st.mtime.getTime()
       const changed = mtime !== f.mtime || st.size !== f.size
@@ -516,7 +533,7 @@ function watchLinked(vsp: VspModule) {
       const bytes = new Uint8Array(vsp.FS.readFile(f.path))
       // Synchronous FS hooks can reenter and invalidate this binding or quarantine
       // its path. Do not consume the pending snapshot in that case.
-      if (importQuarantine.has(f.path) || linked.get(f.path) !== f) continue
+      if (importQuarantine.has(f.path) || savingPaths.has(f.path) || linked.get(f.path) !== f) continue
       f.writing = true
       f.pending = false
       // A failed delivery is reported, but the consumed snapshot is not retried.
