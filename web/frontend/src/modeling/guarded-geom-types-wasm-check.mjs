@@ -26,10 +26,13 @@ try {
     const url = new URL(route.request().url())
     if (!['http:', 'https:'].includes(url.protocol) || !['127.0.0.1', 'localhost', '[::1]'].includes(url.hostname)) return route.abort()
     const match = url.origin === testPage.origin && url.pathname.match(/^\/wasm\/(vsp\.js|vsp\.wasm)$/)
-    if (wasmFiles && match) return route.fulfill({ status: 200, body: wasmFiles.get(match[1]), headers: {
-      'content-type': match[1].endsWith('.wasm') ? 'application/wasm' : 'text/javascript',
-      'cross-origin-resource-policy': 'same-origin', 'cross-origin-embedder-policy': 'require-corp', 'cross-origin-opener-policy': 'same-origin',
-    } })
+    if (wasmFiles && match) {
+      injected.add(match[1])
+      return route.fulfill({ status: 200, body: wasmFiles.get(match[1]), headers: {
+        'content-type': match[1].endsWith('.wasm') ? 'application/wasm' : 'text/javascript',
+        'cross-origin-resource-policy': 'same-origin', 'cross-origin-embedder-policy': 'require-corp', 'cross-origin-opener-policy': 'same-origin',
+      } })
+    }
     return route.continue()
   })
   await context.addInitScript(() => {
@@ -78,6 +81,7 @@ try {
   assert.deepEqual(result.fresh, result.bridgeLegacy)
   for (const stale of [result.staleDirect, result.staleBridge]) assert.deepEqual(stale, { code: 'STALE_MODEL', outcome: 'not_written', actual: null })
   assert.deepEqual(errors, [])
+  if (wasmFiles) assert.deepEqual([...injected].sort(), ['vsp.js', 'vsp.wasm'], 'both supplied WASM artifacts must be loaded')
   console.log('PASS: guarded and legacy geomTypes agree; old epoch rejected by engine and bridge')
 } finally {
   clearTimeout(timeout)
