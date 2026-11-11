@@ -31,6 +31,7 @@ export function useBlenderKeys() {
     const onKey = (e: KeyboardEvent) => {
       if (isImportNotice(e)) {
         if (!viewKeysFree()) blockNotice(e)
+        else if (e.key !== 'Enter' && e.key !== ' ') e.stopImmediatePropagation()
         return
       }
       if (useTransform.getState().mode) return transformKey(e)
@@ -82,10 +83,24 @@ export function useBlenderKeys() {
         e.stopPropagation()
       }
     }
+    // Let the notice button receive keys and its native Enter/Space activation, but keep
+    // those keys from reaching window's bubbling camera and menu shortcut listeners.
+    const isolateNoticeKey = (e: Event) => { if (isImportNotice(e)) e.stopPropagation() }
+    const onNoticeKeyUp = (e: KeyboardEvent) => {
+      if (!isImportNotice(e)) return
+      if (!viewKeysFree()) blockNotice(e)
+      else if (e.key !== 'Enter' && e.key !== ' ') e.stopImmediatePropagation()
+    }
+    window.addEventListener('keyup', onNoticeKeyUp, true)
+    document.addEventListener('keydown', isolateNoticeKey)
+    document.addEventListener('keyup', isolateNoticeKey)
     window.addEventListener('keydown', onKey, true)
     window.addEventListener('pointerdown', onPointer, true)
     for (const type of ['pointerup', 'click', 'contextmenu', 'mousedown', 'mouseup']) window.addEventListener(type, swallow, true)
     return () => {
+      window.removeEventListener('keyup', onNoticeKeyUp, true)
+      document.removeEventListener('keydown', isolateNoticeKey)
+      document.removeEventListener('keyup', isolateNoticeKey)
       window.removeEventListener('keydown', onKey, true)
       window.removeEventListener('pointerdown', onPointer, true)
       for (const type of ['pointerup', 'click', 'contextmenu', 'mousedown', 'mouseup']) window.removeEventListener(type, swallow, true)

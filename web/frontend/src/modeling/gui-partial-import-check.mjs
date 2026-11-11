@@ -42,10 +42,29 @@ try {
   assert.equal(await alert.count(), 1)
   assert.equal(await page.getByRole('status').getByText('Open failed. Check the file and try again.').count(), 0)
   const dismiss = alert.getByRole('button', { name: 'Dismiss warning' })
+  await page.evaluate(() => {
+    window.__noticeKeys = []
+    window.__noticeCaptureKeys = []
+    for (const type of ['keydown', 'keyup']) {
+      window.addEventListener(type, e => window.__noticeKeys.push(`${e.type}:${e.key}`))
+      window.addEventListener(type, e => window.__noticeCaptureKeys.push(`${e.type}:${e.key}`), true)
+    }
+  })
+  const checkKeys = async () => {
+    await page.evaluate(() => { window.__noticeKeys = []; window.__noticeCaptureKeys = [] })
+    for (const key of ['f', 'x', 'g', '1', '5', 'Control+s', 'Alt+f']) await page.keyboard.press(key)
+    assert.deepEqual(await page.evaluate(() => window.__noticeKeys), [])
+    assert.deepEqual(await page.evaluate(() => window.__noticeCaptureKeys), [])
+  }
   await dismiss.focus()
+  await checkKeys()
   await page.keyboard.press('Enter')
   assert.equal(await alert.count(), 0)
-  console.log('PASS: partial fake write and one cancelled answer; alert persists >10s, preserves focus, survives ordinary notice, Enter dismisses normally')
+  await page.evaluate(() => window.__partialTest.fail(106))
+  await dismiss.focus()
+  await page.keyboard.press('Space')
+  assert.equal(await alert.count(), 0)
+  console.log('PASS: partial fake write and one cancelled answer; alert persists >10s, preserves focus, isolates shortcuts, Enter and Space dismiss normally')
 
   // Drive the real delete prompt through its exported entry point, with a fake selection.
   await page.evaluate(async () => {
@@ -61,7 +80,10 @@ try {
   await page.evaluate(() => window.__partialTest.fail(102))
   await alert.waitFor()
   await alert.getByRole('button').focus()
+  await checkKeys()
   await page.keyboard.press('Enter')
+  await page.keyboard.press('Space')
+  assert.deepEqual(await page.evaluate(() => window.__noticeKeys), [])
   assert.equal(await alert.count(), 1)
   assert.equal(await page.evaluate(() => window.__partialDelete), false)
   for (const type of ['pointerdown', 'mousedown', 'pointerup', 'mouseup', 'click']) await alert.getByRole('button').dispatchEvent(type, { button: 0, bubbles: true, cancelable: true })
@@ -81,10 +103,24 @@ try {
   })
   await alert.waitFor()
   await alert.getByRole('button').focus()
+  const transformBefore = await page.evaluate(() => {
+    const { mode, axis, typed } = window.__partialTransform.getState()
+    return { mode, axis, typed }
+  })
+  await checkKeys()
+  assert.deepEqual(await page.evaluate(() => {
+    const { mode, axis, typed } = window.__partialTransform.getState()
+    return { mode, axis, typed }
+  }), transformBefore)
   await page.keyboard.press('Enter')
   assert.equal(await alert.count(), 0)
   assert.equal(await page.evaluate(() => window.__partialTransform.getState().mode), 'move')
   await page.evaluate(() => window.__partialTest.fail(104))
+  await alert.getByRole('button').focus()
+  await page.keyboard.press('Space')
+  assert.equal(await alert.count(), 0)
+  assert.equal(await page.evaluate(() => window.__partialTransform.getState().mode), 'move')
+  await page.evaluate(() => window.__partialTest.fail(105))
   await alert.getByRole('button').click()
   assert.equal(await alert.count(), 0)
   assert.equal(await page.evaluate(() => window.__partialTransform.getState().mode), 'move')
