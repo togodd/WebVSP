@@ -31,16 +31,29 @@ export function createParameterWriteService(adapter: ParameterWriteAdapter, sign
   return {
     async set(input: ParameterWriteInput, identity?: ModelIdentity): Promise<{ actual: number }> {
       if (signal.aborted) throw new ModelingError('SESSION_CLOSED', 'Modeling session is closed')
+      const checkOpen = () => {
+        if (signal.aborted) throw new ModelingError('SESSION_CLOSED', 'Modeling session is closed')
+      }
+      // Every caller-controlled property access can synchronously close the session.
+      const field = <T, K extends keyof T>(object: T, key: K): T[K] => {
+        const result = object[key]
+        checkOpen()
+        return result
+      }
       let owner: ParameterOwner, ownerId: string, parameterId: string, value: number
       let identityCopy: ModelIdentity | undefined
       try {
         if (!input || typeof input !== 'object') throw new Error()
-        ;({ owner, ownerId, parameterId, value } = input)
+        owner = field(input, 'owner')
+        ownerId = field(input, 'ownerId')
+        parameterId = field(input, 'parameterId')
+        value = field(input, 'value')
         if ((owner !== 'geometry' && owner !== 'crossSection') || !validId(ownerId) || !validId(parameterId) ||
             typeof value !== 'number' || !Number.isFinite(value)) throw new Error()
         if (identity !== undefined) {
           if (!identity || typeof identity !== 'object') throw new Error()
-          const { sessionId, modelEpoch } = identity
+          const sessionId = field(identity, 'sessionId')
+          const modelEpoch = field(identity, 'modelEpoch')
           if (typeof sessionId !== 'string' || !sessionId || typeof modelEpoch !== 'string' || !modelEpoch) throw new Error()
           identityCopy = { sessionId, modelEpoch }
         }
@@ -65,15 +78,23 @@ export function createParameterWriteService(adapter: ParameterWriteAdapter, sign
         if (signal.aborted) throw new ModelingError('OUTCOME_UNKNOWN', 'The parameter write outcome is unknown; do not automatically retry')
         // A failure to retrieve the method is not an engine response, even if
         // the accessor throws an object shaped like one.
-        if (dispatched && error instanceof WasmEngineError) {
+        let isEngineError = false
+        try {
+          isEngineError = dispatched && error instanceof WasmEngineError
+          checkOpen() // Even instanceof can invoke an untrusted Proxy trap.
+        } catch {
+          throw new ModelingError('OUTCOME_UNKNOWN', 'The parameter write outcome is unknown; do not automatically retry')
+        }
+        if (isEngineError) {
+          const engineError = error as WasmEngineError
           let actual: number | null = null
           let outcome: WasmEngineError['outcome']
           let code: WasmEngineError['code']
           try {
-            const readback = error.actual
+            const readback = field(engineError, 'actual')
             if (typeof readback === 'number' && Number.isFinite(readback)) actual = readback
-            outcome = error.outcome
-            code = outcome === 'not_written' && identity !== undefined ? error.code : undefined
+            outcome = field(engineError, 'outcome')
+            code = outcome === 'not_written' && identity !== undefined ? field(engineError, 'code') : undefined
           } catch {
             throw new ModelingError('OUTCOME_UNKNOWN', 'The parameter write outcome is unknown; do not automatically retry')
           }

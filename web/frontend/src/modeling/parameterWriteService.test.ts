@@ -192,6 +192,67 @@ describe('single parameter write service', () => {
       expect(adapter.set).not.toHaveBeenCalled()
     }
   })
+  it.each(['owner', 'ownerId', 'parameterId', 'value', 'sessionId', 'modelEpoch'] as const)(
+    'stops reading input and identity immediately when %s closes the session', async (closingField) => {
+      const controller = new AbortController()
+      const reads: string[] = []
+      const values = { ...input, sessionId: 's', modelEpoch: 'e' }
+      const makeField = (key: keyof typeof values) => ({ enumerable: true, get() {
+        reads.push(key)
+        if (key === closingField) controller.abort()
+        return values[key]
+      } })
+      const keys = ['owner', 'ownerId', 'parameterId', 'value', 'sessionId', 'modelEpoch'] as const
+      const badInput = Object.defineProperties({}, Object.fromEntries(keys.slice(0, 4).map(key => [key, makeField(key)]))) as typeof input
+      const identity = Object.defineProperties({}, Object.fromEntries(keys.slice(4).map(key => [key, makeField(key)]))) as { sessionId: string; modelEpoch: string }
+      const { adapter } = fixture()
+      await expect(createParameterWriteService(adapter, controller.signal).set(badInput, identity)).rejects.toMatchObject({ code: 'SESSION_CLOSED' })
+      expect(reads).toEqual(keys.slice(0, keys.indexOf(closingField) + 1))
+      expect(adapter.set).not.toHaveBeenCalled()
+    },
+  )
+  it.each(['actual', 'outcome', 'code'] as const)('stops reading engine error fields when %s closes the session', async (closingField) => {
+    const controller = new AbortController()
+    const engineError = new WasmEngineError(409, 'private', 'not_written', 2, 'STALE_MODEL')
+    const values = { actual: 2, outcome: 'not_written', code: 'STALE_MODEL' }
+    const keys = ['actual', 'outcome', 'code'] as const
+    const reads: string[] = []
+    for (const key of keys) Object.defineProperty(engineError, key, { get() {
+      reads.push(key)
+      if (key === closingField) controller.abort()
+      return values[key]
+    } })
+    const adapter = { set: vi.fn(async () => { throw engineError }) }
+    const error = await createParameterWriteService(adapter, controller.signal).set(input, { sessionId: 's', modelEpoch: 'e' }).catch(e => e)
+    expect(error.code).toBe('OUTCOME_UNKNOWN')
+    expect(error.details?.outcome).not.toBe('not_written')
+    expect(reads).toEqual(keys.slice(0, keys.indexOf(closingField) + 1))
+    expect(adapter.set).toHaveBeenCalledTimes(1)
+  })
+  it.each(['abort', 'throw'] as const)('sanitizes an engine error proxy whose prototype trap can %s', async (action) => {
+    const controller = new AbortController()
+    const reads: string[] = []
+    const thrown = new Proxy(new WasmEngineError(409, 'private', 'not_written'), {
+      getPrototypeOf(target) {
+        reads.push('prototype')
+        if (action === 'abort') controller.abort()
+        else throw new Error('private')
+        return Reflect.getPrototypeOf(target)
+      },
+      get(target, key, receiver) { reads.push(String(key)); return Reflect.get(target, key, receiver) },
+    })
+    const adapter = { set: vi.fn(async () => { throw thrown }) }
+    const error = await createParameterWriteService(adapter, controller.signal).set(input).catch(e => e)
+    expect(error.code).toBe('OUTCOME_UNKNOWN')
+    expect(reads).toEqual(['prototype'])
+    expect(JSON.stringify(error)).not.toContain('private')
+  })
+  it('reports unknown if a successful result getter closes the session', async () => {
+    const controller = new AbortController()
+    const adapter = { set: vi.fn(async () => ({ get actual() { controller.abort(); return input.value } })) }
+    await expect(createParameterWriteService(adapter, controller.signal).set(input)).rejects.toMatchObject({ code: 'OUTCOME_UNKNOWN' })
+    expect(adapter.set).toHaveBeenCalledTimes(1)
+  })
   it('validates and snapshots identity without exposing the caller object', async () => {
     const counts = { sessionId: 0, modelEpoch: 0 }
     const identity = {
