@@ -22,6 +22,7 @@ export interface ParameterReadAdapter {
   surfaces(geometryId: string, identity?: ModelIdentity): Promise<CrossSectionSurface[]>
   fuselageLength(geometryId: string, identity?: ModelIdentity): Promise<EngineParameter>
   fuselageShapes?(geometryId: string, identity?: ModelIdentity): Promise<CrossSectionShapeSurface[]>
+  wingShapes?(geometryId: string, identity?: ModelIdentity): Promise<CrossSectionShapeSurface[]>
   list(owner: 'geometry' | 'crossSection', ownerId: string, identity?: ModelIdentity): Promise<string[]>
   get(owner: 'geometry' | 'crossSection', ownerId: string, parameterId: string, identity?: ModelIdentity): Promise<EngineParameter>
 }
@@ -77,6 +78,19 @@ function surfacesSnapshot(value: unknown, checkOpen: () => void): CrossSectionSu
     return { id, xsecs: idsSnapshot(xsecs, checkOpen) }
   }, checkOpen)
 }
+function shapesSnapshot(value: unknown, checkOpen: () => void): CrossSectionShapeSurface[] {
+  return arraySnapshot(value, surface => {
+    if (!isRecord(surface)) return invalid()
+    const surfaceId = surface.id; checkOpen(); const xsecs = surface.xsecs; checkOpen()
+    if (!isId(surfaceId)) return invalid()
+    return { id: surfaceId, xsecs: arraySnapshot(xsecs, section => {
+      if (!isRecord(section)) return invalid()
+      const sectionId = section.id; checkOpen(); const shape = section.shape; checkOpen()
+      if (!isId(sectionId) || typeof shape !== 'number' || !Number.isInteger(shape) || shape < -2147483648 || shape > 2147483647 || shape === -1) return invalid()
+      return { id: sectionId, shape }
+    }, checkOpen) }
+  }, checkOpen)
+}
 export function createParameterService(adapter: ParameterReadAdapter, signal: AbortSignal = new AbortController().signal) {
   function checkOpen() { if (signal.aborted) throw new ModelingError('SESSION_CLOSED', 'Modeling session is closed') }
   function method<K extends keyof ParameterReadAdapter>(key: K): ParameterReadAdapter[K] {
@@ -109,17 +123,12 @@ export function createParameterService(adapter: ParameterReadAdapter, signal: Ab
     /** Reads native curve shape codes for sections belonging to this Fuselage. */
     listFuselageShapes(geometryId: string, identity?: ModelIdentity) {
       checkOpen(); const owner = id(geometryId, 'geometryId')
-      return read(() => identity === undefined ? Reflect.apply(method('fuselageShapes')!, adapter, [owner]) : Reflect.apply(method('fuselageShapes')!, adapter, [owner, identity]), result => arraySnapshot(result, surface => {
-        if (!isRecord(surface)) return invalid()
-        const surfaceId = surface.id; checkOpen(); const xsecs = surface.xsecs; checkOpen()
-        if (!isId(surfaceId)) return invalid()
-        return { id: surfaceId, xsecs: arraySnapshot(xsecs, section => {
-          if (!isRecord(section)) return invalid()
-          const sectionId = section.id; checkOpen(); const shape = section.shape; checkOpen()
-          if (!isId(sectionId) || typeof shape !== 'number' || !Number.isInteger(shape) || shape < -2147483648 || shape > 2147483647 || shape === -1) return invalid()
-          return { id: sectionId, shape }
-        }, checkOpen) }
-      }, checkOpen), 'geometry', identity)
+      return read(() => identity === undefined ? Reflect.apply(method('fuselageShapes')!, adapter, [owner]) : Reflect.apply(method('fuselageShapes')!, adapter, [owner, identity]), result => shapesSnapshot(result, checkOpen), 'geometry', identity)
+    },
+    /** Reads native airfoil curve shape codes for sections belonging to this Wing. */
+    listWingShapes(geometryId: string, identity?: ModelIdentity) {
+      checkOpen(); const owner = id(geometryId, 'geometryId')
+      return read(() => identity === undefined ? Reflect.apply(method('wingShapes')!, adapter, [owner]) : Reflect.apply(method('wingShapes')!, adapter, [owner, identity]), result => shapesSnapshot(result, checkOpen), 'geometry', identity)
     },
     /** The engine resolves and checks the unique geometry-owned Design/Length parameter. */
     getFuselageLength(geometryId: string, identity?: ModelIdentity) { checkOpen(); const owner = id(geometryId, 'geometryId'); return read(() => identity === undefined ? Reflect.apply(method('fuselageLength'), adapter, [owner]) : Reflect.apply(method('fuselageLength'), adapter, [owner, identity]), result => { const parameter = parameterSnapshot(result, checkOpen); if (parameter.name !== 'Length' || parameter.group !== 'Design' || parameter.container !== owner) return invalid(); return parameter }, 'geometry', identity) },

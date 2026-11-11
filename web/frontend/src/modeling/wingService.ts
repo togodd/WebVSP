@@ -1,17 +1,19 @@
 import { ModelingError } from './contracts'
 import type { Geometry, ModelContext, ModelIdentity } from './contracts'
-import type { CrossSectionSurface } from './parameterService'
+import type { CrossSectionShapeSurface } from './parameterService'
 
 /** The existing engine-backed read services, injected without owning their lifecycle. */
 export interface WingReadDependencies {
   geometry: { get(geometryId: string, identity?: ModelIdentity): Promise<{ context: ModelContext; geometry: Geometry }> }
-  parameters: { listSurfaces(geometryId: string, identity?: ModelIdentity): Promise<CrossSectionSurface[]> }
+  parameters: { listWingShapes(geometryId: string, identity?: ModelIdentity): Promise<CrossSectionShapeSurface[]> }
 }
 
 export interface WingStation {
   readonly id: string
   /** Position in this particular read, not a persistent identifier. */
   readonly index: number
+  /** Native XSEC_CRV_TYPE observed during this read; unknown values are preserved. */
+  readonly shape: number
   /** Index 0 is the root airfoil XSec, with no inboard wing section. For i > 0,
    * this XSec is the outboard airfoil station of the section from i-1 to i;
    * its WingSect owns that section's parameters. The ID is an XSec ID, not a
@@ -36,7 +38,8 @@ export interface WingView {
  * check cannot guarantee that the later surface response still belongs to that
  * same wing. Callers needing consistency must coordinate all model mutations
  * externally, including GUI edits. Revisions and indices are not persistence tokens.
- * No driver, airfoil shape, dimensions, or editing support is implied.
+ * Shape is the observed native code, not a guarantee of editable parameters.
+ * No driver, dimensions, or editing support is implied.
  */
 export function createWingService(deps: WingReadDependencies) {
   return {
@@ -57,7 +60,7 @@ export function createWingService(deps: WingReadDependencies) {
         throw new ModelingError('ENGINE_ERROR', 'Invalid geometry response')
       }
       if (geometryType.toUpperCase() !== 'WING') throw new ModelingError('UNSUPPORTED_OPERATION', 'Geometry is not a wing', { geometryId })
-      const surfaces = await deps.parameters.listSurfaces(geometryId, identity)
+      const surfaces = await deps.parameters.listWingShapes(geometryId, identity)
       let view: WingSurface[]
       try {
         const surfaceIds = new Set<string>(), stationIds = new Set<string>()
@@ -79,10 +82,11 @@ export function createWingService(deps: WingReadDependencies) {
           const count = lengthOf(xsecs), stations: WingStation[] = []
           for (let index = 0; index < count; index++) {
             if (!Object.prototype.hasOwnProperty.call(xsecs, index)) throw new Error('Sparse stations')
-            const stationId = xsecs[index]
-            if (!validId(stationId) || stationIds.has(stationId)) throw new Error('Invalid station')
+            const section = xsecs[index]
+            const stationId = section.id, shape = section.shape
+            if (!validId(stationId) || stationIds.has(stationId) || typeof shape !== 'number' || !Number.isInteger(shape) || shape < -2147483648 || shape > 2147483647 || shape === -1) throw new Error('Invalid station')
             stationIds.add(stationId)
-            stations.push({ id: stationId, index, kind: index === 0 ? 'rootAirfoilStation' : 'wingSection' })
+            stations.push({ id: stationId, index, kind: index === 0 ? 'rootAirfoilStation' : 'wingSection', shape })
           }
           view.push({ id, stations })
         }

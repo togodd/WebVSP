@@ -30,6 +30,7 @@
 //     outcome ("not_written", "different", or "unknown") and actual (null if unknown).
 //   geomXSecs(a=geom id)                [{id, xsecs:[ids]}] in XSec surface/index order
 //   fuselageXSecShapes(a=geom id)       [{id, xsecs:[{id, shape}]}] in surface/index order
+//   wingXSecShapes(a=geom id)           same shape data, restricted to WING geoms
 //   geomParmIDs(a=geom id), xsecParmIDs(a=xsec id)   linkable parm IDs
 //   geomParm(a=geom id, b=parm id), xsecParm(a=xsec id, b=parm id)   parm metadata
 //     Metadata: {id,value,type,name,group,container,lowerLimit,upperLimit,active}.
@@ -1580,7 +1581,7 @@ void ScriptGuardCheck( int id )
 bool GuardedOpAllowed( const string &op )
 {
     return op == "model" || op == "bbox" || op == "origin" || op == "move" ||
-           op == "addGeom" || op == "geomXSecs" || op == "fuselageXSecShapes" || op == "geomParmIDs" ||
+           op == "addGeom" || op == "geomXSecs" || op == "fuselageXSecShapes" || op == "wingXSecShapes" || op == "geomParmIDs" ||
            op == "xsecParmIDs" || op == "geomParm" || op == "xsecParm" ||
            op == "fuselageLength" || op == "geomSetParm" || op == "xsecSetParm";
 }
@@ -1865,14 +1866,16 @@ void RunImpl( const Job &j )
         return Result( j.id, "", "null" );
     }
 #endif
-    if ( j.op == "fuselageXSecShapes" )
+    if ( j.op == "fuselageXSecShapes" || j.op == "wingXSecShapes" )
     {
         string err;
         MissingParmOwner missing = MissingParmOwner::None;
         if ( !CurrentModelGeom( j.a, err, j.guarded ? &missing : nullptr ) ) return ParmReadFailure( j, err, missing );
         Vehicle *veh = VehicleMgr.GetVehicle();
         Geom *geom = veh ? veh->FindGeom( j.a ) : nullptr;
-        if ( !geom || geom->GetType().m_Type != FUSELAGE_GEOM_TYPE ) return Result( j.id, "Geom is not a fuselage", "" );
+        bool wing = j.op == "wingXSecShapes";
+        if ( !geom || geom->GetType().m_Type != ( wing ? MS_WING_GEOM_TYPE : FUSELAGE_GEOM_TYPE ) )
+            return Result( j.id, wing ? "Geom is not a wing" : "Geom is not a fuselage", "" );
         vector< string > surfaces = vsp::GetXSecSurfIDVec( j.a );
 #ifdef WEBVSP_SCRIPT_GUARD_TEST
         InjectParmReadFault( "GetXSecSurfIDVec", j.guarded );

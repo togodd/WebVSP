@@ -185,14 +185,14 @@ describe('browser modeling identity', () => {
 describe('browser facade composite reads', () => {
   const token = { sessionId: 'tab', modelEpoch: '42' }
   const length = { id: 'length', value: 10, type: 0, name: 'Length', group: 'Design', container: 'geom', lowerLimit: 0, upperLimit: 100, active: true }
-  const surfaces = [{ id: 'surface', xsecs: ['section'] }]
+  const surfaces = [{ id: 'surface', xsecs: [{ id: 'section', shape: 2 }] }]
   const model = (type: string) => ({
     modelEpoch: '42', modelEpochValid: true, fileName: '', rev: 1, version: 'test', active: [],
     geoms: [{ id: 'geom', name: 'Geometry', type, parent: '', children: [], shown: true }],
   })
 
   it.each([
-    { facade: 'wing' as const, type: 'Wing', beforeFailure: [] as string[], failure: 'geomXSecs' },
+    { facade: 'wing' as const, type: 'Wing', beforeFailure: [] as string[], failure: 'wingXSecShapes' },
     { facade: 'fuselage' as const, type: 'Fuselage', beforeFailure: [] as string[], failure: 'fuselageLength' },
     { facade: 'fuselage' as const, type: 'Fuselage', beforeFailure: ['fuselageLength'], failure: 'fuselageXSecShapes' },
   ])('$facade.get rejects stale model at $failure without returning a mixed view', async ({ facade, type, beforeFailure, failure }) => {
@@ -202,7 +202,7 @@ describe('browser facade composite reads', () => {
       if (op === 'model') return model(type) as never
       if (op === failure) throw new WasmEngineError(409, 'model replaced', undefined, undefined, 'STALE_MODEL')
       if (op === 'fuselageLength') return length as never
-      if (op === 'geomXSecs') return surfaces as never
+      if (op === 'wingXSecShapes') return surfaces as never
       if (op === 'fuselageXSecShapes') return [{ id: 'surface', xsecs: [{ id: 'section', shape: 2 }] }] as never
       throw new Error(`Unexpected operation ${op}`)
     })
@@ -221,8 +221,8 @@ describe('browser facade composite reads', () => {
   })
 
   const failureStages = [
-    { facade: 'wing' as const, type: 'Wing', operations: ['model', 'geomXSecs'], failure: 'model' },
-    { facade: 'wing' as const, type: 'Wing', operations: ['model', 'geomXSecs'], failure: 'geomXSecs' },
+    { facade: 'wing' as const, type: 'Wing', operations: ['model', 'wingXSecShapes'], failure: 'model' },
+    { facade: 'wing' as const, type: 'Wing', operations: ['model', 'wingXSecShapes'], failure: 'wingXSecShapes' },
     { facade: 'fuselage' as const, type: 'Fuselage', operations: ['model', 'fuselageLength', 'fuselageXSecShapes'], failure: 'model' },
     { facade: 'fuselage' as const, type: 'Fuselage', operations: ['model', 'fuselageLength', 'fuselageXSecShapes'], failure: 'fuselageLength' },
     { facade: 'fuselage' as const, type: 'Fuselage', operations: ['model', 'fuselageLength', 'fuselageXSecShapes'], failure: 'fuselageXSecShapes' },
@@ -258,7 +258,7 @@ describe('browser facade composite reads', () => {
         }
         if (op === 'model') return Promise.resolve(model(type)) as never
         if (op === 'fuselageLength') return Promise.resolve(length) as never
-        if (op === 'geomXSecs') return Promise.resolve(surfaces) as never
+        if (op === 'wingXSecShapes') return Promise.resolve(surfaces) as never
         if (op === 'fuselageXSecShapes') return Promise.resolve([{ id: 'surface', xsecs: [{ id: 'section', shape: 2 }] }]) as never
         throw new Error(`Unexpected operation ${op}`)
       })
@@ -279,8 +279,8 @@ describe('browser facade composite reads', () => {
   )
 
   it.each([
-    { facade: 'wing' as const, type: 'Wing', operations: ['model', 'geomXSecs'], stalled: 'model' },
-    { facade: 'wing' as const, type: 'Wing', operations: ['model', 'geomXSecs'], stalled: 'geomXSecs' },
+    { facade: 'wing' as const, type: 'Wing', operations: ['model', 'wingXSecShapes'], stalled: 'model' },
+    { facade: 'wing' as const, type: 'Wing', operations: ['model', 'wingXSecShapes'], stalled: 'wingXSecShapes' },
     { facade: 'fuselage' as const, type: 'Fuselage', operations: ['model', 'fuselageLength', 'fuselageXSecShapes'], stalled: 'model' },
     { facade: 'fuselage' as const, type: 'Fuselage', operations: ['model', 'fuselageLength', 'fuselageXSecShapes'], stalled: 'fuselageLength' },
     { facade: 'fuselage' as const, type: 'Fuselage', operations: ['model', 'fuselageLength', 'fuselageXSecShapes'], stalled: 'fuselageXSecShapes' },
@@ -295,7 +295,7 @@ describe('browser facade composite reads', () => {
       if (op === stalled) { stageStarted(); return pendingStage }
       if (op === 'model') return model(type) as never
       if (op === 'fuselageLength') return length as never
-      if (op === 'geomXSecs') return surfaces as never
+      if (op === 'wingXSecShapes') return surfaces as never
       if (op === 'fuselageXSecShapes') return [{ id: 'surface', xsecs: [{ id: 'section', shape: 2 }] }] as never
       throw new Error(`Unexpected operation ${op}`)
     })
@@ -316,7 +316,7 @@ describe('browser facade composite reads', () => {
   })
 
   it.each([
-    { facade: 'wing' as const, type: 'Wing', operations: ['model', 'geomXSecs'] },
+    { facade: 'wing' as const, type: 'Wing', operations: ['model', 'wingXSecShapes'] },
     { facade: 'fuselage' as const, type: 'Fuselage', operations: ['model', 'fuselageLength', 'fuselageXSecShapes'] },
   ])('$facade.get uses one captured epoch for every successful request', async ({ facade, type, operations }) => {
     const engine = vi.mocked(callGuarded)
@@ -324,7 +324,7 @@ describe('browser facade composite reads', () => {
     engine.mockImplementation(async (op) => {
       if (op === 'model') return model(type) as never
       if (op === 'fuselageLength') return length as never
-      if (op === 'geomXSecs') return surfaces as never
+      if (op === 'wingXSecShapes') return surfaces as never
       if (op === 'fuselageXSecShapes') return [{ id: 'surface', xsecs: [{ id: 'section', shape: 2 }] }] as never
       throw new Error(`Unexpected operation ${op}`)
     })

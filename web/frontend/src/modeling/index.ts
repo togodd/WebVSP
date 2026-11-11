@@ -71,6 +71,7 @@ export function createBrowserModelingService() {
     const adapter: ParameterReadAdapter = {
       surfaces: (id) => call<CrossSectionSurface[]>('geomXSecs', id),
       fuselageShapes: (id) => call<CrossSectionShapeSurface[]>('fuselageXSecShapes', id),
+      wingShapes: (id) => call<CrossSectionShapeSurface[]>('wingXSecShapes', id),
       fuselageLength: (id) => call<EngineParameter>('fuselageLength', id),
       list: (owner, id) => call<string[]>(owner === 'geometry' ? 'geomParmIDs' : 'xsecParmIDs', id),
       get: (owner, id, parm) => call<EngineParameter>(owner === 'geometry' ? 'geomParm' : 'xsecParm', id, parm),

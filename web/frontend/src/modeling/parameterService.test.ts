@@ -528,6 +528,167 @@ describe('linkable parameter reads', () => {
     })
   })
 
+  describe('wing shape reads', () => {
+    const unused = async (): Promise<never> => { throw new Error('unexpected operation') }
+    const base = () => ({ surfaces: unused, fuselageLength: unused, list: unused, get: unused })
+    const engineError = { code: 'ENGINE_ERROR', message: 'The OpenVSP parameter request failed' }
+
+    it('preserves unknown signed int32 shapes, duplicates and order in detached snapshots', async () => {
+      const response = [{ id: 's', xsecs: [{ id: 'x', shape: -2147483648 }, { id: 'x', shape: -2 }, { id: 'y', shape: 2147483647 }, { id: 'z', shape: 987 }] }, { id: 's', xsecs: [] }]
+      const service = createParameterService({ ...base(), wingShapes: async () => response })
+      const saved = await service.listWingShapes('g')
+      expect(saved).toEqual(response)
+      expect(saved).not.toBe(response)
+      expect(saved[0]).not.toBe(response[0])
+      expect(saved[0].xsecs).not.toBe(response[0].xsecs)
+      expect(saved[0].xsecs[0]).not.toBe(response[0].xsecs[0])
+      response[0].xsecs[0].shape = 42; response[0].id = 'changed'; response.push({ id: 'extra', xsecs: [] })
+      expect(saved).toEqual([{ id: 's', xsecs: [{ id: 'x', shape: -2147483648 }, { id: 'x', shape: -2 }, { id: 'y', shape: 2147483647 }, { id: 'z', shape: 987 }] }, { id: 's', xsecs: [] }])
+    })
+
+    it('rejects invalid shape values and malformed or sparse structures', async () => {
+      let response: unknown
+      const service = createParameterService({ ...base(), wingShapes: async () => response as never })
+      for (const shape of [-1, -2147483649, 2147483648, NaN, Infinity, -Infinity, 0.5, '2', null, undefined]) {
+        response = [{ id: 's', xsecs: [{ id: 'x', shape }] }]
+        await expect(service.listWingShapes('g'), String(shape)).rejects.toMatchObject(engineError)
+      }
+      for (const invalid of [null, {}, Array(1), [null], [[]], [{}], [{ id: ' ', xsecs: [] }], [{ id: 's', xsecs: null }], [{ id: 's', xsecs: Array(1) }], [{ id: 's', xsecs: [null] }], [{ id: 's', xsecs: [[]] }], [{ id: 's', xsecs: [{ id: '', shape: 0 }] }]]) {
+        response = invalid
+        await expect(service.listWingShapes('g')).rejects.toMatchObject(engineError)
+      }
+      response = []
+      await expect(service.listWingShapes('g')).resolves.toEqual([])
+    })
+
+    it('handles legacy adapters, validates inputs and forwards identity with its receiver', async () => {
+      const identity = { sessionId: 'session', modelEpoch: 'epoch' }
+      const legacy = createParameterService(base())
+      await expect(legacy.listWingShapes('g')).rejects.toMatchObject(engineError)
+      expect(() => legacy.listWingShapes(' ')).toThrowError(expect.objectContaining({ code: 'INVALID_ARGUMENT' }))
+      const fn = vi.fn(function (this: unknown) { expect(this).toBe(adapter); return Promise.resolve([]) })
+      const forbiddenCall = vi.fn(() => { throw new Error('secret') })
+      Object.defineProperty(fn, 'call', { get: forbiddenCall })
+      const adapter = { ...base(), wingShapes: fn }
+      const service = createParameterService(adapter)
+      await service.listWingShapes('g'); await service.listWingShapes('g', identity)
+      expect(fn.mock.calls).toEqual([['g'], ['g', identity]])
+      expect((fn.mock.calls[1] as unknown as [string, typeof identity])[1]).toBe(identity)
+      expect(forbiddenCall).not.toHaveBeenCalled()
+    })
+
+    it('classifies method getters and prioritizes close before invocation', async () => {
+      const identity = { sessionId: 'session', modelEpoch: 'epoch' }
+      for (const behavior of ['normal', 'throw', 'stale', 'notFound', 'close', 'closeThrow'] as const) {
+        const controller = new AbortController()
+        const fn = vi.fn(async () => [])
+        let reads = 0
+        const adapter = { ...base(), get wingShapes() {
+          reads++
+          if (behavior === 'close' || behavior === 'closeThrow') controller.abort()
+          if (behavior === 'throw' || behavior === 'closeThrow') throw new Error('secret')
+          if (behavior === 'stale' || behavior === 'notFound') throw new WasmEngineError(409, 'secret', undefined, undefined, behavior === 'stale' ? 'STALE_MODEL' : 'GEOMETRY_NOT_FOUND')
+          return fn
+        } }
+        const service = createParameterService(adapter, controller.signal)
+        if (behavior === 'normal') await expect(service.listWingShapes('g', identity)).resolves.toEqual([])
+        else await expect(service.listWingShapes('g', identity)).rejects.toMatchObject({ code: behavior === 'stale' ? 'STALE_MODEL' : behavior === 'notFound' ? 'GEOMETRY_NOT_FOUND' : behavior === 'throw' ? 'ENGINE_ERROR' : 'SESSION_CLOSED' })
+        expect(reads).toBe(1)
+        expect(fn).toHaveBeenCalledTimes(behavior === 'normal' ? 1 : 0)
+      }
+    })
+
+    it('only maps genuine stale errors when an identity was supplied', async () => {
+      const identity = { sessionId: 'session', modelEpoch: 'epoch' }
+      let failure: unknown = new WasmEngineError(409, 'secret', undefined, undefined, 'STALE_MODEL')
+      const service = createParameterService({ ...base(), wingShapes: async () => { throw failure } })
+      await expect(service.listWingShapes('g', identity)).rejects.toMatchObject({ code: 'STALE_MODEL' })
+      await expect(service.listWingShapes('g')).rejects.toMatchObject(engineError)
+      failure = Object.assign(new Error('secret'), { code: 'STALE_MODEL' })
+      await expect(service.listWingShapes('g', identity)).rejects.toMatchObject(engineError)
+    })
+
+    it('sanitizes hostile nested getters and array proxy traps, with close taking precedence', async () => {
+      for (const location of ['surfaceId', 'xsecs', 'sectionId', 'shape', 'outerLength', 'outerDescriptor', 'outerElement', 'innerLength', 'innerDescriptor', 'innerElement'] as const) for (const behavior of ['throw', 'close', 'closeThrow'] as const) {
+        const controller = new AbortController()
+        let reads = 0
+        const trigger = <T,>(value: T): T => {
+          reads++
+          if (behavior !== 'throw') controller.abort()
+          if (behavior !== 'close') throw new Error('secret')
+          return value
+        }
+        const section = { get id() { return location === 'sectionId' ? trigger('x') : 'x' }, get shape() { return location === 'shape' ? trigger(2) : 2 } }
+        const wrap = <T,>(array: T[], prefix: 'outer' | 'inner') => new Proxy(array, {
+          get(target, key, receiver) {
+            const value = Reflect.get(target, key, receiver)
+            return (location === `${prefix}Length` && key === 'length') || (location === `${prefix}Element` && key === '0') ? trigger(value) : value
+          },
+          getOwnPropertyDescriptor(target, key) {
+            const value = Reflect.getOwnPropertyDescriptor(target, key)
+            return location === `${prefix}Descriptor` && key === '0' ? trigger(value) : value
+          },
+        })
+        const inner = wrap([section], 'inner')
+        const surface = { get id() { return location === 'surfaceId' ? trigger('s') : 's' }, get xsecs() { return location === 'xsecs' ? trigger(inner) : inner } }
+        const response = wrap([surface], 'outer')
+        const service = createParameterService({ ...base(), wingShapes: async () => response }, controller.signal)
+        await expect(service.listWingShapes('g'), `${location}/${behavior}`).rejects.toMatchObject(behavior === 'throw' ? engineError : { code: 'SESSION_CLOSED' })
+        expect(reads, `${location}/${behavior}`).toBe(1)
+      }
+    })
+
+    it('reads shape fields once and stops immediately when a getter closes the session', async () => {
+      const counts: Record<string, number> = {}
+      const once = <T,>(key: string, value: T): T => {
+        counts[key] = (counts[key] ?? 0) + 1
+        if (counts[key] > 1) throw new Error('read twice')
+        return value
+      }
+      const section = { get id() { return once('sectionId', 'x') }, get shape() { return once('shape', 0) } }
+      const surface = { get id() { return once('surfaceId', 's') }, get xsecs() { return once('xsecs', [section]) } }
+      const service = createParameterService({ ...base(), wingShapes: async () => [surface] })
+      await expect(service.listWingShapes('g')).resolves.toEqual([{ id: 's', xsecs: [{ id: 'x', shape: 0 }] }])
+      expect(counts).toEqual({ surfaceId: 1, xsecs: 1, sectionId: 1, shape: 1 })
+      for (const location of ['surfaceId', 'sectionId'] as const) {
+        const controller = new AbortController()
+        const later = vi.fn(() => { throw new Error('read after close') })
+        const response = location === 'surfaceId'
+          ? [{ get id() { controller.abort(); return 's' }, get xsecs(): never { return later() } }]
+          : [{ id: 's', xsecs: [{ get id() { controller.abort(); return 'x' }, get shape(): never { return later() } }] }]
+        const closing = createParameterService({ ...base(), wingShapes: async () => response }, controller.signal)
+        await expect(closing.listWingShapes('g')).rejects.toMatchObject({ code: 'SESSION_CLOSED' })
+        expect(later).not.toHaveBeenCalled()
+      }
+    })
+
+    it('rejects revoked proxies and invalid array lengths without leaking details', async () => {
+      let response: unknown
+      const service = createParameterService({ ...base(), wingShapes: async () => response as never })
+      const revoked = Proxy.revocable([], {}); revoked.revoke()
+      for (const invalid of [revoked.proxy, ...[NaN, -1, 1.5, Infinity, 0x100000000, '0'].map(length => new Proxy([], { get(target, key, receiver) { return key === 'length' ? length : Reflect.get(target, key, receiver) } }))]) {
+        response = invalid
+        await expect(service.listWingShapes('g')).rejects.toMatchObject(engineError)
+        response = [{ id: 's', xsecs: invalid }]
+        await expect(service.listWingShapes('g')).rejects.toMatchObject(engineError)
+      }
+    })
+
+    it('races pending reads with close and consumes late rejections', async () => {
+      const controller = new AbortController()
+      let reject!: (error: Error) => void
+      const fn = vi.fn(() => new Promise<never>((_, fail) => { reject = fail }))
+      const service = createParameterService({ ...base(), wingShapes: fn }, controller.signal)
+      const pending = service.listWingShapes('g')
+      controller.abort()
+      await expect(pending).rejects.toMatchObject({ code: 'SESSION_CLOSED' })
+      reject(new Error('late secret'))
+      expect(() => service.listWingShapes('')).toThrowError(expect.objectContaining({ code: 'SESSION_CLOSED' }))
+      expect(fn).toHaveBeenCalledTimes(1)
+    })
+  })
+
+
   it('rejects invalid inputs and sanitizes backend errors', async () => {
     const service = createParameterService({ fuselageLength: async () => { throw new Error('secret') }, surfaces: async () => { throw new Error('secret') }, list: async () => [], get: async () => { throw new Error('secret') } })
     expect(() => service.listSurfaces('')).toThrowError(expect.objectContaining({ code: 'INVALID_ARGUMENT' }))
