@@ -50,6 +50,13 @@ export function createWriteService(adapter: ModelingWriteAdapter, signal: AbortS
   const unknown = (): never => { throw new ModelingError('OUTCOME_UNKNOWN', 'Write may have taken effect; readback could not verify the outcome. Do not automatically retry.') }
   const stale = (): never => { throw new ModelingError('STALE_MODEL', 'The model identity is stale') }
   const isStale = (e: unknown): e is WasmEngineError => e instanceof WasmEngineError && e.code === 'STALE_MODEL'
+  const isNotWrittenStale = (e: unknown): boolean => {
+    try {
+      return !signal.aborted && isStale(e) && !signal.aborted && e.outcome === 'not_written' && !signal.aborted
+    } catch {
+      return false
+    }
+  }
   async function readModel(identity?: ModelIdentity): Promise<{ geoms: { id: string; type: string; parent: string | null }[] }> {
     const m = await request(() => adapter.model(...identityArgs(identity)))
     const source = m?.geoms
@@ -115,7 +122,7 @@ export function createWriteService(adapter: ModelingWriteAdapter, signal: AbortS
         })
       } catch (e) {
         if (!dispatched && signal.aborted) checkOpen()
-        if (!signal.aborted && isStale(e) && e.outcome === 'not_written') return stale()
+        if (dispatched && isNotWrittenStale(e)) return stale()
         return unknown()
       }
       try {
@@ -164,7 +171,7 @@ export function createWriteService(adapter: ModelingWriteAdapter, signal: AbortS
         })
       } catch (e) {
         if (!dispatched && signal.aborted) checkOpen()
-        if (!signal.aborted && isStale(e) && e.outcome === 'not_written') return stale()
+        if (dispatched && isNotWrittenStale(e)) return stale()
         return unknown()
       }
       try {

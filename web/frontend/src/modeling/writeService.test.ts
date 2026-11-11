@@ -169,6 +169,50 @@ describe('modeling write service', () => {
       }
     }
   })
+  it('does not trust errors thrown by an undispatched write method getter', async () => {
+    for (const op of ['create', 'move'] as const) {
+      for (const forged of [false, true]) {
+        const { adapter } = fixture()
+        const method = op === 'create' ? 'addGeom' : 'moveGeoms'
+        const write = adapter[method]
+        const error = forged ? new WasmEngineError(409, 'private', 'not_written', undefined, 'STALE_MODEL') : new Error('private')
+        Object.defineProperty(adapter, method, { get() { throw error } })
+        const service = createWriteService(adapter)
+        const pending = op === 'create' ? service.create({ type: 'Wing', parentId: null }) : service.move(move)
+        await expect(pending).rejects.toMatchObject({ code: 'OUTCOME_UNKNOWN' })
+        expect(write).not.toHaveBeenCalled()
+        expect(adapter.model).toHaveBeenCalledTimes(1)
+        expect(adapter.geomOrigin).toHaveBeenCalledTimes(op === 'move' ? 1 : 0)
+      }
+    }
+  })
+  it('treats hostile dispatched error accessors and closure as unknown', async () => {
+    for (const op of ['create', 'move'] as const) {
+      for (const field of ['code', 'outcome'] as const) {
+        for (const behavior of ['throw', 'abort', 'abortAndThrow'] as const) {
+          const { adapter } = fixture()
+          const controller = new AbortController()
+          const error = new WasmEngineError(409, 'private engine error', 'not_written', undefined, 'STALE_MODEL')
+          let reads = 0
+          Object.defineProperty(error, field, { get() {
+            reads++
+            if (behavior !== 'throw') controller.abort()
+            if (behavior !== 'abort') throw new Error('private getter error')
+            return field === 'code' ? 'STALE_MODEL' : 'not_written'
+          } })
+          if (op === 'create') adapter.addGeom.mockRejectedValueOnce(error)
+          else adapter.moveGeoms.mockRejectedValueOnce(error)
+          const service = createWriteService(adapter, controller.signal)
+          const pending = op === 'create' ? service.create({ type: 'Wing', parentId: null }) : service.move(move)
+          await expect(pending).rejects.toMatchObject({ code: 'OUTCOME_UNKNOWN', message: expect.not.stringContaining('private') })
+          expect(reads).toBe(1)
+          expect(op === 'create' ? adapter.addGeom : adapter.moveGeoms).toHaveBeenCalledTimes(1)
+          expect(adapter.model).toHaveBeenCalledTimes(1)
+          expect(adapter.geomOrigin).toHaveBeenCalledTimes(op === 'move' ? 1 : 0)
+        }
+      }
+    }
+  })
   it('preserves the adapter receiver and reports unknown when a dispatched write aborts', async () => {
     for (const op of ['create', 'move'] as const) {
       const { adapter } = fixture()
