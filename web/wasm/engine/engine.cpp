@@ -1846,7 +1846,8 @@ void RunImpl( const Job &j )
     if ( j.op == "scriptPreflightFixture" ) return ScriptPreflightFixture( j );
     if ( j.op == "scriptGuardCheck" ) return ScriptGuardCheck( j.id );
     if ( j.op == "scriptGcGuardCheck" ) return ScriptGcGuardCheck( j.id );
-    if ( j.op == "scriptNormalGcAutoOff" || j.op == "scriptNormalGcAutoOn" || j.op == "scriptNormalGcPositive" ) return ScriptNormalGcProbe( j );
+    if ( j.op == "scriptNormalGcAutoOff" || j.op == "scriptNormalGcAutoOn" || j.op == "scriptNormalGcPositive" ||
+         j.op == "scriptParmGcAutoOff" || j.op == "scriptParmGcAutoOn" || j.op == "scriptParmGcPositive" ) return ScriptNormalGcProbe( j );
     if ( j.op == "scriptReleaseGuardCheck" ) return ScriptReleaseGuardCheck( j.id );
     if ( j.op == "advLinkGuardCheck" ) return AdvLinkGuardCheck( j.id );
     if ( j.op == "storedGeomTypesCheck" ) return StoredGeomTypesCheck( j.id );
