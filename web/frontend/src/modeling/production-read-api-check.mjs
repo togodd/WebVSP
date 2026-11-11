@@ -52,8 +52,19 @@ try {
     const api = window.__webvspModelingReadV1
     if (!api) throw new Error('Missing production entry')
     const info = await api.model.getInfo(), again = await api.model.getInfo(), list = await api.geometry.list(info.identity)
+    const pending = [api.capabilities(), api.protocol(), api.declaredCapabilities()]
+    const promises = pending.map(value => value instanceof Promise)
+    const [capabilities, protocol, declared] = await Promise.all(pending)
+    const snapshots = structuredClone({ capabilities, protocol, declared })
+    // Mutating returned objects must not affect later calls or other results.
+    capabilities.features[0].status = 'modified'
+    protocol.operations.push('modified')
+    declared[0].missingOperations.push('modified')
+    const [capabilitiesAgain, protocolAgain, declaredAgain] = await Promise.all([api.capabilities(), api.protocol(), api.declaredCapabilities()])
+    const afterDeclarations = await api.model.getInfo()
     return {
       isolated: crossOriginIsolated, sameEntry: api === window.__webvspModelingReadV1, info, again, list,
+      promises, snapshots, capabilitiesAgain, protocolAgain, declaredAgain, afterDeclarations,
       top: Object.keys(api).sort(),
       keys: Object.fromEntries(['model', 'geometry', 'parameter', 'wing', 'fuselage'].map(k => [k, Object.keys(api[k]).sort()])),
     }
@@ -63,6 +74,27 @@ try {
   assert.deepEqual(result.info, result.again)
   assert.equal(result.info.geometries.length, 0, 'Expected an empty disposable model')
   assert.deepEqual(result.list.geometries ?? result.list, result.info.geometries)
+  const names = ['model.read', 'geometry.read', 'geometry.create', 'geometry.move', 'parameter.read', 'parameter.write', 'wing.read', 'wing.edit', 'fuselage.read', 'fuselage.edit', 'assembly.attach']
+  const reads = new Set(['model.read', 'geometry.read', 'parameter.read', 'wing.read', 'fuselage.read'])
+  const capabilities = { contractVersion: '0.1', features: names.map(name => reads.has(name)
+    ? { name, status: 'supported' }
+    : { name, status: 'unsupported', reason: ['geometry.create', 'geometry.move', 'parameter.write'].includes(name)
+      ? 'Disabled pending reentrancy safety review' : 'Not implemented or not verified' }) }
+  const protocol = { status: 'valid', operations: [
+    'modelDiscovery', 'model', 'bbox', 'origin', 'geomXSecs', 'fuselageXSecShapes',
+    'wingXSecShapes', 'geomParmIDs', 'xsecParmIDs', 'geomParm', 'xsecParm',
+    'fuselageLength', 'guardedEpochV1',
+  ] }
+  // This checks the declaration contract only, not actual support, readiness, safety or authorization.
+  const declared = names.map(name => reads.has(name)
+    ? { name, status: 'declared', missingOperations: [] }
+    : { name, status: 'unknown', missingOperations: null })
+  assert.deepEqual(result.promises, [true, true, true], 'production entry returns promises')
+  assert.deepEqual(result.snapshots, { capabilities, protocol, declared }, 'exact production declaration contracts')
+  assert.deepEqual(result.capabilitiesAgain, capabilities, 'capabilities are fresh and unchanged')
+  assert.deepEqual(result.protocolAgain, protocol, 'protocol is fresh and unchanged')
+  assert.deepEqual(result.declaredAgain, declared, 'declared capabilities are fresh and unchanged')
+  assert.deepEqual(result.afterDeclarations, result.info, 'declaration calls must not change the model')
   assert.deepEqual(result.top, ['capabilities', 'declaredCapabilities', 'fuselage', 'geometry', 'model', 'parameter', 'protocol', 'wing'])
   assert.deepEqual(result.keys, {
     model: ['getInfo', 'getSelection', 'getVisibleSurfaceBounds'], geometry: ['get', 'list'],
