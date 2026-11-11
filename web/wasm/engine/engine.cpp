@@ -19,6 +19,7 @@
 //     GUI, emitting "model_changed" events.
 //
 // Requests (op, a, b, value) and their results (the page's side is wasmRequest, wasmEngine.ts):
+//   modelingProtocol                    fixed read-protocol declaration, unguarded
 //   model, modelDiscovery, geomTypes, bbox   JSON (bbox: the shown geoms', or a="all" every geom's)
 //     modelDiscovery is an unguarded internal snapshot that reports serializer errors.
 //   mesh(a=geom id)                     binary "VSPM" mesh (format: web/frontend/src/api/mesh.ts)
@@ -1719,6 +1720,13 @@ void RunImpl( const Job &j )
             return;
         }
     }
+    // Static declaration, not a model health or write-safety check. It calls no
+    // model API, so leave the pre-existing global error stack untouched.
+    if ( j.op == "modelingProtocol" )
+        return Result( j.id, "", "{\"protocol\":\"webvsp-modeling\",\"version\":1,\"operations\":["
+            "\"modelDiscovery\",\"model\",\"bbox\",\"origin\",\"geomXSecs\","
+            "\"fuselageXSecShapes\",\"wingXSecShapes\",\"geomParmIDs\",\"xsecParmIDs\","
+            "\"geomParm\",\"xsecParm\",\"fuselageLength\",\"guardedEpochV1\"]}" );
     TakeErrors();
 #ifdef WEBVSP_SCRIPT_GUARD_TEST
     if ( j.op == "parmReadInjection" )
