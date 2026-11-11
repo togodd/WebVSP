@@ -438,6 +438,80 @@ describe('modeling write service', () => {
     adapter.geomOrigin.mockResolvedValueOnce([0, 0, 0]).mockResolvedValueOnce([1e-9 * (1 + 5e-8), 0, 0])
     await expect(service.move({ ...move, delta: [1e-9, 0, 0] })).resolves.toMatchObject({ geometryId: 'p' })
   })
+  it('stops at each aborting caller accessor or proxy trap before dispatch', async () => {
+    for (const target of ['identity', 'create', 'move', 'delta'] as const) {
+      const keys = target === 'identity' ? ['sessionId', 'modelEpoch'] : target === 'create' ? ['parentId:own', 'type', 'parentId'] : target === 'move' ? ['geometryId', 'frame', 'units', 'delta'] : ['length', '0:own', '1:own', '2:own', '0', '1', '2']
+      for (const key of keys) {
+        const { adapter } = fixture()
+        const controller = new AbortController()
+        let afterAbort = 0, triggered = false
+        const trap = <T extends object>(obj: T): T => new Proxy(obj, {
+          get(t, k, r) { if (triggered) afterAbort++; if (String(k) === key) { triggered = true; controller.abort() }; return Reflect.get(t, k, r) },
+          getOwnPropertyDescriptor(t, k) { if (triggered) afterAbort++; if (`${String(k)}:own` === key) { triggered = true; controller.abort() }; return Reflect.getOwnPropertyDescriptor(t, k) },
+        })
+        const service = createWriteService(adapter, controller.signal)
+        const identity = target === 'identity' ? trap({ sessionId: 's', modelEpoch: 'e' }) : undefined
+        const create = target === 'create' ? trap({ type: 'Wing', parentId: null }) : { type: 'Wing', parentId: null }
+        const input = target === 'move' ? trap({ ...move }) : { ...move, delta: target === 'delta' ? trap([...move.delta] as [number, number, number]) : move.delta }
+        await expect(target === 'create' ? service.create(create, identity) : service.move(input, identity)).rejects.toMatchObject({ code: 'SESSION_CLOSED' })
+        expect(triggered, `${target}:${key}`).toBe(true)
+        expect(afterAbort, `${target}:${key}`).toBe(0)
+        expect(adapter.model).not.toHaveBeenCalled()
+      }
+    }
+  })
+  it('does not call an aborting read method getter or inspect a stale error after closure', async () => {
+    for (const method of ['model', 'geomTypes', 'geomOrigin'] as const) {
+      const { adapter } = fixture()
+      const controller = new AbortController()
+      const read = adapter[method]
+      Object.defineProperty(adapter, method, { get() { controller.abort(); return read } })
+      const service = createWriteService(adapter, controller.signal)
+      await expect(method === 'geomTypes' ? service.create({ type: 'Wing', parentId: null }) : service.move(move)).rejects.toMatchObject({ code: 'SESSION_CLOSED' })
+      expect(read).not.toHaveBeenCalled()
+      expect(adapter.addGeom).not.toHaveBeenCalled()
+      expect(adapter.moveGeoms).not.toHaveBeenCalled()
+    }
+    const { adapter } = fixture()
+    const controller = new AbortController()
+    const error = new WasmEngineError(409, 'private', undefined, undefined, 'STALE_MODEL')
+    Object.defineProperty(error, 'code', { get() { controller.abort(); return 'STALE_MODEL' } })
+    adapter.model.mockRejectedValueOnce(error)
+    await expect(createWriteService(adapter, controller.signal).move(move)).rejects.toMatchObject({ code: 'SESSION_CLOSED' })
+  })
+  it('stops at aborting engine response traps and preserves write outcome', async () => {
+    for (const stage of ['preModel', 'postModel', 'types', 'preOrigin', 'postOrigin', 'createResult', 'moveResult'] as const) {
+      const keys = stage.endsWith('Model') ? ['geoms', 'length', '0:own', '0', 'id', 'type', 'parent'] : stage === 'types' ? ['length', '0:own', '0'] : stage.endsWith('Origin') ? ['length', '0:own', '1:own', '2:own', '0', '1', '2'] : [stage === 'createResult' ? 'id' : 'ok']
+      for (const key of keys) {
+        const { adapter, model } = fixture()
+        const controller = new AbortController()
+        let afterAbort = 0, triggered = false
+        const trap = <T extends object>(obj: T): T => new Proxy(obj, {
+          get(t, k, r) { if (triggered) afterAbort++; if (String(k) === key) { triggered = true; controller.abort() }; return Reflect.get(t, k, r) },
+          getOwnPropertyDescriptor(t, k) { if (triggered) afterAbort++; if (`${String(k)}:own` === key) { triggered = true; controller.abort() }; return Reflect.getOwnPropertyDescriptor(t, k) },
+        })
+        const badModel = () => {
+          const copy = structuredClone(model)
+          copy.geoms = trap(copy.geoms.map((g) => trap(g)))
+          return trap(copy)
+        }
+        if (stage === 'preModel') adapter.model.mockImplementationOnce(async () => badModel())
+        if (stage === 'postModel') adapter.model.mockImplementationOnce(async () => structuredClone(model)).mockImplementationOnce(async () => badModel())
+        if (stage === 'types') adapter.geomTypes.mockResolvedValueOnce(trap(['Wing']))
+        if (stage === 'preOrigin') adapter.geomOrigin.mockResolvedValueOnce(trap([1, 2, 3]))
+        if (stage === 'postOrigin') adapter.geomOrigin.mockResolvedValueOnce([1, 2, 3]).mockResolvedValueOnce(trap([2, 4, 6]))
+        if (stage === 'createResult') adapter.addGeom.mockResolvedValueOnce(trap({ id: 'new' }))
+        if (stage === 'moveResult') adapter.moveGeoms.mockResolvedValueOnce(trap({ ok: true }))
+        const service = createWriteService(adapter, controller.signal)
+        const create = stage === 'types' || stage === 'createResult'
+        const post = stage === 'postModel' || stage === 'postOrigin' || stage.endsWith('Result')
+        await expect(create ? service.create({ type: 'Wing', parentId: null }) : service.move(move)).rejects.toMatchObject({ code: post ? 'OUTCOME_UNKNOWN' : 'SESSION_CLOSED' })
+        expect(triggered, `${stage}:${key}`).toBe(true)
+        expect(afterAbort, `${stage}:${key}`).toBe(0)
+        expect(create ? adapter.addGeom : adapter.moveGeoms).toHaveBeenCalledTimes(post ? 1 : 0)
+      }
+    }
+  })
   it('accepts small roundoff but not a replaced target', async () => {
     const { service, adapter, model } = fixture()
     adapter.geomOrigin.mockResolvedValueOnce([1, 2, 3]).mockResolvedValueOnce([2 + 1e-8, 4, 6])
