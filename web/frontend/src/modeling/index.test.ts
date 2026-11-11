@@ -112,6 +112,14 @@ describe('browser modeling identity', () => {
     service.close()
   })
 
+  it('does not read the epoch after the session getter closes the handle', async () => {
+    const service = createBrowserModelingService()
+    const epoch = vi.fn(() => '42')
+    const token = { get sessionId() { service.close(); return 'tab' }, get modelEpoch() { return epoch() } }
+    await expect(service.model.getInfo(token)).rejects.toMatchObject({ code: 'SESSION_CLOSED' })
+    expect(epoch).not.toHaveBeenCalled()
+  })
+
   it('sanitizes identity property access failures on parameter reads', async () => {
     const service = createBrowserModelingService()
     const engine = vi.mocked(callGuarded)
