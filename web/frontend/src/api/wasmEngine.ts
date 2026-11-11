@@ -22,7 +22,7 @@ import { settleBridgeResult } from './settleBridgeResult'
 import { emitListeners } from './emitListeners'
 import { drainBatch } from './drainBatch'
 import { facadeSubmit } from './facadeSubmit'
-import { busyImportPath, stageImport } from './importStaging'
+import { stageImport, unsafeLinkedPath } from './importStaging'
 import { safelyNotifyFileError } from './fileNotice'
 
 interface VspModule {
@@ -363,11 +363,10 @@ async function answerFileDialog(vsp: VspModule, d: MDialog) {
       const handle = picked[mainIndex].handle
       const path = `${HOME}/${main.name}`
       // Check all targets after staging, immediately before the synchronous commit.
-      // Refuse observed pending or in-flight writes in the current path map; no
-      // timeout can prove an in-flight delivery has stopped. This does not cover
-      // unobserved changes or earlier deliveries detached by another rebind.
+      // Metadata is only an observation: aliases, ABA and concurrent writes can
+      // still escape this check. Never update the watcher baseline here.
       const paths = staged.map(f => `${HOME}/${f.name}`)
-      const busy = busyImportPath(paths, linked)
+      const busy = unsafeLinkedPath(paths, linked, vsp.FS)
       if (busy) {
         try { return answer('') } finally { safelyNotifyFileError({ kind: 'busy', operation: 'open', name: displayName(busy) }) }
       }
@@ -394,7 +393,7 @@ async function answerFileDialog(vsp: VspModule, d: MDialog) {
     const path = `${HOME}/${name}`
     // Only the current exact-path binding is observable here: aliases and writes
     // detached by an earlier rebind are not covered. Never cancel an active delivery.
-    if (busyImportPath([path], linked)) {
+    if (unsafeLinkedPath([path], linked, vsp.FS)) {
       try { return answer('') } finally { safelyNotifyFileError({ kind: 'busy', operation: 'save', name: displayName(path) }) }
     }
     vsp.FS.mkdirTree(HOME)

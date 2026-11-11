@@ -17,6 +17,32 @@ export function busyImportPath(paths: readonly string[], linked: ReadonlyMap<str
 }
 
 /**
+ * Check only current exact-path bindings, without changing the watcher's baseline.
+ * Emscripten uses errno 44 for ENOENT. A missing file is acceptable only if the
+ * binding was created missing (size -1); all other stat errors are unsafe.
+ * Metadata cannot detect aliases, ABA, or writes racing this check and commit.
+ */
+export function unsafeLinkedPath(
+  paths: readonly string[],
+  linked: ReadonlyMap<string, { pending: boolean; writing: boolean; mtime: number; size: number }>,
+  fs: { stat(path: string): { mtime: Date; size: number } },
+): string | undefined {
+  return paths.find(path => {
+    const binding = linked.get(path)
+    if (!binding) return false
+    if (binding.pending || binding.writing) return true
+    try {
+      const st = fs.stat(path)
+      const mtime = st.mtime.getTime()
+      return !Number.isFinite(mtime) || !Number.isSafeInteger(st.size) || st.size < 0 ||
+        mtime !== binding.mtime || st.size !== binding.size
+    } catch (error) {
+      return !(binding.size === -1 && (error as { errno?: number } | null)?.errno === 44)
+    }
+  })
+}
+
+/**
  * Names are exact, case-sensitive strings: no case folding or Unicode normalization.
  * Only a single path component is accepted; path syntax is never resolved.
  * This is not a complete cross-platform filename portability check.
