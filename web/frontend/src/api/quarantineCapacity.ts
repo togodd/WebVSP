@@ -2,8 +2,13 @@
 export interface QuarantineReservation {
   /** Invoke once. A throw or rejected result permanently isolates the entire batch. */
   commit<T>(operation: () => T | PromiseLike<T>): Promise<{ value: Awaited<T> }>
-  /** Invoke once synchronously. Throws and thenables isolate the entire batch. */
-  commitSync<T>(operation: () => T): { value: T }
+  /**
+   * Invoke once, synchronously, returning undefined. A throw or any other return
+   * value isolates the batch. Never use an async callback: this method does not
+   * inspect or handle returned promises/thenables, including their rejections.
+   * The caller remains responsible for any such rejection; use commit for async work.
+   */
+  commitSync(operation: () => void): void
   /** Release an uncommitted reservation. Returns false once committing or settled. */
   cancel(): boolean
 }
@@ -39,6 +44,8 @@ export class QuarantineCapacity {
 
   /** Both reserved and permanently quarantined keys are unavailable. */
   has(key: string): boolean { return this.keys.has(key) }
+  /** Distinguish temporary occupancy from page-lifetime isolation for UI. */
+  status(key: string): 'reserved' | 'quarantined' | undefined { return this.keys.get(key) }
   get entryCount(): number { return this.keys.size }
   get codeUnits(): number { return this.units }
 
@@ -83,20 +90,17 @@ export class QuarantineCapacity {
         release()
         return true
       },
-      commitSync: <T>(operation: () => T): { value: T } => {
+      commitSync: (operation: () => void): void => {
         if (state !== 'reserved') throw new Error('Reservation already used')
-        // Keep the reservation locked while calling both the operation and its then getter.
         state = 'committing'
         try {
           if (typeof operation !== 'function') throw new TypeError('Invalid commit operation')
-          const value = operation()
-          if (value !== null && (typeof value === 'object' || typeof value === 'function') &&
-              typeof (value as { then?: unknown }).then === 'function') {
-            throw new TypeError('Synchronous commit cannot return a thenable')
-          }
+          // Do not inspect an arbitrary value: even reading `then` can run user code.
+          // TypeScript permits value-returning functions where () => void is expected.
+          const value: unknown = operation()
+          if (value !== undefined) throw new TypeError('Synchronous commit must return undefined')
           state = 'settled'
           release()
-          return { value }
         } catch (error) {
           state = 'settled'
           for (const key of batch) this.keys.set(key, 'quarantined')

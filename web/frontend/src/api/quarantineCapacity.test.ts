@@ -1,3 +1,4 @@
+import { spawnSync } from 'node:child_process'
 import { describe, expect, it } from 'vitest'
 import { QuarantineCapacity, type QuarantineReservation } from './quarantineCapacity'
 
@@ -87,8 +88,7 @@ describe('QuarantineCapacity', () => {
     const ok = reserved(q.reserve(['a', 'bb']))
     expect(ok.commitSync(() => {
       expect(q.has('a')).toBe(true)
-      return 42
-    })).toEqual({ value: 42 })
+    })).toBeUndefined()
     expect([q.entryCount, q.codeUnits]).toEqual([0, 0])
     expect(ok.cancel()).toBe(false)
     expect(() => ok.commitSync(() => 0)).toThrow('already used')
@@ -101,37 +101,42 @@ describe('QuarantineCapacity', () => {
     expect(q.reserve(['bb'])).toEqual({ ok: false, reason: 'conflict' })
   })
 
-  it('rejects promises and callable thenables synchronously without invoking then', () => {
-    for (const value of [Promise.resolve(1), { then() { throw Error('must not run') } }, Object.assign(() => 0, { then() {} })]) {
+  it('rejects every non-undefined result without inspecting or invoking then', () => {
+    let reads = 0
+    const hostile = { get then(): never { reads++; throw Error('must not read') } }
+    const callable = Object.assign(() => 0, { then() { throw Error('must not run') } })
+    for (const value of [Promise.resolve(1), hostile, callable, null, 42]) {
       const q = new QuarantineCapacity(2, 10)
       const r = reserved(q.reserve(['a', 'b']))
       expect(() => r.commitSync(() => value)).toThrow(TypeError)
-      expect([q.has('a'), q.has('b'), q.entryCount]).toEqual([true, true, 2])
+      expect([q.status('a'), q.status('b'), q.entryCount]).toEqual(['quarantined', 'quarantined', 2])
     }
+    expect(reads).toBe(0)
   })
 
-  it('keeps the reservation locked while inspecting a throwing or reentrant then getter', async () => {
-    const q = new QuarantineCapacity(3, 10)
-    const r = reserved(q.reserve(['a', 'b']))
-    let nested!: Promise<unknown>
-    const error = new Error('getter failure')
-    const value = { get then(): never {
-      expect(r.cancel()).toBe(false)
-      expect(() => r.commitSync(() => 1)).toThrow('already used')
-      nested = r.commit(() => 1)
-      expect(q.reserve(['a'])).toEqual({ ok: false, reason: 'conflict' })
-      throw error
-    } }
-    expect(() => r.commitSync(() => value)).toThrow(error)
-    await expect(nested).rejects.toThrow('already used')
-    expect([q.has('a'), q.has('b'), q.codeUnits]).toEqual([true, true, 2])
-
-    const good = reserved(q.reserve(['c']))
-    let reads = 0
-    const nonThenable = { get then() { reads++; expect(good.cancel()).toBe(false); return 1 } }
-    expect(good.commitSync(() => nonThenable).value).toBe(nonThenable)
-    expect(reads).toBe(1)
-    expect(q.has('c')).toBe(false)
+  it('leaves rejected Promise handling to the caller, without invoking arbitrary then', () => {
+    // A real child process with strict rejection handling verifies both the documented
+    // failure mode and the caller-handled case, without leaking into the test runner.
+    const source = `
+      import { QuarantineCapacity } from ${JSON.stringify(new URL('./quarantineCapacity.ts', import.meta.url).href)};
+      const q = new QuarantineCapacity(1, 1);
+      const result = q.reserve(['a']);
+      if (!result.ok) throw Error('reserve failed');
+      const p = Promise.reject(Error('async failure'));
+      if (process.argv[1] === 'handled') p.catch(() => {});
+      try { result.reservation.commitSync(() => p); throw Error('missing TypeError'); }
+      catch (e) { if (!(e instanceof TypeError)) throw e; }
+      if (q.status('a') !== 'quarantined') throw Error('not quarantined');
+      setImmediate(() => {});
+    `
+    const args = ['--experimental-strip-types', '--unhandled-rejections=strict', '--input-type=module', '-e', source]
+    const handled = spawnSync(process.execPath, [...args, 'handled'], { encoding: 'utf8' })
+    expect(handled.error).toBeUndefined()
+    expect(handled.status, handled.stderr).toBe(0)
+    const unhandled = spawnSync(process.execPath, [...args, 'unhandled'], { encoding: 'utf8' })
+    expect(unhandled.error).toBeUndefined()
+    expect(unhandled.status).not.toBe(0)
+    expect(unhandled.stderr).toContain('async failure')
   })
 
   it('shares single-use state across sync and async commits', async () => {
