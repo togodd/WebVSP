@@ -80,6 +80,26 @@ describe('linked file watcher failure isolation', () => {
     expect(files.state(a)?.pending).toBe(true)
   })
 
+  it('requests a download even if warning logging throws', async () => {
+    const s = await setup()
+    const click = vi.fn()
+    const revoke = vi.fn()
+    vi.stubGlobal('document', { createElement: () => ({ click }) })
+    vi.stubGlobal('URL', { createObjectURL: () => 'blob:test', revokeObjectURL: revoke })
+    vi.spyOn(console, 'warn').mockImplementation(() => { throw Error('logger') })
+    ;(window as unknown as { showSaveFilePicker: () => Promise<unknown> }).showSaveFilePicker = async () => ({
+      name: 'a.vsp3', queryPermission: async () => 'granted', createWritable: async () => { throw Error('denied') },
+    })
+    await files.answer(s.vsp, { mode: 1, seq: 2 })
+    s.content.set(a, 2)
+    files.watch(s.vsp); files.watch(s.vsp)
+    await flush()
+    expect(click).toHaveBeenCalledOnce()
+    expect(files.state(a)).toMatchObject({ pending: false, writing: false })
+    vi.unstubAllGlobals()
+    vi.stubGlobal('window', { location: { href: 'http://localhost/' } })
+  })
+
   it('catches rejected delivery, clears writing, and does not promise retry', async () => {
     const s = await setup()
     vi.stubGlobal('document', { createElement: () => { throw Error('download failed') } })

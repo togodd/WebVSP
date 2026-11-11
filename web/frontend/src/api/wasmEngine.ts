@@ -498,7 +498,7 @@ async function deliver(f: LinkedFile, bytes: Uint8Array<ArrayBuffer>) {
       return
     } catch (err) {
       // Not allowed to write to it (the user declined): hand it over as a download instead.
-      console.warn(`WebVSP: couldn't save to ${f.name}; downloading it instead`, err)
+      try { console.warn(`WebVSP: couldn't save to ${f.name}; downloading it instead`, err) } catch { /* logging is best effort */ }
     }
   }
   const a = document.createElement('a')
