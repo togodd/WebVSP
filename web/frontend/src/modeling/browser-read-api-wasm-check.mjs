@@ -31,7 +31,7 @@ try {
   assert.deepEqual(initial.list, initial.directList)
   assert.deepEqual(initial.top, ['capabilities', 'declaredCapabilities', 'fuselage', 'geometry', 'model', 'parameter', 'protocol', 'wing'])
   assert.deepEqual(initial.keys, {
-    model: ['getInfo', 'getSelection', 'getVisibleSurfaceBounds'], geometry: ['get', 'list'],
+    model: ['getInfo', 'getSelection', 'getVisibleSurfaceBounds'], geometry: ['get', 'list', 'listTypes'],
     parameter: ['getCrossSectionParameter', 'getFuselageLength', 'getGeometryParameter', 'listCrossSectionParameterIds', 'listGeometryParameterIds', 'listSurfaces'],
     wing: ['get'], fuselage: ['get'],
   })
