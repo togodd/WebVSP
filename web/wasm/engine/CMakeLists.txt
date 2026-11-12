@@ -37,7 +37,21 @@ ENDFOREACH()
 #   const vsp = await createVspModule(); vsp.call(...); vsp.take(); vsp.FS.writeFile(...)
 # OpenVSP runs main() on its own thread (PROXY_TO_PTHREAD); the page calls in from the
 # browser's main thread (see engine.cpp). Needs a cross-origin isolated page (threads).
+# Opt in only for an isolated reentry-test build; never enable in production.
+OPTION( WEBVSP_PARM_REENTRY_TEST "Enable the test-only Parm reentry hook" OFF )
+IF( WEBVSP_PARM_REENTRY_TEST )
+    TARGET_COMPILE_DEFINITIONS( geom_core PRIVATE WEBVSP_PARM_REENTRY_TEST )
+    ADD_EXECUTABLE( parm_reentry_test parm_reentry_test.cpp )
+    TARGET_COMPILE_DEFINITIONS( parm_reentry_test PRIVATE WEBVSP_PARM_REENTRY_TEST )
+    TARGET_INCLUDE_DIRECTORIES( parm_reentry_test PRIVATE ${VSP_WASM_INCLUDES} )
+    TARGET_LINK_LIBRARIES( parm_reentry_test Eigen3::Eigen ${VSP_LIBRARIES_API_FIRST} )
+    TARGET_LINK_OPTIONS( parm_reentry_test PRIVATE -sALLOW_MEMORY_GROWTH=1 -sSTACK_SIZE=8MB )
+ENDIF()
+
 ADD_EXECUTABLE( vsp_wasm engine.cpp )
+IF( WEBVSP_PARM_REENTRY_TEST )
+    TARGET_COMPILE_DEFINITIONS( vsp_wasm PRIVATE WEBVSP_PARM_REENTRY_TEST )
+ENDIF()
 SET_TARGET_PROPERTIES( vsp_wasm PROPERTIES OUTPUT_NAME vsp SUFFIX .js )
 TARGET_INCLUDE_DIRECTORIES( vsp_wasm PRIVATE ${VSP_WASM_INCLUDES} )
 IF( NOT VSP_NO_GRAPHICS )

@@ -8,6 +8,23 @@
 //////////////////////////////////////////////////////////////////////
 
 #include "Parm.h"
+#ifdef WEBVSP_PARM_REENTRY_TEST
+#include "ParmReentryTest.h"
+
+namespace
+{
+Parm* reentry_target = nullptr;
+webvsp::ParmReentryCallback reentry_callback = nullptr;
+void* reentry_context = nullptr;
+}
+
+void webvsp::ArmParmReentry( Parm* target, ParmReentryCallback callback, void* context )
+{
+    reentry_target = target && callback ? target : nullptr;
+    reentry_callback = reentry_target ? callback : nullptr;
+    reentry_context = reentry_target ? context : nullptr;
+}
+#endif
 #include "ParmMgr.h"
 #include "IDMgr.h"
 #include "LinkMgr.h"
@@ -272,6 +289,16 @@ double Parm::SetFromDevice( double val, bool drag_flag )
     {
         return m_Val;
     }
+
+#ifdef WEBVSP_PARM_REENTRY_TEST
+    if ( reentry_target == this )
+    {
+        auto callback = reentry_callback;
+        void* context = reentry_context;
+        webvsp::ArmParmReentry( nullptr, nullptr, nullptr );
+        callback( this, context );
+    }
+#endif
 
     ParmMgr.AddToUndoStack( this, drag_flag );
 

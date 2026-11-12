@@ -37,6 +37,21 @@ The first full build takes a while; later ones are incremental. The output
 During development, `cd web\frontend; npm run dev` serves the page with hot reload at
 http://localhost:5173/ using the same output. Hard-refresh after rebuilding the engine.
 
+## Test-only Parm reentry hook
+
+`WEBVSP_PARM_REENTRY_TEST` is OFF by default. When enabled it compiles a one-shot
+`Parm::SetFromDevice` hook into both `geom_core` and `vsp_wasm`, and adds the
+`parm_reentry_test` target. **Use a separate, disposable CMake build directory** with
+this option enabled; never deploy its engine or reuse its artifacts for production. CMake
+caches options, and `geom_core` is shared by targets in a build tree. A normal production
+build must use its own build tree with the option OFF. After configuring the isolated tree
+with the same Emscripten and library settings as the normal build, use
+`cmake --build <test-build> --target parm_reentry_test vsp_wasm`, then run
+`node <test-build>/wasm_engine/parm_reentry_test.js` (with the Node threading flags required
+by the installed SDK). The hook is owner-thread-only, and an armed target and context must
+remain alive until it fires or is cleared. It applies to `Parm::SetFromDevice` itself, not
+`FractionParm`'s independent override.
+
 ## How it works
 
 | Piece | Where | What |
