@@ -51,8 +51,8 @@ try {
       const writes = []
       const adapter = {
         model: token => { check(token); return call('model') },
-        // geomTypes is not in the guarded bridge allowlist; it is a real,
-        // unguarded capability read, not an epoch-atomic read.
+        // This legacy experiment deliberately uses the unguarded type read;
+        // guarded geomTypes is tested separately and this read is not epoch-atomic.
         geomTypes: token => { check(token); return engine.testCall('geomTypes', '', '', 0) },
         addGeom: async (type, parent, token) => { check(token); writes.push(['create', type, parent]); return call('addGeom', type, parent ?? '') },
         geomOrigin: (id, token) => { check(token); return call('origin', id) },
