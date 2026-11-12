@@ -86,7 +86,10 @@ try {
     assert.ok(typeof token.modelEpoch === 'string' && token.modelEpoch.length > 0, 'valid model epoch')
     assert.ok(typeof token.sessionId === 'string' && token.sessionId.length > 0, 'valid session ID')
   }
+  // Fixture characterization: these fresh empty engines start at the same epoch;
+  // epoch equality across reloads is not a general API contract.
   assert.equal(after.info.identity.modelEpoch, before.info.identity.modelEpoch, 'fresh empty engines have the same epoch')
+  // Session IDs are generated with probabilistic uniqueness; a collision is possible.
   assert.notEqual(after.info.identity.sessionId, before.info.identity.sessionId, 'reload creates a different session')
   assert.equal(after.oldInfo.error?.code, 'STALE_MODEL', 'old token rejected by model.getInfo')
   assert.equal(after.oldList.error?.code, 'STALE_MODEL', 'old token rejected by geometry.list')
