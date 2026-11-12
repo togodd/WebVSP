@@ -14,9 +14,14 @@ const browser = await chromium.launch({ executablePath, headless: true, args: ['
 const context = await browser.newContext({ acceptDownloads: false, serviceWorkers: 'block' })
 const timeout = setTimeout(() => { console.error('FAIL: session reload test timed out'); void browser.close() }, 180000)
 try {
-  await context.route('**/*', route => {
-    const url = new URL(route.request().url())
-    return url.origin === testPage.origin ? route.continue() : route.abort()
+  await context.route('**/*', async route => {
+    const request = route.request()
+    const url = new URL(request.url())
+    if (url.origin !== testPage.origin || request.method() !== 'GET') return route.abort()
+    // The route handler does not run again for redirects. Never follow one.
+    const response = await route.fetch({ maxRedirects: 0 })
+    if (response.status() >= 300 && response.status() < 400) return route.abort()
+    return route.fulfill({ response })
   })
   await context.addInitScript(() => {
     window.__forbiddenFileActions = []
@@ -86,7 +91,8 @@ try {
   assert.equal(after.oldInfo.error?.code, 'STALE_MODEL', 'old token rejected by model.getInfo')
   assert.equal(after.oldList.error?.code, 'STALE_MODEL', 'old token rejected by geometry.list')
   assert.deepEqual(after.newInfo.value, after.info, 'new token accepted by model.getInfo')
-  assert.deepEqual(after.newList.value.geometries ?? after.newList.value, [], 'new token accepted by geometry.list')
+  assert.deepEqual(after.newList.value.geometries, [], 'new token accepted by geometry.list')
+  assert.equal(after.newList.value.context.sessionId, after.info.identity.sessionId)
   assert.deepEqual(after.forbidden, [], 'no file actions after reload')
   assert.deepEqual(errors, [], 'no page errors, downloads, or file choosers')
   console.log('PASS: reload keeps the empty model epoch but replaces the session; old token is stale and new token succeeds')
