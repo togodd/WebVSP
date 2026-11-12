@@ -81,6 +81,7 @@ if ($Stage -in 'vsp', 'all') {
     cmake -S "$root/src" -B $VspBuildDir -G Ninja -DCMAKE_BUILD_TYPE=Release "-DVSP_LIBRARY_PATH=$libs" `
         -DVSP_NO_GRAPHICS=OFF "-DFLTK_INSTALL_DIR=$libs/FLTK-prefix" `
         -DVSP_NO_API_WRAPPERS=ON -DVSP_NO_VSPAERO=OFF -DVSP_NO_VSPAERO_OPT=ON -DVSP_NO_HELP=ON -DVSP_NO_DOC=ON `
+        -DWEBVSP_PARM_REENTRY_TEST=OFF `
         -DCMAKE_DISABLE_FIND_PACKAGE_OpenMP=ON @launcher # VSPAERO single-threaded (Emscripten's OpenMP pulls in debug libraries)
     if ($LASTEXITCODE -ne 0) { throw 'OpenVSP: configure failed' }
     cmake --build $VspBuildDir --target @Targets -- -k 0
