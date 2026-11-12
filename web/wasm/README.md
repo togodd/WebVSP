@@ -37,6 +37,33 @@ The first full build takes a while; later ones are incremental. The output
 During development, `cd web\frontend; npm run dev` serves the page with hot reload at
 http://localhost:5173/ using the same output. Hard-refresh after rebuilding the engine.
 
+## Production compile guard
+
+`build_wasm.ps1` sets `WEBVSP_PRODUCTION_BUILD=ON`. This rejects the test-hook
+options and checks a C++ translation unit with the Release compiler flags on every
+configure, including after cached flag changes. A failed compile also fails closed.
+The option defaults to OFF for isolated test builds. Production definitions on
+`geom_core` and `vsp_wasm` additionally reject either test macro in `Parm.cpp` and
+`engine.cpp` at compile time, including target-specific definitions.
+
+Run the independent configuration tests (CMake 3.24+ and a C++ compiler):
+
+```sh
+cmake -P web/wasm/tests/production_guard/run.cmake
+```
+
+The test creates a uniquely named `webvsp-guard-test-*` directory in the current
+directory and leaves it for inspection; remove it yourself when finished. It tests
+normal, option, cached and Release flags, forced headers, and reconfiguration. Real
+source preprocessor guard checks run when a GCC-compatible `c++` driver is found.
+
+This is a build-time safeguard, not a security boundary: the configure probe sees
+compiler/toolchain and Release flags, not later target-specific flags, other build
+configurations, or macros introduced after the source guards. The source guards
+cover the two files above only; deliberately altering/undefining the production
+macro, changing sources or build rules, or reusing old artifacts can bypass them.
+Use a clean, trusted production build configuration and toolchain.
+
 ## Test-only Parm reentry hook
 
 `WEBVSP_PARM_REENTRY_TEST` is OFF by default. When enabled it compiles a one-shot

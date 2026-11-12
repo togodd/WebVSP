@@ -48,6 +48,10 @@
 //   rotate(a=ids, b="ax,ay,az", value=degrees)  rotate geoms about a world axis, each about its
 //                                       own origin (one undo step)
 
+#if defined(WEBVSP_PRODUCTION_BUILD) && (defined(WEBVSP_SCRIPT_GUARD_TEST) || defined(WEBVSP_PARM_REENTRY_TEST))
+#error WebVSP test hooks are forbidden in production
+#endif
+
 #include "VSP_Geom_API.h"
 #include "APIErrorMgr.h"
 #include "AdvLinkMgr.h"

@@ -7,6 +7,10 @@
 //
 //////////////////////////////////////////////////////////////////////
 
+#if defined(WEBVSP_PRODUCTION_BUILD) && (defined(WEBVSP_SCRIPT_GUARD_TEST) || defined(WEBVSP_PARM_REENTRY_TEST))
+#error WebVSP test hooks are forbidden in production
+#endif
+
 #include "Parm.h"
 #ifdef WEBVSP_PARM_REENTRY_TEST
 #include "ParmReentryTest.h"
