@@ -1,12 +1,15 @@
 // Real WASM declared-capabilities regression against the existing isolated Vite server.
 // From web/frontend: WEBVSP_TEST_CHROMIUM=/path/to/chrome node src/modeling/protocol-capabilities-wasm-check.mjs
 // WEBVSP_TEST_PAGE overrides http://127.0.0.1:5179/; WEBVSP_EXPECT_OLD_ENGINE=1 expects ENGINE_ERROR.
+// WEBVSP_EXPECT_NO_GEOM_TYPES=1 expects a protocol declaration predating geomTypes.
 import assert from 'node:assert/strict'
 import { chromium } from 'playwright-core'
 
 const executablePath = process.env.WEBVSP_TEST_CHROMIUM
 if (!executablePath) throw new Error('Set WEBVSP_TEST_CHROMIUM')
 const oldEngine = process.env.WEBVSP_EXPECT_OLD_ENGINE === '1'
+const noGeomTypes = process.env.WEBVSP_EXPECT_NO_GEOM_TYPES === '1'
+if (oldEngine && noGeomTypes) throw new Error('Choose only one old WASM expectation')
 const browser = await chromium.launch({ executablePath, headless: true, args: ['--no-sandbox', '--enable-unsafe-swiftshader'] })
 try {
   const page = await browser.newPage()
@@ -73,19 +76,23 @@ try {
     assert.equal(result.raw.error?.status, 400)
     for (const call of calls) assert.equal(call.error?.code, 'ENGINE_ERROR', JSON.stringify(call))
   } else {
-    assert.deepEqual(result.raw.value, { protocol: 'webvsp-modeling', version: 1, operations: [
+    const operations = [
       'modelDiscovery', 'model', 'geomTypes', 'bbox', 'origin', 'geomXSecs', 'fuselageXSecShapes',
       'wingXSecShapes', 'geomParmIDs', 'xsecParmIDs', 'geomParm', 'xsecParm',
       'fuselageLength', 'guardedEpochV1',
-    ] }, 'complete production WASM manifest')
-    const expected = names.map(name => reads.has(name)
-      ? { name, status: 'declared', missingOperations: [] }
-      : { name, status: 'unknown', missingOperations: null })
+    ]
+    assert.deepEqual(result.raw.value, { protocol: 'webvsp-modeling', version: 1,
+      operations: noGeomTypes ? operations.filter(op => op !== 'geomTypes') : operations,
+    }, 'real WASM manifest matches selected expectation')
+    const expected = names.map(name => noGeomTypes && name === 'geometry.read'
+      ? { name, status: 'not_declared', missingOperations: ['geomTypes'] }
+      : reads.has(name) ? { name, status: 'declared', missingOperations: [] }
+        : { name, status: 'unknown', missingOperations: null })
     for (const call of calls) assert.deepEqual(call, { value: expected }, 'exact declaration-derived capabilities')
     assert.deepEqual(result.independent, { arrays: true, entries: true, missingArrays: true, secondUnchanged: true, otherUnchanged: true }, 'fresh independent results')
   }
   assert.deepEqual(errors, [])
-  console.log(`PASS: ${oldEngine ? 'old WASM produces ENGINE_ERROR' : 'complete WASM declaration yields five declared reads and unknown remainder'}; close, independent handles and unchanged capabilities`)
+  console.log(`PASS: ${oldEngine ? 'old WASM produces ENGINE_ERROR' : noGeomTypes ? 'WASM without geomTypes declares four reads and reports geometry.read missing geomTypes' : 'complete WASM declaration yields five declared reads and unknown remainder'}; close, independent handles and unchanged capabilities`)
 } finally {
   await browser.close()
 }
