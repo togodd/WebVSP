@@ -17,6 +17,7 @@ export function createBrowserReadApi(factory: typeof createBrowserModelingServic
     },
     geometry: {
       list: (...args: Parameters<ReturnType<typeof createBrowserModelingService>['geometry']['list']>) => run(s => s.geometry.list(...args)),
+      listTypes: (...args: Parameters<ReturnType<typeof createBrowserModelingService>['geometry']['listTypes']>) => run(s => s.geometry.listTypes(...args)),
       get: (...args: Parameters<ReturnType<typeof createBrowserModelingService>['geometry']['get']>) => run(s => s.geometry.get(...args)),
     },
     parameter: {

@@ -51,7 +51,7 @@ try {
   const result = await page.evaluate(async () => {
     const api = window.__webvspModelingReadV1
     if (!api) throw new Error('Missing production entry')
-    const info = await api.model.getInfo(), again = await api.model.getInfo(), list = await api.geometry.list(info.identity)
+    const info = await api.model.getInfo(), again = await api.model.getInfo(), list = await api.geometry.list(info.identity), types = await api.geometry.listTypes(info.identity)
     const pending = [api.capabilities(), api.protocol(), api.declaredCapabilities()]
     const promises = pending.map(value => value instanceof Promise)
     const [capabilities, protocol, declared] = await Promise.all(pending)
@@ -63,7 +63,7 @@ try {
     const [capabilitiesAgain, protocolAgain, declaredAgain] = await Promise.all([api.capabilities(), api.protocol(), api.declaredCapabilities()])
     const afterDeclarations = await api.model.getInfo()
     return {
-      isolated: crossOriginIsolated, sameEntry: api === window.__webvspModelingReadV1, info, again, list,
+      isolated: crossOriginIsolated, sameEntry: api === window.__webvspModelingReadV1, info, again, list, types,
       promises, snapshots, capabilitiesAgain, protocolAgain, declaredAgain, afterDeclarations,
       top: Object.keys(api).sort(),
       keys: Object.fromEntries(['model', 'geometry', 'parameter', 'wing', 'fuselage'].map(k => [k, Object.keys(api[k]).sort()])),
@@ -74,6 +74,7 @@ try {
   assert.deepEqual(result.info, result.again)
   assert.equal(result.info.geometries.length, 0, 'Expected an empty disposable model')
   assert.deepEqual(result.list.geometries ?? result.list, result.info.geometries)
+  assert.ok(Array.isArray(result.types) && result.types.includes('FUSELAGE') && result.types.includes('WING'))
   const names = ['model.read', 'geometry.read', 'geometry.create', 'geometry.move', 'parameter.read', 'parameter.write', 'wing.read', 'wing.edit', 'fuselage.read', 'fuselage.edit', 'assembly.attach']
   const reads = new Set(['model.read', 'geometry.read', 'parameter.read', 'wing.read', 'fuselage.read'])
   const capabilities = { contractVersion: '0.1', features: names.map(name => reads.has(name)
@@ -81,7 +82,7 @@ try {
     : { name, status: 'unsupported', reason: ['geometry.create', 'geometry.move', 'parameter.write'].includes(name)
       ? 'Disabled pending reentrancy safety review' : 'Not implemented or not verified' }) }
   const protocol = { status: 'valid', operations: [
-    'modelDiscovery', 'model', 'bbox', 'origin', 'geomXSecs', 'fuselageXSecShapes',
+    'modelDiscovery', 'model', 'geomTypes', 'bbox', 'origin', 'geomXSecs', 'fuselageXSecShapes',
     'wingXSecShapes', 'geomParmIDs', 'xsecParmIDs', 'geomParm', 'xsecParm',
     'fuselageLength', 'guardedEpochV1',
   ] }
@@ -97,7 +98,7 @@ try {
   assert.deepEqual(result.afterDeclarations, result.info, 'declaration calls must not change the model')
   assert.deepEqual(result.top, ['capabilities', 'declaredCapabilities', 'fuselage', 'geometry', 'model', 'parameter', 'protocol', 'wing'])
   assert.deepEqual(result.keys, {
-    model: ['getInfo', 'getSelection', 'getVisibleSurfaceBounds'], geometry: ['get', 'list'],
+    model: ['getInfo', 'getSelection', 'getVisibleSurfaceBounds'], geometry: ['get', 'list', 'listTypes'],
     parameter: ['getCrossSectionParameter', 'getFuselageLength', 'getGeometryParameter', 'listCrossSectionParameterIds', 'listGeometryParameterIds', 'listSurfaces'],
     wing: ['get'], fuselage: ['get'],
   })
@@ -172,7 +173,7 @@ try {
     const api = window.__webvspModelingReadV1
     const calls = {
       info: () => api.model.getInfo(identity), selection: () => api.model.getSelection(identity), bounds: () => api.model.getVisibleSurfaceBounds(identity), list: () => api.geometry.list(identity),
-      geometry: () => api.geometry.get(fuselage.id, identity),
+      types: () => api.geometry.listTypes(identity), geometry: () => api.geometry.get(fuselage.id, identity),
       surfaces: () => api.parameter.listSurfaces(fuselage.id, identity),
       length: () => api.parameter.getFuselageLength(fuselage.id, identity),
       geometryIds: () => api.parameter.listGeometryParameterIds(fuselage.id, identity),

@@ -12,9 +12,9 @@ Each increment is committed separately, after its tests pass. Existing GUI behav
 4. Investigate and, where safe, add parameter discovery, readback and controlled writes; then add narrowly scoped wing, fuselage and attachment operations. Operations with unverified semantics stay unavailable.
 5. Run unit, integration and browser regression suites, document supported operations, and add a final verification record. MCP protocol, transport, remote access, AI and arbitrary file paths are out of scope.
 
-### Internal guarded type discovery
+### Guarded type discovery
 
-The guarded engine/bridge vocabulary also accepts `geomTypes` for internal discovery against an expected model epoch. It copies the running vehicle's type names; it does not enable geometry creation, attest that any type is safe to create, or appear as a guaranteed operation in the v1 protocol declaration. A valid guarded job follows the engine's normal error-stack handling and can consume pre-existing API errors, even though this branch avoids `GetGeomTypes()` resetting the API last-call flag. A stale epoch is rejected before that normal operation processing. Older engines may reject this internal operation. This is not exposed by the browser read whitelist.
+`geometry.listTypes(identity)` copies the running vehicle's registered type names in engine order, through the guarded `geomTypes` operation. It does not enable geometry creation or attest that any type is safe to create. Current engines declare `geomTypes` in their protocol; older engines may omit the declaration or reject the operation. A valid guarded job follows the engine's normal error-stack handling and can consume pre-existing API errors, even though this branch avoids `GetGeomTypes()` resetting the API last-call flag. A stale epoch is rejected before that normal operation processing.
 
 ## Contract principles
 

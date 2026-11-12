@@ -4,7 +4,7 @@ import { createBrowserReadApi, installBrowserReadApi } from './browserReadApi'
 
 const methods = {
   model: ['getInfo', 'getSelection', 'getVisibleSurfaceBounds'],
-  geometry: ['list', 'get'],
+  geometry: ['list', 'listTypes', 'get'],
   parameter: ['listSurfaces', 'getFuselageLength', 'listGeometryParameterIds', 'listCrossSectionParameterIds', 'getGeometryParameter', 'getCrossSectionParameter'],
   wing: ['get'],
   fuselage: ['get'],
@@ -47,6 +47,21 @@ describe('versioned browser read API', () => {
     }
     expect(factory).toHaveBeenCalledTimes(paths.length)
     expect(service.close).toHaveBeenCalledTimes(paths.length)
+  })
+
+  it('forwards the identity to listTypes and closes on success and failure', async () => {
+    const { api, service, factory } = fixture()
+    const identity = { sessionId: 'tab', modelEpoch: '7' }
+    const types = ['POD', 'WING']
+    const error = Object.assign(new Error('stale model'), { code: 'STALE_MODEL' })
+    service.geometry.listTypes.mockResolvedValueOnce(types).mockRejectedValueOnce(error)
+    await expect(api.geometry.listTypes(identity)).resolves.toBe(types)
+    await expect(api.geometry.listTypes(identity)).rejects.toBe(error)
+    expect(service.geometry.listTypes).toHaveBeenCalledTimes(2)
+    expect(service.geometry.listTypes).toHaveBeenNthCalledWith(1, identity)
+    expect(service.geometry.listTypes).toHaveBeenNthCalledWith(2, identity)
+    expect(factory).toHaveBeenCalledTimes(2)
+    expect(service.close).toHaveBeenCalledTimes(2)
   })
 
   it('closes after async rejection or synchronous throw, preserving the error', async () => {
