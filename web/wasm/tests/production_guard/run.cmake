@@ -24,6 +24,7 @@ function(configure name expect_success)
 endfunction()
 
 configure(normal TRUE -DWEBVSP_PRODUCTION_BUILD=ON)
+configure(required_state TRUE -DWEBVSP_PRODUCTION_BUILD=ON -DWEBVSP_TEST_REQUIRED_STATE=ON)
 file(READ "${root}/normal/flag-syntax.txt" flag_syntax)
 if(flag_syntax STREQUAL "msvc")
     set(define_prefix "/D")
