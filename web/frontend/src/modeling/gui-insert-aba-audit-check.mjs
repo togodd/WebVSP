@@ -3,19 +3,25 @@ import { chromium } from 'playwright-core'
 import assert from 'node:assert/strict'
 const executablePath = process.env.WEBVSP_TEST_CHROMIUM
 if (!executablePath) throw new Error('Set WEBVSP_TEST_CHROMIUM')
+const testPage = new URL(process.env.WEBVSP_TEST_PAGE ?? 'http://127.0.0.1:5179/')
+if (!['http:', 'https:'].includes(testPage.protocol) || !['127.0.0.1', 'localhost', '[::1]'].includes(testPage.hostname)) throw new Error('Test page must be loopback HTTP(S)')
 const browser = await chromium.launch({ executablePath, headless: true, args: ['--no-sandbox', '--enable-unsafe-swiftshader'] })
 try {
   const page = await browser.newPage({ viewport: { width: 1600, height: 1000 } })
   const errors = []
+  await page.route('**/*', route => {
+    const url = new URL(route.request().url())
+    return ['http:', 'https:'].includes(url.protocol) && ['127.0.0.1', 'localhost', '[::1]'].includes(url.hostname) ? route.continue() : route.abort()
+  })
   page.on('pageerror', e => errors.push(e.message))
   await page.addInitScript(() => {
     let bytes = null
-    window.__abaPicker = { saves: 0, opens: 0 }
+    window.__abaPicker = { saves: 0, opens: 0, byteLength: () => bytes?.byteLength ?? 0 }
     const file = { name: 'aba.vsp3', queryPermission: async () => 'granted', requestPermission: async () => 'granted', getFile: async () => new File([bytes], 'aba.vsp3'), createWritable: async () => ({ write: async b => { bytes = new Uint8Array(b) }, close: async () => { window.__abaPicker.saves++ } }) }
     window.showSaveFilePicker = async () => file
     window.showOpenFilePicker = async () => { window.__abaPicker.opens++; return [file] }
   })
-  await page.goto(process.env.WEBVSP_TEST_PAGE ?? 'http://127.0.0.1:5179/')
+  await page.goto(testPage.href)
   await page.waitForSelector('[data-ready="1"]', { timeout: 120000 })
   assert.equal(await page.evaluate(() => crossOriginIsolated), true)
   await page.evaluate(async () => { const m = await import('/src/modeling/index.ts'); window.__aba = m.createBrowserModelingService() })
@@ -29,7 +35,8 @@ try {
   await waitCount(1)
   const before = await info()
   await menu('Save As...')
-  await page.waitForFunction(() => window.__abaPicker.saves > 0, { timeout: 30000 })
+  await page.waitForFunction(() => window.__abaPicker.saves > 0, null, { timeout: 30000 })
+  assert.ok(await page.evaluate(() => window.__abaPicker.byteLength()) > 0, 'fake handle must receive nonempty bytes')
   await button('Sel All').click()
   await page.waitForFunction(token => window.__aba.model.getSelection(token).then(s => s.geometryIds.length === 1), before.identity, { timeout: 30000 })
   await button('Delete').click()
@@ -49,5 +56,5 @@ try {
   assert.equal(oldLookup.result.geometry.id, before.geometries[0].id)
   assert.deepEqual(errors, [])
   await page.evaluate(() => window.__aba.close())
-  console.log('PASS: old identity and geometry ID resolve the new inserted object')
+  console.log('PASS: old identity and geometry ID resolve after delete and insert')
 } finally { await browser.close() }
