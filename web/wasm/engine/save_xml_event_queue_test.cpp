@@ -1,10 +1,12 @@
 #include "save_xml_event_queue.h"
 
 #include <atomic>
+#include <cstdint>
 #include <cstdlib>
 #include <iostream>
 #include <string>
 #include <thread>
+#include <utility>
 #include <vector>
 
 namespace
@@ -53,12 +55,19 @@ void concurrent_test()
     std::atomic<int> finished{0};
     std::atomic<int> accepted{0};
     std::atomic<int> rejected{0};
+    std::atomic<int> too_long{0};
     std::vector<std::thread> threads;
     for ( int p = 0; p < producers; ++p )
     {
         threads.emplace_back( [&, p] {
             for ( int i = 0; i < per_producer; ++i )
             {
+                if ( i % 10 == 0 )
+                {
+                    const auto result = q.try_push( std::string( 33, 'x' ), false );
+                    check( result == Queue::PushResult::path_too_long, "concurrent oversize rejected" );
+                    ++too_long;
+                }
                 const auto path = std::to_string( p ) + ":" + std::to_string( i );
                 auto result = q.try_push( path, ( i % 2 ) != 0 );
                 if ( result == Queue::PushResult::accepted ) ++accepted;
@@ -69,6 +78,7 @@ void concurrent_test()
         } );
     }
     std::vector<std::vector<bool>> seen( producers, std::vector<bool>( per_producer, false ) );
+    std::vector<int> last( producers, -1 );
     int consumed = 0;
     Queue::Event event;
     while ( true )
@@ -85,6 +95,8 @@ void concurrent_test()
             const int i = std::stoi( path.substr( colon + 1 ) );
             check( p >= 0 && p < producers && i >= 0 && i < per_producer, "valid concurrent identifiers" );
             check( !seen[p][i] && event.ok == ( ( i % 2 ) != 0 ), "unique and consistent event" );
+            check( i > last[p], "each producer's accepted events are FIFO" );
+            last[p] = i;
             seen[p][i] = true;
             ++consumed;
         }
@@ -94,6 +106,69 @@ void concurrent_test()
     for ( auto& thread : threads ) thread.join();
     check( accepted + rejected == producers * per_producer, "all pushes reported" );
     check( consumed == accepted, "all accepted events consumed" );
+    const auto counts = q.rejections();
+    check( counts.full == static_cast<std::uint64_t>( rejected.load() ) &&
+           counts.path_too_long == static_cast<std::uint64_t>( too_long.load() ),
+           "concurrent rejection counters match returned results" );
+}
+
+void multiple_consumers_test()
+{
+    using Queue = webvsp::SaveXmlEventQueue<16, 32>;
+    constexpr int producers = 4;
+    constexpr int consumers = 4;
+    constexpr int per_producer = 2000;
+    Queue q;
+    std::atomic<int> finished{0};
+    // Each producer owns one row; readers inspect it only after all joins.
+    std::vector<std::vector<unsigned char>> accepted( producers, std::vector<unsigned char>( per_producer, 0 ) );
+    // Each consumer owns its output vector, avoiding shared packed bits and locks.
+    std::vector<std::vector<std::pair<int, int>>> received( consumers );
+    std::vector<std::thread> threads;
+    for ( int p = 0; p < producers; ++p )
+    {
+        threads.emplace_back( [&, p] {
+            for ( int i = 0; i < per_producer; ++i )
+            {
+                const auto path = std::to_string( p ) + ":" + std::to_string( i );
+                const auto result = q.try_push( path, ( i % 2 ) != 0 );
+                if ( result == Queue::PushResult::accepted ) accepted[p][i] = 1;
+                else check( result == Queue::PushResult::full, "unexpected oversize in multi-consumer test" );
+            }
+            ++finished;
+        } );
+    }
+    for ( int c = 0; c < consumers; ++c )
+    {
+        threads.emplace_back( [&, c] {
+            Queue::Event event;
+            while ( true )
+            {
+                const bool all_finished = finished.load() == producers;
+                if ( q.try_pop( event ) )
+                {
+                    const std::string path( event.path_view() );
+                    const auto colon = path.find( ':' );
+                    check( colon != std::string::npos, "valid multi-consumer path" );
+                    const int p = std::stoi( path.substr( 0, colon ) );
+                    const int i = std::stoi( path.substr( colon + 1 ) );
+                    check( p >= 0 && p < producers && i >= 0 && i < per_producer,
+                           "valid multi-consumer identifiers" );
+                    check( event.ok == ( ( i % 2 ) != 0 ), "multi-consumer payload intact" );
+                    received[c].emplace_back( p, i );
+                }
+                else if ( all_finished ) break;
+                else std::this_thread::yield();
+            }
+        } );
+    }
+    for ( auto& thread : threads ) thread.join();
+    std::vector<std::vector<int>> seen( producers, std::vector<int>( per_producer, 0 ) );
+    for ( const auto& events : received )
+        for ( const auto& id : events ) ++seen[id.first][id.second];
+    for ( int p = 0; p < producers; ++p )
+        for ( int i = 0; i < per_producer; ++i )
+            check( seen[p][i] == accepted[p][i], "accepted events consumed exactly once; rejected never consumed" );
 }
 } // namespace
 
@@ -101,5 +176,6 @@ int main()
 {
     basic_test();
     concurrent_test();
+    multiple_consumers_test();
     std::cout << "save XML event queue tests passed\n";
 }
