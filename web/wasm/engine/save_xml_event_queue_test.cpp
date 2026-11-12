@@ -46,6 +46,45 @@ void basic_test()
     check( zero_path.try_push( "", false ) == decltype( zero_path )::PushResult::accepted, "zero path limit" );
 }
 
+void deterministic_rejection_and_reuse_test()
+{
+    using Queue = webvsp::SaveXmlEventQueue<2, 3>;
+    using Result = Queue::PushResult;
+    Queue q;
+    Queue::Event out;
+    check( q.try_push( "abc", true ) == Result::accepted, "boundary path accepted" );
+    check( q.try_push( "b", false ) == Result::accepted, "queue filled" );
+    check( q.try_push( "c", true ) == Result::full, "first full rejection" );
+    check( q.try_push( "d", true ) == Result::full, "second full rejection" );
+    check( q.try_push( "abcd", true ) == Result::path_too_long, "oversize wins when full" );
+    auto counts = q.rejections();
+    check( counts.full == 2 && counts.path_too_long == 1, "rejections counted separately" );
+    counts = q.rejections();
+    check( counts.full == 2 && counts.path_too_long == 1, "reading counts does not reset them" );
+    check( q.try_pop( out ) && out.path_view() == "abc" && out.ok, "first accepted event preserved" );
+    check( q.try_push( "e", true ) == Result::accepted, "drained slot reused" );
+    check( q.try_pop( out ) && out.path_view() == "b" && !out.ok, "second accepted event preserved" );
+    check( q.try_pop( out ) && out.path_view() == "e" && out.ok, "reused slot follows older event" );
+    check( !q.try_pop( out ), "reused queue drained" );
+    check( q.try_push( "abcd", false ) == Result::path_too_long, "oversize rejected when empty" );
+    counts = q.rejections();
+    check( counts.full == 2 && counts.path_too_long == 2, "counts persist after drain and reuse" );
+    check( !q.try_pop( out ), "rejected oversize leaves queue empty" );
+
+    using ZeroQueue = webvsp::SaveXmlEventQueue<1, 0>;
+    ZeroQueue zero;
+    check( zero.try_push( "x", false ) == ZeroQueue::PushResult::path_too_long,
+           "nonempty path rejected with zero limit" );
+    check( zero.try_push( "", true ) == ZeroQueue::PushResult::accepted,
+           "empty path accepted with zero limit" );
+    ZeroQueue::Event zero_out;
+    check( zero.try_pop( zero_out ) && zero_out.path_view().empty() && zero_out.ok,
+           "zero-limit event intact" );
+    const auto zero_counts = zero.rejections();
+    check( zero_counts.full == 0 && zero_counts.path_too_long == 1,
+           "zero-limit rejection counted" );
+}
+
 void byte_and_copy_boundaries_test()
 {
     using Queue = webvsp::SaveXmlEventQueue<1, 4>;
@@ -207,6 +246,7 @@ void multiple_consumers_test()
 int main()
 {
     basic_test();
+    deterministic_rejection_and_reuse_test();
     byte_and_copy_boundaries_test();
     concurrent_test();
     multiple_consumers_test();
