@@ -29,11 +29,15 @@ try {
   })
   const snapshot = () => page.evaluate(({ geom, identity }) => window.__wingShapeTest.wing.get(geom, identity), setup)
   if (process.env.WEBVSP_EXPECT_OLD_ENGINE === '1') {
-    const failure = await page.evaluate(async ({ geom, identity }) => {
-      try { return { value: await window.__wingShapeTest.wing.get(geom, identity) } }
-      catch (e) { return { code: e.code, message: e.message } }
+    const result = await page.evaluate(async ({ geom, identity }) => {
+      const service = window.__wingShapeTest
+      const capability = service.capabilities().features.find(feature => feature.name === 'wing.read')
+      try { return { capability, value: await service.wing.get(geom, identity) } }
+      catch (e) { return { capability, code: e.code, message: e.message } }
     }, setup)
-    assert.equal(failure.code, 'ENGINE_ERROR', `old WASM must reject explicitly, not return placeholders: ${JSON.stringify(failure)}`)
+    // The facade declaration is static, not an engine readiness/version check.
+    assert.equal(result.capability?.status, 'supported')
+    assert.equal(result.code, 'ENGINE_ERROR', `old WASM must reject explicitly, not return placeholders: ${JSON.stringify(result)}`)
     assert.deepEqual(errors, [])
     console.log('PASS: new frontend explicitly rejects old WASM wing shape read')
   } else {

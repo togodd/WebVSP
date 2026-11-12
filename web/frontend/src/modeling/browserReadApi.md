@@ -2,6 +2,8 @@
 
 The page installs `window.__webvspModelingReadV1` synchronously at startup. Registration makes no engine request. Each explicit call creates a fresh browser modeling service, forwards its arguments, and closes the service when the call settles. All methods return promises, including `capabilities()`.
 
+`capabilities()` describes the frontend facade, not the current engine's readiness or version: a feature marked supported can still fail against an older or unavailable engine. `protocol()` and `declaredCapabilities()` describe engine-declared operations, not verified availability, safety, or authorization.
+
 Available methods: `model.getInfo`, `model.getSelection`, `model.getVisibleSurfaceBounds`; `geometry.list`, `geometry.get`; `parameter.listSurfaces`, `parameter.getFuselageLength`, `parameter.listGeometryParameterIds`, `parameter.listCrossSectionParameterIds`, `parameter.getGeometryParameter`, `parameter.getCrossSectionParameter`; `wing.get`, `fuselage.get`; `capabilities`, `protocol`, and `declaredCapabilities`. Obtain an identity from `model.getInfo()` and pass it to methods requiring one; signatures and result types follow the modeling service.
 
 Example (run only in a trusted same-origin page):
