@@ -49,6 +49,77 @@ describe('browser-local read service', () => {
       await expect(service.geometry.listTypes()).rejects.toMatchObject({ code: 'ENGINE_ERROR' })
     }
   })
+  it('returns independent copies of empty and populated geometry type arrays', async () => {
+    const types: string[] = []
+    const service = createReadService({ model: async () => fixture(), bbox: async () => null, geomTypes: async () => types }, 'tab')
+    const empty = await service.geometry.listTypes()
+    expect(empty).toEqual([])
+    expect(empty).not.toBe(types)
+    empty.push('caller')
+    expect(types).toEqual([])
+
+    types.push('Wing', 'Fuselage')
+    const first = await service.geometry.listTypes()
+    const second = await service.geometry.listTypes()
+    expect(first).toEqual(['Wing', 'Fuselage'])
+    expect(first).not.toBe(types)
+    expect(second).not.toBe(first)
+    types[0] = 'engine change'
+    expect(first).toEqual(['Wing', 'Fuselage'])
+    first[1] = 'caller change'
+    expect(second).toEqual(['Wing', 'Fuselage'])
+    expect(types).toEqual(['engine change', 'Fuselage'])
+  })
+  it('maps throwing geometry type adapter and response accessors to safe errors', async () => {
+    const secret = new ModelingError('STALE_MODEL', 'private response details')
+    for (const trap of ['length', 'descriptor', 'element'] as const) {
+      const types = new Proxy(['Wing'], {
+        get(target, key, receiver) {
+          if ((trap === 'length' && key === 'length') || (trap === 'element' && key === '0')) throw secret
+          return Reflect.get(target, key, receiver)
+        },
+        getOwnPropertyDescriptor(target, key) {
+          if (trap === 'descriptor' && key === '0') throw secret
+          return Reflect.getOwnPropertyDescriptor(target, key)
+        },
+      })
+      const service = createReadService({ model: async () => fixture(), bbox: async () => null, geomTypes: async () => types }, 'tab')
+      await expect(service.geometry.listTypes()).rejects.toMatchObject({ code: 'ENGINE_ERROR', message: 'The OpenVSP engine request failed' })
+    }
+    const adapter = { model: async () => fixture(), bbox: async () => null, geomTypes: async (): Promise<string[]> => [] }
+    Object.defineProperty(adapter, 'geomTypes', { get() { throw new Error('private adapter getter') } })
+    await expect(createReadService(adapter, 'tab').geometry.listTypes()).rejects.toMatchObject({ code: 'ENGINE_ERROR', message: 'The OpenVSP engine request failed' })
+  })
+  it('stops listTypes at reentrant adapter and array proxy close boundaries', async () => {
+    for (const boundary of ['adapter', 'length', 'descriptor', 'element'] as const) {
+      for (const throws of [false, true]) {
+        const accesses: string[] = []
+        let service: ReturnType<typeof createReadService>
+        const close = () => { service.close(); if (throws) throw new Error('private') }
+        const types = new Proxy(['Wing', 'Fuselage'], {
+          get(target, key, receiver) {
+            if (key === 'length' || key === '0' || key === '1') accesses.push(String(key))
+            if ((boundary === 'length' && key === 'length') || (boundary === 'element' && key === '0')) close()
+            return Reflect.get(target, key, receiver)
+          },
+          getOwnPropertyDescriptor(target, key) {
+            accesses.push(`descriptor:${String(key)}`)
+            if (boundary === 'descriptor' && key === '0') close()
+            return Reflect.getOwnPropertyDescriptor(target, key)
+          },
+        })
+        const method = vi.fn(async () => types)
+        const adapter = { model: async () => fixture(), bbox: async () => null, geomTypes: method }
+        if (boundary === 'adapter') Object.defineProperty(adapter, 'geomTypes', { get() { close(); return method } })
+        service = createReadService(adapter, 'tab')
+        await expect(service.geometry.listTypes()).rejects.toMatchObject({ code: 'SESSION_CLOSED', message: 'Modeling session is closed' })
+        if (boundary === 'adapter') expect(method).not.toHaveBeenCalled()
+        if (boundary === 'length') expect(accesses).toEqual(['length'])
+        if (boundary === 'descriptor') expect(accesses).toEqual(['length', 'descriptor:0'])
+        if (boundary === 'element') expect(accesses).toEqual(['length', 'descriptor:0', '0'])
+      }
+    }
+  })
   it('stops reading geometry types when closed and consumes late failures', async () => {
     let reject!: (error: Error) => void
     const geomTypes = vi.fn(() => new Promise<string[]>((_, r) => { reject = r }))
