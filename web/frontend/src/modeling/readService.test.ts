@@ -8,6 +8,33 @@ function fixture(): ModelTree {
 }
 
 describe('browser-local read service', () => {
+  it('reports static geometry.read support even without the optional type adapter', async () => {
+    const model = vi.fn(async () => fixture())
+    const bbox = vi.fn(async () => null)
+    const service = createReadService({ model, bbox }, 'tab')
+    const capability = { name: 'geometry.read', status: 'supported' }
+    expect(service.capabilities().features.find(c => c.name === 'geometry.read')).toEqual(capability)
+    expect(model).not.toHaveBeenCalled()
+    expect(bbox).not.toHaveBeenCalled()
+    await expect(service.geometry.listTypes()).rejects.toMatchObject({ code: 'ENGINE_ERROR', message: 'The OpenVSP engine request failed' })
+    expect((await service.geometry.list()).geometries).toHaveLength(2)
+    expect(service.capabilities().features.find(c => c.name === 'geometry.read')).toEqual(capability)
+  })
+  it('calls an optional type adapter with its receiver and maps its failures', async () => {
+    const adapter = {
+      model: async () => fixture(), bbox: async () => null,
+      geomTypes: vi.fn(function (this: unknown) { expect(this).toBe(adapter); return Promise.resolve(['Wing']) }),
+    }
+    const service = createReadService(adapter, 'tab')
+    expect(service.capabilities().features.find(c => c.name === 'geometry.read')).toEqual({ name: 'geometry.read', status: 'supported' })
+    await expect(service.geometry.listTypes()).resolves.toEqual(['Wing'])
+    expect(adapter.geomTypes).toHaveBeenCalledWith()
+    adapter.geomTypes.mockRejectedValueOnce(new Error('private adapter details'))
+    await expect(service.geometry.listTypes()).rejects.toMatchObject({ code: 'ENGINE_ERROR', message: 'The OpenVSP engine request failed' })
+    adapter.geomTypes.mockRejectedValueOnce(new ModelingError('STALE_MODEL', 'private adapter details'))
+    await expect(service.geometry.listTypes()).rejects.toMatchObject({ code: 'STALE_MODEL', message: 'The model identity is stale' })
+    expect(service.capabilities().features.find(c => c.name === 'geometry.read')?.status).toBe('supported')
+  })
   it('validates and copies dense geometry type arrays without using their iterator', async () => {
     const types = ['Wing', '', 'Future']
     types[Symbol.iterator] = () => ['wrong'][Symbol.iterator]()
