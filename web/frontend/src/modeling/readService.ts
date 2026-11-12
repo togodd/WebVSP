@@ -7,6 +7,8 @@ export interface ModelingReadAdapter {
   /** Implementations may use expectedIdentity for an engine-guarded snapshot. */
   model(expectedIdentity?: ModelIdentity): Promise<ModelTree>
   bbox(): Promise<BBox | null>
+  /** Available when the adapter can guard the geometry type read. */
+  geomTypes?(): Promise<string[]>
 }
 
 // Attach handlers to the engine promise even after close, so late rejections are consumed.
@@ -178,6 +180,15 @@ export function createReadService(adapter: ModelingReadAdapter, sessionId: strin
       },
     },
     geometry: {
+      listTypes(): Promise<string[]> {
+        return fromEngine(async () => {
+          const method = field(adapter, 'geomTypes')
+          if (!method) throw new Error('Geometry types unavailable')
+          const types = await Reflect.apply(method, adapter, [])
+          checkOpen()
+          try { return stringArray(types, checkOpen) } catch { throw new Error('Invalid geometry types response') }
+        })
+      },
       async list(): Promise<{ context: ModelInfo['context']; geometries: Geometry[] }> {
         const info = await getModel()
         return { context: info.context, geometries: info.geometries }

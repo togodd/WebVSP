@@ -61,6 +61,12 @@ export function createBrowserModelingService() {
           throw error
         }
       },
+      geomTypes: async () => {
+        try { return await call<string[]>('geomTypes') } catch (error) {
+          if (error instanceof WasmEngineError && error.code === 'STALE_MODEL') throw new ModelingError('STALE_MODEL', 'The model identity is stale')
+          throw error
+        }
+      },
       bbox: async () => {
         try { return await call<Awaited<ReturnType<typeof api.bbox>>>('bbox') } catch (error) {
           if (error instanceof WasmEngineError && error.code === 'STALE_MODEL') throw new ModelingError('STALE_MODEL', 'The model identity is stale')
@@ -120,6 +126,7 @@ export function createBrowserModelingService() {
       getVisibleSurfaceBounds: (token: ModelIdentity) => run(token, (s) => s.read.model.getVisibleSurfaceBounds()),
     },
     geometry: {
+      listTypes: (token: ModelIdentity) => run(token, (s) => s.read.geometry.listTypes()),
       list: (token: ModelIdentity) => run(token, (s) => s.read.geometry.list()),
       get: (id: string, token: ModelIdentity) => run(token, (s, t) => s.read.geometry.get(id, t)),
     },

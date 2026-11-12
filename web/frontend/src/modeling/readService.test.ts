@@ -8,6 +8,40 @@ function fixture(): ModelTree {
 }
 
 describe('browser-local read service', () => {
+  it('validates and copies dense geometry type arrays without using their iterator', async () => {
+    const types = ['Wing', '', 'Future']
+    types[Symbol.iterator] = () => ['wrong'][Symbol.iterator]()
+    const geomTypes = vi.fn(async () => types)
+    const service = createReadService({ model: async () => fixture(), bbox: async () => null, geomTypes }, 'tab')
+    const result = await service.geometry.listTypes()
+    expect(result).toEqual(['Wing', '', 'Future'])
+    result[0] = 'changed'
+    expect(types[0]).toBe('Wing')
+    for (const bad of [null, {}, [1], Array(1), Object.setPrototypeOf(Array(1), Object.assign(Object.create(Array.prototype), { 0: 'inherited' }))]) {
+      geomTypes.mockResolvedValueOnce(bad as string[])
+      await expect(service.geometry.listTypes()).rejects.toMatchObject({ code: 'ENGINE_ERROR' })
+    }
+  })
+  it('stops reading geometry types when closed and consumes late failures', async () => {
+    let reject!: (error: Error) => void
+    const geomTypes = vi.fn(() => new Promise<string[]>((_, r) => { reject = r }))
+    const service = createReadService({ model: async () => fixture(), bbox: async () => null, geomTypes }, 'tab')
+    const pending = service.geometry.listTypes()
+    service.close()
+    await expect(pending).rejects.toMatchObject({ code: 'SESSION_CLOSED' })
+    reject(new Error('late'))
+    await expect(service.geometry.listTypes()).rejects.toMatchObject({ code: 'SESSION_CLOSED' })
+    expect(geomTypes).toHaveBeenCalledOnce()
+
+    const later = vi.fn()
+    let closing: ReturnType<typeof createReadService>
+    const types = ['Wing', 'Fuselage']
+    Object.defineProperty(types, '0', { get() { closing.close(); return 'Wing' } })
+    Object.defineProperty(types, '1', { get: later })
+    closing = createReadService({ model: async () => fixture(), bbox: async () => null, geomTypes: async () => types }, 'tab')
+    await expect(closing.geometry.listTypes()).rejects.toMatchObject({ code: 'SESSION_CLOSED' })
+    expect(later).not.toHaveBeenCalled()
+  })
   it('returns fresh model information, hierarchy and selection', async () => {
     const current = fixture()
     const adapter = { model: vi.fn(async () => current), bbox: vi.fn(async () => ({ min: [0, 0, 0] as [number, number, number], max: [1, 2, 3] as [number, number, number] })) }

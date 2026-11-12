@@ -324,6 +324,40 @@ describe('browser modeling identity', () => {
   })
 })
 
+describe('browser facade geometry types', () => {
+  it('uses one guarded request, validates identity, maps stale errors and copies results', async () => {
+    const engine = vi.mocked(callGuarded)
+    const types = ['Wing', 'Fuselage']
+    engine.mockReset().mockResolvedValueOnce(types).mockRejectedValueOnce(new WasmEngineError(409, 'private', undefined, undefined, 'STALE_MODEL'))
+    const service = createBrowserModelingService()
+    let epochs = 0
+    const token = { sessionId: 'tab', get modelEpoch() { return ++epochs === 1 ? '42' : '43' } }
+    try {
+      const result = await service.geometry.listTypes(token)
+      expect(result).toEqual(types)
+      expect(result).not.toBe(types)
+      expect(epochs).toBe(1)
+      expect(engine).toHaveBeenCalledWith('geomTypes', '', '', 0, '42', expect.any(AbortSignal))
+      await expect(service.geometry.listTypes({ sessionId: 'tab', modelEpoch: '42' })).rejects.toMatchObject({ code: 'STALE_MODEL' })
+      await expect(service.geometry.listTypes({ sessionId: 'other', modelEpoch: '42' })).rejects.toMatchObject({ code: 'STALE_MODEL' })
+      await expect(service.geometry.listTypes({ sessionId: 'tab', modelEpoch: '01' })).rejects.toMatchObject({ code: 'INVALID_ARGUMENT' })
+      expect(engine).toHaveBeenCalledTimes(2)
+    } finally { service.close(); engine.mockReset() }
+  })
+  it('closes a pending guarded geometry type read', async () => {
+    const engine = vi.mocked(callGuarded)
+    let reject!: (error: Error) => void
+    engine.mockReset().mockReturnValue(new Promise((_resolve, r) => { reject = r }))
+    const service = createBrowserModelingService()
+    const pending = service.geometry.listTypes({ sessionId: 'tab', modelEpoch: '42' })
+    service.close()
+    await expect(pending).rejects.toMatchObject({ code: 'SESSION_CLOSED' })
+    reject(new Error('late'))
+    await expect(service.geometry.listTypes({ sessionId: 'tab', modelEpoch: '42' })).rejects.toMatchObject({ code: 'SESSION_CLOSED' })
+    engine.mockReset()
+  })
+})
+
 describe('browser facade composite reads', () => {
   const token = { sessionId: 'tab', modelEpoch: '42' }
   const length = { id: 'length', value: 10, type: 0, name: 'Length', group: 'Design', container: 'geom', lowerLimit: 0, upperLimit: 100, active: true }
