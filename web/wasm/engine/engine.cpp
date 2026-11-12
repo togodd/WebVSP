@@ -60,6 +60,10 @@
 #include "WebProcess.h"
 #include <angelscript.h>
 #include "ScriptMgr.h"
+#if defined(WEBVSP_SCRIPT_GUARD_TEST) && defined(WEBVSP_PARM_REENTRY_TEST)
+#include "ParmMgr.h"
+#include "ParmReentryTest.h"
+#endif
 
 #include <sys/stat.h>
 
@@ -1690,6 +1694,9 @@ bool SafeWriteContext( Vehicle *veh, const Job &j )
 
 #ifdef WEBVSP_SCRIPT_GUARD_TEST
 void ScriptNormalGcProbe( const Job &j );
+#ifdef WEBVSP_PARM_REENTRY_TEST
+void ScriptSetterGcProbe( const Job &j );
+#endif
 #endif
 void RunImpl( const Job &j )
 {
@@ -1848,6 +1855,9 @@ void RunImpl( const Job &j )
     if ( j.op == "scriptGcGuardCheck" ) return ScriptGcGuardCheck( j.id );
     if ( j.op == "scriptNormalGcAutoOff" || j.op == "scriptNormalGcAutoOn" || j.op == "scriptNormalGcPositive" ||
          j.op == "scriptParmGcAutoOff" || j.op == "scriptParmGcAutoOn" || j.op == "scriptParmGcPositive" ) return ScriptNormalGcProbe( j );
+#ifdef WEBVSP_PARM_REENTRY_TEST
+    if ( j.op == "scriptSetterGcProbe" ) return ScriptSetterGcProbe( j );
+#endif
     if ( j.op == "scriptReleaseGuardCheck" ) return ScriptReleaseGuardCheck( j.id );
     if ( j.op == "advLinkGuardCheck" ) return AdvLinkGuardCheck( j.id );
     if ( j.op == "storedGeomTypesCheck" ) return StoredGeomTypesCheck( j.id );
@@ -2274,6 +2284,9 @@ void Run( const Job &j )
 
 #ifdef WEBVSP_SCRIPT_GUARD_TEST
 #include "script_normal_gc_probe.inc"
+#ifdef WEBVSP_PARM_REENTRY_TEST
+#include "script_setter_gc_probe.inc"
+#endif
 #endif
 
 bool g_Gui = false;

@@ -52,6 +52,18 @@ by the installed SDK). The hook is owner-thread-only, and an armed target and co
 remain alive until it fires or is cleared. It applies to `Parm::SetFromDevice` itself, not
 `FractionParm`'s independent override.
 
+The fixed `scriptSetterGcProbe` engine operation additionally requires
+`WEBVSP_SCRIPT_GUARD_TEST` (for example in the isolated tree's C++ flags) as well
+as `WEBVSP_PARM_REENTRY_TEST=ON`. It runs a single guarded fixed parameter write
+and forces script-cycle GC inside the real setter; its target and destructor's
+victim are different geoms. It is not available in production. Run
+`src/modeling/script-setter-gc-browser-check.mjs` from `web/frontend` against a
+separately served test WASM, with `WEBVSP_TEST_CHROMIUM` and optionally
+`WEBVSP_TEST_PAGE` set, as described in that script. Use a fresh disposable
+browser context/worker per run and discard it afterward, even on failure. The
+probe reports actual destructor, victim and guard observations; it does not
+establish that GC is normally triggered by a setter or that all writes are safe.
+
 ## How it works
 
 | Piece | Where | What |

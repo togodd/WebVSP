@@ -79,6 +79,7 @@ try {
       ['scriptParmGcPositive', 'disposable-empty-model'],
       ['scriptParmGcAutoOff', 'disposable-empty-model'],
       ['scriptParmGcAutoOn', 'disposable-empty-model'],
+      ['scriptSetterGcProbe', 'disposable-empty-model'],
       ['scriptReleaseGuardCheck', ''],
       ['advLinkGuardCheck', ''],
       ['storedGeomTypesCheck', ''],
@@ -101,7 +102,7 @@ try {
     return { id, results }
   })
   assert.ok(result.id)
-  assert.equal(result.results.length, 21)
+  assert.equal(result.results.length, 22)
   for (const { op, before, error, after } of result.results) {
     assert.deepEqual(error, { message: `unknown request: ${op}`, status: 400 }, `${op}: must be rejected by the engine as unknown`)
     assert.equal(before.model.modelEpochValid, true, `${op}: valid model identity`)

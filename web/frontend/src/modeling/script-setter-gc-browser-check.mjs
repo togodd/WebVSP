@@ -1,0 +1,102 @@
+// ONLY a disposable WASM built with BOTH WEBVSP_SCRIPT_GUARD_TEST and
+// WEBVSP_PARM_REENTRY_TEST. Never deploy it or use a real user model/profile.
+// Serve the modeling test page with WEBVSP_TEST_WASM_ORIGIN pointing to that
+// isolated build; set WEBVSP_TEST_CHROMIUM and optionally WEBVSP_TEST_PAGE.
+// The new browser context creates a fresh engine worker. Discard it after the probe.
+import assert from 'node:assert/strict'
+import { chromium } from 'playwright-core'
+
+const executablePath = process.env.WEBVSP_TEST_CHROMIUM
+if (!executablePath) throw new Error('Set WEBVSP_TEST_CHROMIUM')
+const testPage = new URL(process.env.WEBVSP_TEST_PAGE ?? 'http://127.0.0.1:5178/')
+if (!['http:', 'https:'].includes(testPage.protocol) || !['127.0.0.1', 'localhost', '[::1]'].includes(testPage.hostname) || testPage.username || testPage.password) {
+  throw new Error('Test page must be a loopback HTTP(S) URL without credentials')
+}
+let browser
+const deadline = setTimeout(async () => {
+  console.error('FAIL: setter GC probe timed out')
+  const hardExit = setTimeout(() => process.exit(1), 5000)
+  hardExit.unref()
+  try { await browser?.close() } catch { /* hard exit remains armed */ }
+  process.exit(1)
+}, 180000)
+try {
+  browser = await chromium.launch({ executablePath, headless: true, args: ['--no-sandbox', '--enable-unsafe-swiftshader', '--no-proxy-server', '--host-resolver-rules=MAP * ~NOTFOUND, EXCLUDE localhost, EXCLUDE 127.0.0.1, EXCLUDE [::1]'] })
+  const context = await browser.newContext({ serviceWorkers: 'block', acceptDownloads: false })
+  try {
+    await context.route('**/*', async route => {
+      const request = route.request()
+      if (new URL(request.url()).origin !== testPage.origin || request.method() !== 'GET') return route.abort()
+      const response = await route.fetch({ maxRedirects: 0 })
+      if (response.status() >= 300 && response.status() < 400) return route.abort()
+      return route.fulfill({ response })
+    })
+    await context.addInitScript(() => {
+      window.__forbiddenFileActions = []
+      const reject = action => { window.__forbiddenFileActions.push(action); throw new Error(`Forbidden file action: ${action}`) }
+      Object.assign(window, { showOpenFilePicker: () => reject('open picker'), showSaveFilePicker: () => reject('save picker'), showDirectoryPicker: () => reject('directory picker') })
+      const click = HTMLElement.prototype.click
+      HTMLElement.prototype.click = function () {
+        if (this instanceof HTMLInputElement && this.type === 'file') return reject('file input')
+        if (this instanceof HTMLAnchorElement && this.hasAttribute('download')) return reject('download')
+        return click.call(this)
+      }
+      document.addEventListener('click', event => {
+        if (event.target instanceof Element && event.target.closest('a[download], input[type="file"]')) {
+          event.preventDefault()
+          window.__forbiddenFileActions.push('file click')
+        }
+      }, true)
+    })
+    const page = await context.newPage()
+    const errors = []
+    page.on('pageerror', error => errors.push(`pageerror: ${error.message}`))
+    page.on('crash', () => errors.push('page crashed'))
+    page.on('download', () => errors.push('Unexpected download'))
+    page.on('filechooser', () => errors.push('Unexpected file chooser'))
+    page.on('console', message => { if (message.type() === 'error') errors.push(`console: ${message.text()}`) })
+    page.on('worker', worker => {
+      console.log(`worker started: ${worker.url()}`)
+      worker.on('close', () => console.log(`worker closed: ${worker.url()}`))
+    })
+    const response = await page.goto(testPage.href, { timeout: 30000 })
+    assert.ok(response?.ok())
+    await page.waitForSelector('[data-ready="1"]', { timeout: 120000 })
+    assert.equal(await page.evaluate(() => crossOriginIsolated), true)
+    const result = await page.evaluate(() => window.__webvspEngine.testCall('scriptSetterGcProbe', 'disposable-empty-model'))
+    console.log(JSON.stringify(result))
+    assert.equal(result.executeRc, 0)
+    assert.equal(result.setterHits, 1, 'the real target setter must be reached exactly once')
+    assert.equal(result.gcRc, 0)
+    assert.equal(result.destroyedBefore, 0)
+    assert.equal(result.destroyedAfter, 1, 'the cycle destructor must actually run')
+    assert.equal(result.guardPresent, true)
+    assert.equal(result.attemptedBefore, false)
+    assert.equal(typeof result.attemptedAfter, 'boolean')
+    assert.equal(result.victimAliveBefore, true)
+    assert.equal(typeof result.victimAliveAfter, 'boolean')
+    assert.equal(result.targetAliveAfter, true, 'victim and active setter target are independent')
+    assert.ok(result.reply, 'guarded write must return a reply')
+    if (result.attemptedAfter) {
+      assert.equal(result.reply.ok, false)
+      assert.equal(result.reply.code, 'SCRIPT_REENTRY_BLOCKED')
+      assert.equal(result.reply.outcome, 'unknown')
+    } else {
+      // A destructor may mutate the independent victim without setting the guard;
+      // report that observation, while checking the resulting write reply honestly.
+      assert.equal(result.reply.ok, true)
+      assert.equal(result.reply.value.actual, 12)
+    }
+    assert.equal(result.errors, '')
+    const retryError = await page.evaluate(async () => {
+      try { await window.__webvspEngine.testCall('scriptSetterGcProbe', 'disposable-empty-model'); return null }
+      catch (error) { return error.message }
+    })
+    assert.match(retryError ?? '', /fresh disposable empty test module/)
+    assert.deepEqual(await page.evaluate(() => window.__forbiddenFileActions), [])
+    assert.deepEqual(errors, [])
+    console.log('PASS: fixed setter GC observation (victim and guard outcomes reported, not assumed)')
+  } finally { await context.close() }
+} finally {
+  try { if (browser) await browser.close() } finally { clearTimeout(deadline) }
+}
