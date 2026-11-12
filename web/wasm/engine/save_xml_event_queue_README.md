@@ -35,6 +35,7 @@ g++ -std=c++17 -Wall -Wextra -Wpedantic -Werror -pthread \
 /tmp/save-xml-event-queue-test
 ```
 
-The tests cover boundary paths, rejection reporting, FIFO and wraparound, plus
-concurrent producers and a consumer. They do not prove correctness for all
+The tests cover byte boundaries, rejection reporting, empty-pop preservation,
+independent popped copies, FIFO and wraparound, plus concurrent producers and
+both single and multiple consumers. They do not prove correctness for all
 thread interleavings.

@@ -46,6 +46,38 @@ void basic_test()
     check( zero_path.try_push( "", false ) == decltype( zero_path )::PushResult::accepted, "zero path limit" );
 }
 
+void byte_and_copy_boundaries_test()
+{
+    using Queue = webvsp::SaveXmlEventQueue<1, 4>;
+    using Result = Queue::PushResult;
+    Queue q;
+    Queue::Event out;
+    out.path = {'s', '\0', static_cast<char>( 0xff ), 't'};
+    out.path_size = 3;
+    out.ok = true;
+    const auto sentinel = out;
+    check( !q.try_pop( out ) && out.path == sentinel.path &&
+           out.path_size == sentinel.path_size && out.ok == sentinel.ok,
+           "empty pop preserves every output field and byte" );
+
+    const char bytes[] = {'\0', static_cast<char>( 0xff ), static_cast<char>( 0x80 ), '\0'};
+    const std::string_view path( bytes, sizeof bytes );
+    check( q.try_push( path, false ) == Result::accepted, "maximum length arbitrary bytes accepted" );
+    check( q.try_pop( out ) && out.path_view() == path && !out.ok,
+           "NUL and non-UTF8 bytes preserved at maximum length" );
+    const auto saved = out;
+    const auto saved_view = out.path_view();
+    check( q.try_push( "next", true ) == Result::accepted, "reuse popped slot" );
+    check( out.path == saved.path && out.path_size == saved.path_size && out.ok == saved.ok &&
+           saved_view == path, "slot reuse does not alter popped event or its view" );
+    out.path[0] = 'X';
+    out.path_size = 1;
+    out.ok = false;
+    Queue::Event next;
+    check( q.try_pop( next ) && next.path_view() == "next" && next.ok,
+           "modifying popped copy does not alter queued event" );
+}
+
 void concurrent_test()
 {
     using Queue = webvsp::SaveXmlEventQueue<16, 32>;
@@ -175,6 +207,7 @@ void multiple_consumers_test()
 int main()
 {
     basic_test();
+    byte_and_copy_boundaries_test();
     concurrent_test();
     multiple_consumers_test();
     std::cout << "save XML event queue tests passed\n";
