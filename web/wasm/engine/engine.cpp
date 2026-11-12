@@ -1724,7 +1724,7 @@ void RunImpl( const Job &j )
     // model API, so leave the pre-existing global error stack untouched.
     if ( j.op == "modelingProtocol" )
         return Result( j.id, "", "{\"protocol\":\"webvsp-modeling\",\"version\":1,\"operations\":["
-            "\"modelDiscovery\",\"model\",\"bbox\",\"origin\",\"geomXSecs\","
+            "\"modelDiscovery\",\"model\",\"geomTypes\",\"bbox\",\"origin\",\"geomXSecs\","
             "\"fuselageXSecShapes\",\"wingXSecShapes\",\"geomParmIDs\",\"xsecParmIDs\","
             "\"geomParm\",\"xsecParm\",\"fuselageLength\",\"guardedEpochV1\"]}" );
     TakeErrors();

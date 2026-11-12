@@ -61,7 +61,7 @@ try {
     for (const call of calls) assert.equal(call.error?.code, 'ENGINE_ERROR', JSON.stringify(call))
   } else {
     const operations = [
-      'modelDiscovery', 'model', 'bbox', 'origin', 'geomXSecs', 'fuselageXSecShapes',
+      'modelDiscovery', 'model', 'geomTypes', 'bbox', 'origin', 'geomXSecs', 'fuselageXSecShapes',
       'wingXSecShapes', 'geomParmIDs', 'xsecParmIDs', 'geomParm', 'xsecParm',
       'fuselageLength', 'guardedEpochV1',
     ]

@@ -6,7 +6,7 @@ const invalid = { status: 'invalid', operations: [] }
 
 describe('untrusted modeling protocol manifest', () => {
   it('recognizes the agreed engine vocabulary without claiming readiness', () => {
-    expect(MODELING_PROTOCOL_OPERATIONS).toEqual(['modelDiscovery', 'model', 'bbox', 'origin', 'geomXSecs', 'fuselageXSecShapes', 'wingXSecShapes', 'geomParmIDs', 'xsecParmIDs', 'geomParm', 'xsecParm', 'fuselageLength', 'guardedEpochV1'])
+    expect(MODELING_PROTOCOL_OPERATIONS).toEqual(['modelDiscovery', 'model', 'geomTypes', 'bbox', 'origin', 'geomXSecs', 'fuselageXSecShapes', 'wingXSecShapes', 'geomParmIDs', 'xsecParmIDs', 'geomParm', 'xsecParm', 'fuselageLength', 'guardedEpochV1'])
     const input = manifest([...MODELING_PROTOCOL_OPERATIONS, 'futureOperation'])
     expect(parseModelingProtocol(input)).toEqual({ status: 'valid', operations: [...MODELING_PROTOCOL_OPERATIONS] })
     expect(parseModelingProtocol(manifest([]))).toEqual({ status: 'valid', operations: [] })

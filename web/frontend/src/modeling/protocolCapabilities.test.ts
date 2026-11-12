@@ -7,7 +7,7 @@ import type { ModelingProtocolOperation } from './protocol'
 const parse = (operations: string[]) => parseModelingProtocol({ protocol: 'webvsp-modeling', version: 1, operations })
 const expected: Partial<Record<CapabilityName, ModelingProtocolOperation[]>> = {
   'model.read': ['modelDiscovery', 'model', 'bbox', 'guardedEpochV1'],
-  'geometry.read': ['model', 'guardedEpochV1'],
+  'geometry.read': ['model', 'geomTypes', 'guardedEpochV1'],
   'parameter.read': ['geomXSecs', 'fuselageLength', 'geomParmIDs', 'xsecParmIDs', 'geomParm', 'xsecParm', 'guardedEpochV1'],
   'wing.read': ['model', 'wingXSecShapes', 'guardedEpochV1'],
   'fuselage.read': ['model', 'fuselageLength', 'fuselageXSecShapes', 'guardedEpochV1'],
@@ -43,6 +43,12 @@ describe('protocol capability declarations', () => {
         expect(result).toEqual({ name: result.name, status: missing.length ? 'not_declared' : 'declared', missingOperations: missing })
       }
     }
+  })
+
+  it('reports an older declaration without geomTypes as not_declared, not unavailable', () => {
+    const old = MODELING_PROTOCOL_OPERATIONS.filter(op => op !== 'geomTypes')
+    const geometry = protocolCapabilities(parse(old)).find(result => result.name === 'geometry.read')
+    expect(geometry).toEqual({ name: 'geometry.read', status: 'not_declared', missingOperations: ['geomTypes'] })
   })
 
   it('treats invalid declarations as unknown, not empty declarations', () => {

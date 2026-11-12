@@ -74,7 +74,7 @@ try {
     for (const call of calls) assert.equal(call.error?.code, 'ENGINE_ERROR', JSON.stringify(call))
   } else {
     assert.deepEqual(result.raw.value, { protocol: 'webvsp-modeling', version: 1, operations: [
-      'modelDiscovery', 'model', 'bbox', 'origin', 'geomXSecs', 'fuselageXSecShapes',
+      'modelDiscovery', 'model', 'geomTypes', 'bbox', 'origin', 'geomXSecs', 'fuselageXSecShapes',
       'wingXSecShapes', 'geomParmIDs', 'xsecParmIDs', 'geomParm', 'xsecParm',
       'fuselageLength', 'guardedEpochV1',
     ] }, 'complete production WASM manifest')

@@ -35,7 +35,7 @@ try {
   ], 'protocol preserves both error codes, messages and LIFO order')
   assert.deepEqual(protocol.reply, { t: 'result', id: -2147483000, ok: true, value: {
     protocol: 'webvsp-modeling', version: 1, operations: [
-      'modelDiscovery', 'model', 'bbox', 'origin', 'geomXSecs', 'fuselageXSecShapes',
+      'modelDiscovery', 'model', 'geomTypes', 'bbox', 'origin', 'geomXSecs', 'fuselageXSecShapes',
       'wingXSecShapes', 'geomParmIDs', 'xsecParmIDs', 'geomParm', 'xsecParm',
       'fuselageLength', 'guardedEpochV1',
     ],

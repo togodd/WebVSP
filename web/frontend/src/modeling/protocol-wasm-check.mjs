@@ -42,7 +42,7 @@ try {
     }
   } else {
     const expected = { protocol: 'webvsp-modeling', version: 1, operations: [
-      'modelDiscovery', 'model', 'bbox', 'origin', 'geomXSecs', 'fuselageXSecShapes',
+      'modelDiscovery', 'model', 'geomTypes', 'bbox', 'origin', 'geomXSecs', 'fuselageXSecShapes',
       'wingXSecShapes', 'geomParmIDs', 'xsecParmIDs', 'geomParm', 'xsecParm',
       'fuselageLength', 'guardedEpochV1',
     ] }

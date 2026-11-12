@@ -14,7 +14,7 @@ export interface ProtocolCapability {
 // A null requirement denotes a capability for which v1 defines no sufficient set.
 const requirements: ReadonlyArray<readonly [CapabilityName, readonly ModelingProtocolOperation[] | null]> = [
   ['model.read', ['modelDiscovery', 'model', 'bbox', 'guardedEpochV1']],
-  ['geometry.read', ['model', 'guardedEpochV1']],
+  ['geometry.read', ['model', 'geomTypes', 'guardedEpochV1']],
   ['geometry.create', null],
   ['geometry.move', null],
   ['parameter.read', ['geomXSecs', 'fuselageLength', 'geomParmIDs', 'xsecParmIDs', 'geomParm', 'xsecParm', 'guardedEpochV1']],
