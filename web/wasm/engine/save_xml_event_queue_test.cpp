@@ -1,9 +1,11 @@
 #include "save_xml_event_queue.h"
 
 #include <atomic>
+#include <condition_variable>
 #include <cstdint>
 #include <cstdlib>
 #include <iostream>
+#include <mutex>
 #include <string>
 #include <thread>
 #include <utility>
@@ -115,6 +117,112 @@ void byte_and_copy_boundaries_test()
     Queue::Event next;
     check( q.try_pop( next ) && next.path_view() == "next" && next.ok,
            "modifying popped copy does not alter queued event" );
+}
+
+// A reusable C++17 rendezvous: every participant completes the previous phase
+// before any participant starts the next one.
+class Barrier
+{
+public:
+    explicit Barrier( int participants ) : participants_( participants ) {}
+
+    void wait()
+    {
+        std::unique_lock<std::mutex> lock( mutex_ );
+        const int generation = generation_;
+        if ( ++arrived_ == participants_ )
+        {
+            arrived_ = 0;
+            ++generation_;
+            cv_.notify_all();
+        }
+        else cv_.wait( lock, [&] { return generation_ != generation; } );
+    }
+
+private:
+    const int participants_;
+    int arrived_ = 0;
+    int generation_ = 0;
+    std::mutex mutex_;
+    std::condition_variable cv_;
+};
+
+void phased_happens_before_test()
+{
+    using Queue = webvsp::SaveXmlEventQueue<2, 4>;
+    using Result = Queue::PushResult;
+    Queue q;
+    Barrier phase( 3 ); // two producers and the coordinating consumer
+    std::thread first( [&] {
+        check( q.try_push( "a", true ) == Result::accepted, "first ordered push" );
+        phase.wait();
+        phase.wait();
+        // Both producers encounter a full queue in this phase.
+        check( q.try_push( "x", true ) == Result::full, "first phased full" );
+        check( q.try_push( "12345", true ) == Result::path_too_long, "first phased oversize" );
+        phase.wait();
+    } );
+    std::thread second( [&] {
+        phase.wait(); // first push completed before this push begins
+        check( q.try_push( "b", false ) == Result::accepted, "second ordered push" );
+        phase.wait();
+        check( q.try_push( "y", false ) == Result::full, "second phased full" );
+        check( q.try_push( "12345", false ) == Result::path_too_long, "second phased oversize" );
+        phase.wait();
+    } );
+    phase.wait();
+    phase.wait(); // both pushes complete; no consumer drains before rejections
+    phase.wait();
+    first.join();
+    second.join();
+    auto counts = q.rejections();
+    check( counts.full == 2 && counts.path_too_long == 2, "phased concurrent rejection counts" );
+    Queue::Event out;
+    check( q.try_pop( out ) && out.path_view() == "a" && out.ok, "happens-before first event" );
+    check( q.try_pop( out ) && out.path_view() == "b" && !out.ok, "happens-before second event" );
+    check( !q.try_pop( out ), "phased ordered queue drained" );
+
+    // Two consumers race on a known pair. Their return/recording order is not
+    // the queue's dequeue order: verify the multiset only after both join.
+    check( q.try_push( "c", true ) == Result::accepted, "consumer phase first push" );
+    check( q.try_push( "d", false ) == Result::accepted, "consumer phase second push" );
+    Barrier start( 3 );
+    Queue::Event outputs[2];
+    bool popped[2] = {false, false};
+    std::thread consumer1( [&] { start.wait(); popped[0] = q.try_pop( outputs[0] ); } );
+    std::thread consumer2( [&] { start.wait(); popped[1] = q.try_pop( outputs[1] ); } );
+    start.wait();
+    consumer1.join();
+    consumer2.join();
+    check( popped[0] && popped[1], "both consumers receive an event" );
+    const bool forward = outputs[0].path_view() == "c" && outputs[0].ok &&
+                         outputs[1].path_view() == "d" && !outputs[1].ok;
+    const bool reverse = outputs[1].path_view() == "c" && outputs[1].ok &&
+                         outputs[0].path_view() == "d" && !outputs[0].ok;
+    check( forward || reverse, "concurrent consumers receive each intact event once" );
+    check( !q.try_pop( out ), "consumer phase drained" );
+    counts = q.rejections();
+    check( counts.full == 2 && counts.path_too_long == 2, "counts survive concurrent drain and reuse" );
+
+    check( q.try_push( "e", true ) == Result::accepted, "ordered consumers first push" );
+    check( q.try_push( "f", false ) == Result::accepted, "ordered consumers second push" );
+    Barrier popped_first( 2 );
+    Queue::Event ordered[2];
+    bool ordered_ok[2] = {false, false};
+    std::thread earlier( [&] {
+        ordered_ok[0] = q.try_pop( ordered[0] );
+        popped_first.wait();
+    } );
+    std::thread later( [&] {
+        popped_first.wait(); // the first pop has returned before this one starts
+        ordered_ok[1] = q.try_pop( ordered[1] );
+    } );
+    earlier.join();
+    later.join();
+    check( ordered_ok[0] && ordered[0].path_view() == "e" && ordered[0].ok &&
+           ordered_ok[1] && ordered[1].path_view() == "f" && !ordered[1].ok,
+           "happens-before consumer pops preserve FIFO" );
+    check( !q.try_pop( out ), "ordered consumer phase drained" );
 }
 
 void concurrent_test()
@@ -248,6 +356,7 @@ int main()
     basic_test();
     deterministic_rejection_and_reuse_test();
     byte_and_copy_boundaries_test();
+    phased_happens_before_test();
     concurrent_test();
     multiple_consumers_test();
     std::cout << "save XML event queue tests passed\n";
