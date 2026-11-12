@@ -48,7 +48,7 @@
 //   rotate(a=ids, b="ax,ay,az", value=degrees)  rotate geoms about a world axis, each about its
 //                                       own origin (one undo step)
 
-#if defined(WEBVSP_PRODUCTION_BUILD) && (defined(WEBVSP_SCRIPT_GUARD_TEST) || defined(WEBVSP_PARM_REENTRY_TEST))
+#if defined(WEBVSP_PRODUCTION_BUILD) && (defined(WEBVSP_SCRIPT_GUARD_TEST) || defined(WEBVSP_PARM_REENTRY_TEST) || defined(WEBVSP_DELETE_GEOM_PROXY_TEST))
 #error WebVSP test hooks are forbidden in production
 #endif
 

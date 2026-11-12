@@ -23,7 +23,17 @@ void SetterGcProbeCallback( Parm *, void *opaque )
 void ScriptSetterGcProbe( const Job &j )
 {
     static bool used = false;
-    if ( j.a != "disposable-empty-model" || !j.b.empty() || j.value != 0 || j.guarded || !j.expected_epoch.empty() )
+#ifdef WEBVSP_DELETE_GEOM_PROXY_TEST
+    const char *build_mode = "delete-geom-proxy";
+#else
+    const char *build_mode = "original";
+#endif
+#ifdef WEBVSP_DELETE_GEOM_PROXY_TEST
+    const bool control = j.a == "disposable-delete-control";
+#else
+    const bool control = false;
+#endif
+    if ( ( j.a != "disposable-empty-model" && !control ) || !j.b.empty() || j.value != 0 || j.guarded || !j.expected_epoch.empty() )
         return Result( j.id, "Invalid fixed setter GC probe request", "" );
     if ( used ) return Result( j.id, "Requires a fresh disposable empty test module", "" );
     used = true;
@@ -55,6 +65,52 @@ void ScriptSetterGcProbe( const Job &j )
     if ( engine->SetEngineProperty( asEP_AUTO_GARBAGE_COLLECT, 0 ) < 0 ||
          engine->GetEngineProperty( asEP_AUTO_GARBAGE_COLLECT ) != 0 )
         return Result( j.id, "Could not disable automatic GC", "" );
+#ifdef WEBVSP_DELETE_GEOM_PROXY_TEST
+    if ( control )
+    {
+        const string positive = vsp::AddGeom( "BLANK", "" );
+        const string nested_victim = vsp::AddGeom( "BLANK", "" );
+        if ( positive.empty() || nested_victim.empty() || positive == nested_victim ||
+             !veh->FindGeom( positive ) || !veh->FindGeom( nested_victim ) )
+            return Result( j.id, "Could not create fixed control fixtures", "" );
+        const string source = "int destroyed = 0; class Cycle { Cycle@ self; "
+            "~Cycle() { destroyed++; DeleteGeom(\"" + nested_victim + "\"); } } "
+            "int main() { DeleteGeom(\"" + positive + "\"); Cycle@ c = Cycle(); @c.self = c; return 0; }";
+        cleanup.module = mgr.ReadScriptFromMemory( "WebVSP_DeleteProxyControl", source );
+        asIScriptModule *module = cleanup.module.empty() ? nullptr : engine->GetModule( cleanup.module.c_str() );
+        int index = module ? module->GetGlobalVarIndexByName( "destroyed" ) : -1;
+        int *destroyed = index >= 0 ? static_cast< int * >( module->GetAddressOfGlobalVar( index ) ) : nullptr;
+        if ( !destroyed ) return Result( j.id, "Could not build fixed control fixture", "" );
+        const int rc = mgr.ExecuteScript( cleanup.module.c_str(), "int main()" );
+        const bool positive_alive = veh->FindGeom( positive ) != nullptr;
+        const int before = *destroyed;
+        const bool victim_before = veh->FindGeom( nested_victim ) != nullptr;
+        bool outer_before, inner_before, outer_after, inner_after;
+        int gc_rc;
+        {
+            ScriptMgrSingleton::ExecuteScriptGuard outer( mgr );
+            ScriptMgrSingleton::ExecuteScriptGuard inner( mgr );
+            outer_before = outer.Attempted();
+            inner_before = inner.Attempted();
+            gc_rc = engine->GarbageCollect( asGC_FULL_CYCLE );
+            outer_after = outer.Attempted();
+            inner_after = inner.Attempted();
+        }
+        auto boolean = []( bool value ) { return value ? "true" : "false"; };
+        const string err = TakeErrors();
+        const string json = string( "{\"buildMode\":" ) + Quote( build_mode ) + ",\"executeRc\":" + std::to_string( rc ) +
+            ",\"positiveAliveAfter\":" + boolean( positive_alive ) +
+            ",\"victimAliveBefore\":" + boolean( victim_before ) +
+            ",\"victimAliveAfter\":" + boolean( veh->FindGeom( nested_victim ) != nullptr ) +
+            ",\"destroyedBefore\":" + std::to_string( before ) +
+            ",\"destroyedAfter\":" + std::to_string( *destroyed ) +
+            ",\"gcRc\":" + std::to_string( gc_rc ) +
+            ",\"outerBefore\":" + boolean( outer_before ) + ",\"innerBefore\":" + boolean( inner_before ) +
+            ",\"outerAfter\":" + boolean( outer_after ) + ",\"innerAfter\":" + boolean( inner_after ) +
+            ",\"errors\":" + Quote( err ) + "}";
+        return Result( j.id, "", json );
+    }
+#endif
     const string target = vsp::AddGeom( "FUSELAGE", "" );
     const string victim = vsp::AddGeom( "BLANK", "" );
     vsp::Update();
@@ -104,7 +160,7 @@ void ScriptSetterGcProbe( const Job &j )
     const bool victim_alive = veh->FindGeom( victim ) != nullptr;
     const bool target_alive = veh->FindGeom( target ) != nullptr;
     string err = TakeErrors();
-    string json = string( "{\"executeRc\":" ) + std::to_string( execute_rc ) +
+    string json = string( "{\"buildMode\":" ) + Quote( build_mode ) + ",\"executeRc\":" + std::to_string( execute_rc ) +
         ",\"setterHits\":" + std::to_string( state.hits ) +
         ",\"gcRc\":" + ( state.hits ? std::to_string( state.gc_rc ) : "null" ) +
         ",\"destroyedBefore\":0,\"destroyedAfter\":" + std::to_string( after ) +

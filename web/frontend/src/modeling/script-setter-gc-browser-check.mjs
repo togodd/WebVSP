@@ -3,9 +3,14 @@
 // Serve the modeling test page with WEBVSP_TEST_WASM_ORIGIN pointing to that
 // isolated build; set WEBVSP_TEST_CHROMIUM and optionally WEBVSP_TEST_PAGE.
 // The new browser context creates a fresh engine worker. Discard it after the probe.
+// For a THREE-macro WEBVSP_DELETE_GEOM_PROXY_TEST build set WEBVSP_DELETE_PROXY_CASE
+// to 'control' or 'setter'; run each in a separate invocation/fresh worker. Without
+// that variable the original two-macro observation remains unchanged.
 import assert from 'node:assert/strict'
 import { chromium } from 'playwright-core'
 
+const proxyCase = process.env.WEBVSP_DELETE_PROXY_CASE ?? ''
+if (!['', 'control', 'setter'].includes(proxyCase)) throw new Error('WEBVSP_DELETE_PROXY_CASE must be control or setter')
 const executablePath = process.env.WEBVSP_TEST_CHROMIUM
 if (!executablePath) throw new Error('Set WEBVSP_TEST_CHROMIUM')
 const testPage = new URL(process.env.WEBVSP_TEST_PAGE ?? 'http://127.0.0.1:5178/')
@@ -63,8 +68,24 @@ try {
     assert.ok(response?.ok())
     await page.waitForSelector('[data-ready="1"]', { timeout: 120000 })
     assert.equal(await page.evaluate(() => crossOriginIsolated), true)
-    const result = await page.evaluate(() => window.__webvspEngine.testCall('scriptSetterGcProbe', 'disposable-empty-model'))
+    const request = proxyCase === 'control' ? 'disposable-delete-control' : 'disposable-empty-model'
+    const result = await page.evaluate(request => window.__webvspEngine.testCall('scriptSetterGcProbe', request), request)
     console.log(JSON.stringify(result))
+    assert.equal(result.buildMode, proxyCase ? 'delete-geom-proxy' : 'original', 'probe build must match the selected case')
+    if (proxyCase === 'control') {
+      assert.equal(result.executeRc, 0)
+      assert.equal(result.positiveAliveAfter, false, 'unguarded script DeleteGeom must forward')
+      assert.equal(result.victimAliveBefore, true)
+      assert.equal(result.victimAliveAfter, true, 'guarded script DeleteGeom must be blocked')
+      assert.equal(result.destroyedBefore, 0)
+      assert.equal(result.destroyedAfter, 1)
+      assert.equal(result.gcRc, 0)
+      assert.equal(result.outerBefore, false)
+      assert.equal(result.innerBefore, false)
+      assert.equal(result.outerAfter, true)
+      assert.equal(result.innerAfter, true)
+      assert.equal(result.errors, '')
+    } else {
     assert.equal(result.executeRc, 0)
     assert.equal(result.setterHits, 1, 'the real target setter must be reached exactly once')
     assert.equal(result.gcRc, 0)
@@ -88,6 +109,11 @@ try {
       assert.equal(result.reply.value.actual, 12)
     }
     assert.equal(result.errors, '')
+    if (proxyCase === 'setter') {
+      assert.equal(result.attemptedAfter, true)
+      assert.equal(result.victimAliveAfter, true)
+    }
+    }
     const retryError = await page.evaluate(async () => {
       try { await window.__webvspEngine.testCall('scriptSetterGcProbe', 'disposable-empty-model'); return null }
       catch (error) { return error.message }

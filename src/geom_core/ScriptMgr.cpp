@@ -12,6 +12,10 @@
 //
 //////////////////////////////////////////////////////////////////////
 
+#if defined(WEBVSP_PRODUCTION_BUILD) && defined(WEBVSP_DELETE_GEOM_PROXY_TEST)
+#error WebVSP test hooks are forbidden in production
+#endif
+
 #include "ScriptMgr.h"
 #include "ScriptCall.h"
 
@@ -329,6 +333,20 @@ ScriptMgrSingleton::ExecuteScriptGuard::~ExecuteScriptGuard()
     }
     *link = m_Next;
 }
+
+#if defined(WEBVSP_SCRIPT_GUARD_TEST) && defined(WEBVSP_PARM_REENTRY_TEST) && defined(WEBVSP_DELETE_GEOM_PROXY_TEST)
+void ScriptMgrSingleton::TestDeleteGeomProxy( const string & geom_id, int clone_delete )
+{
+    ScriptMgrSingleton & mgr = getInstance();
+    if ( mgr.m_ExecuteScriptGuards )
+    {
+        for ( ExecuteScriptGuard * guard = mgr.m_ExecuteScriptGuards; guard; guard = guard->m_Next )
+            guard->m_Attempted = true;
+        return;
+    }
+    vsp::DeleteGeom( geom_id, clone_delete );
+}
+#endif
 
 //==== Execute Function in Module ====//
 int ScriptMgrSingleton::ExecuteScript( const char* module_name, const char* function_name, bool arg_flag, double arg, bool by_decl )
@@ -4787,7 +4805,11 @@ void ScriptMgrSingleton::RegisterAPI( asIScriptEngine* se )
     assert( r >= 0 );
 
 
+#if defined(WEBVSP_SCRIPT_GUARD_TEST) && defined(WEBVSP_PARM_REENTRY_TEST) && defined(WEBVSP_DELETE_GEOM_PROXY_TEST)
+    r = se->RegisterGlobalFunction( "void DeleteGeom(const string & in geom_id, int clone_delete = CLONE_DELETE_LEAVE_EMPTY)", VSP_FN( ScriptMgrSingleton::TestDeleteGeomProxy ) );
+#else
     r = se->RegisterGlobalFunction( "void DeleteGeom(const string & in geom_id, int clone_delete = CLONE_DELETE_LEAVE_EMPTY)", VSP_FN( vsp::DeleteGeom ) );
+#endif
     assert( r >= 0 );
 
 

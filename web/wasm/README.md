@@ -91,6 +91,17 @@ browser context/worker per run and discard it afterward, even on failure. The
 probe reports actual destructor, victim and guard observations; it does not
 establish that GC is normally triggered by a setter or that all writes are safe.
 
+For a separate experiment, define `WEBVSP_DELETE_GEOM_PROXY_TEST` in addition to
+both macros above, in a clean disposable test build's C++ flags. The script binding
+for `DeleteGeom` alone then marks every live script guard and returns without calling
+`vsp::DeleteGeom`; without a guard it forwards unchanged. This does **not** guard
+GUI or C++ calls, other script APIs, or establish general reentry safety. The third
+macro is forbidden in production even by itself. Never deploy this build. Run the
+same browser check twice with `WEBVSP_DELETE_PROXY_CASE=control` and `setter`, each
+in a fresh disposable browser context/worker: the first checks the unguarded positive
+control and two nested guard markers, the second checks the setter GC block and reply.
+Omit that variable only when testing the original two-macro observation build.
+
 ## How it works
 
 | Piece | Where | What |

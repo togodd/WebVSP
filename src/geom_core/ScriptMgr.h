@@ -81,6 +81,11 @@ public:
         bool m_Attempted;
     };
 
+#if defined(WEBVSP_SCRIPT_GUARD_TEST) && defined(WEBVSP_PARM_REENTRY_TEST) && defined(WEBVSP_DELETE_GEOM_PROXY_TEST)
+    // Test-only script binding proxy; never applies to C++ or other APIs.
+    static void TestDeleteGeomProxy( const string & geom_id, int clone_delete );
+#endif
+
 #ifdef WEBVSP_SCRIPT_GUARD_TEST
     // Only for isolated disposable test modules; never expose in production builds.
     asIScriptEngine * GetTestScriptEngine() const { return m_ScriptEngine; }

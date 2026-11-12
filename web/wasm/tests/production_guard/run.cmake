@@ -67,6 +67,7 @@ include("${compiler_metadata}")
 set(compiler_info "${CMAKE_CXX_COMPILER_ID};${CMAKE_CXX_COMPILER_FRONTEND_VARIANT};${flag_syntax}")
 configure(option_parm failure -DWEBVSP_PRODUCTION_BUILD=ON -DWEBVSP_PARM_REENTRY_TEST=ON)
 configure(option_script failure -DWEBVSP_PRODUCTION_BUILD=ON -DWEBVSP_SCRIPT_GUARD_TEST=ON)
+configure(option_delete_proxy failure -DWEBVSP_PRODUCTION_BUILD=ON -DWEBVSP_DELETE_GEOM_PROXY_TEST=ON)
 
 # Other frontends, especially MSVC and clang-cl, have different diagnostics and
 # quoting rules. Do not claim these compiler-diagnostic cases passed on them.
@@ -77,6 +78,7 @@ if(compiler_info MATCHES "^(GNU|Clang|AppleClang);(GNU|);gnu$")
     # Preseed the result too: a cached successful check must not be trusted.
     configure(cache_flags macro -DWEBVSP_PRODUCTION_BUILD=ON -DWEBVSP_PRODUCTION_MACROS_CLEAN=1 "-DCMAKE_CXX_FLAGS=${define_prefix}WEBVSP_SCRIPT_GUARD_TEST")
     configure(release_flags macro -DWEBVSP_PRODUCTION_BUILD=ON -DCMAKE_BUILD_TYPE=Debug "-DCMAKE_CXX_FLAGS_RELEASE=${define_prefix}WEBVSP_PARM_REENTRY_TEST")
+    configure(delete_proxy_flags macro -DWEBVSP_PRODUCTION_BUILD=ON "-DCMAKE_CXX_FLAGS=${define_prefix}WEBVSP_DELETE_GEOM_PROXY_TEST")
     # Identical forced-include arguments must compile before defining the hook.
     file(WRITE "${root}/forced.h" "/* empty positive control */\n")
     configure(forced_header success -DWEBVSP_PRODUCTION_BUILD=ON "-DCMAKE_CXX_FLAGS=${include_flag}")
@@ -97,8 +99,15 @@ endif()
 find_program(cxx NAMES c++ g++ clang++)
 if(cxx)
     get_filename_component(repo "${fixture}/../../../.." ABSOLUTE)
-    foreach(source IN ITEMS "${repo}/src/geom_core/Parm.cpp" "${repo}/web/wasm/engine/engine.cpp")
-        foreach(hook IN ITEMS WEBVSP_SCRIPT_GUARD_TEST WEBVSP_PARM_REENTRY_TEST)
+    foreach(source IN ITEMS "${repo}/src/geom_core/Parm.cpp" "${repo}/web/wasm/engine/engine.cpp" "${repo}/src/geom_core/ScriptMgr.cpp")
+        if(source MATCHES "/ScriptMgr.cpp$")
+            set(hooks WEBVSP_DELETE_GEOM_PROXY_TEST)
+        elseif(source MATCHES "/Parm.cpp$")
+            set(hooks WEBVSP_SCRIPT_GUARD_TEST WEBVSP_PARM_REENTRY_TEST)
+        else()
+            set(hooks WEBVSP_SCRIPT_GUARD_TEST WEBVSP_PARM_REENTRY_TEST WEBVSP_DELETE_GEOM_PROXY_TEST)
+        endif()
+        foreach(hook IN LISTS hooks)
             execute_process(COMMAND "${cxx}" -E -DWEBVSP_PRODUCTION_BUILD "-D${hook}" "${source}"
                 RESULT_VARIABLE result OUTPUT_QUIET ERROR_VARIABLE err)
             if(result STREQUAL "0" OR NOT err MATCHES "error: (#error )?WebVSP test hooks are forbidden in production")
