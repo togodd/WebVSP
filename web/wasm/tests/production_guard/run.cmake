@@ -79,6 +79,7 @@ if(compiler_info MATCHES "^(GNU|Clang|AppleClang);(GNU|);gnu$")
     configure(cache_flags macro -DWEBVSP_PRODUCTION_BUILD=ON -DWEBVSP_PRODUCTION_MACROS_CLEAN=1 "-DCMAKE_CXX_FLAGS=${define_prefix}WEBVSP_SCRIPT_GUARD_TEST")
     configure(release_flags macro -DWEBVSP_PRODUCTION_BUILD=ON -DCMAKE_BUILD_TYPE=Debug "-DCMAKE_CXX_FLAGS_RELEASE=${define_prefix}WEBVSP_PARM_REENTRY_TEST")
     configure(delete_proxy_flags macro -DWEBVSP_PRODUCTION_BUILD=ON "-DCMAKE_CXX_FLAGS=${define_prefix}WEBVSP_DELETE_GEOM_PROXY_TEST")
+    configure(delete_proxy_release macro -DWEBVSP_PRODUCTION_BUILD=ON "-DCMAKE_CXX_FLAGS_RELEASE=${define_prefix}WEBVSP_DELETE_GEOM_PROXY_TEST=0")
     # Identical forced-include arguments must compile before defining the hook.
     file(WRITE "${root}/forced.h" "/* empty positive control */\n")
     configure(forced_header success -DWEBVSP_PRODUCTION_BUILD=ON "-DCMAKE_CXX_FLAGS=${include_flag}")
