@@ -1,3 +1,6 @@
+import { readFileSync } from 'node:fs'
+import { Worker } from 'node:worker_threads'
+import { transpileModule, ModuleKind } from 'typescript'
 import { describe, expect, it, vi } from 'vitest'
 import { emitListeners } from './emitListeners'
 import { settleBridgeResult, type BridgePending } from './settleBridgeResult'
@@ -38,7 +41,7 @@ describe('emitListeners', () => {
       const thenableError = new Error('thenable')
       const next = vi.fn()
       const listeners = new Set<(_: string) => void>([
-        () => Promise.reject(promiseError),
+        async () => { throw promiseError },
         () => ({ then: (_resolve: unknown, reject: (error: unknown) => void) => reject(thenableError) }),
         next,
       ])
@@ -52,7 +55,7 @@ describe('emitListeners', () => {
     } finally { log.mockRestore() }
   })
 
-  it('assimilates a then function whose own call property is overridden', async () => {
+  it('observes a then function whose own call property is overridden', async () => {
     const log = vi.spyOn(console, 'error').mockImplementation(() => {})
     try {
       const error = new Error('then rejection')
@@ -67,6 +70,75 @@ describe('emitListeners', () => {
       expect(next).toHaveBeenCalledOnce()
       await new Promise((resolve) => setTimeout(resolve, 0))
       expect(log).toHaveBeenCalledExactlyOnceWith('WebVSP event listener:', error)
+    } finally { log.mockRestore() }
+  })
+
+  it('lets a timer run after self-resolution without unhandled native promise rejections', async () => {
+    // Isolate the real implementation so a regression cannot starve Vitest's event loop.
+    const source = readFileSync(new URL('./emitListeners.ts', import.meta.url), 'utf8')
+    const compiled = transpileModule(source, { compilerOptions: { module: ModuleKind.CommonJS } }).outputText
+    const worker = new Worker(`
+      const { parentPort, workerData } = require('node:worker_threads');
+      const exports = {};
+      new Function('exports', workerData)(exports);
+      const unhandled = [];
+      const logged = [];
+      process.on('unhandledRejection', error => unhandled.push(String(error)));
+      console.error = (...args) => { logged.push(args[1]); throw Error('logger'); };
+      let calls = 0;
+      const self = { then(resolve) { calls++; resolve(self); } };
+      exports.emitListeners(new Set([
+        () => self,
+        async () => { throw Error('native failure'); },
+        async () => 'success',
+      ]), null);
+      setTimeout(() => parentPort.postMessage({ calls, unhandled, logged: logged.map(String) }), 30);
+    `, { eval: true, workerData: compiled })
+    try {
+      const outcome = await new Promise<unknown>((resolve, reject) => {
+        const timeout = setTimeout(() => reject(Error('worker timer starved by thenable assimilation')), 3000)
+        worker.once('message', (message) => { clearTimeout(timeout); resolve(message) })
+        worker.once('error', (error) => { clearTimeout(timeout); reject(error) })
+      })
+      expect(outcome).toEqual({ calls: 1, unhandled: [], logged: ['Error: native failure'] })
+    } finally { await worker.terminate() }
+  })
+
+  it('does not inspect a thenable success value', async () => {
+    const log = vi.spyOn(console, 'error').mockImplementation(() => {})
+    try {
+      const nestedGetter = vi.fn(() => { throw Error('must not inspect success') })
+      const nested = { get then() { return nestedGetter() } }
+      const next = vi.fn()
+      expect(emitListeners(new Set<(_: number) => void>([
+        () => ({ then: (resolve: (value: unknown) => void) => resolve(nested) }),
+        next,
+      ]), 0)).toBe(true)
+      expect(next).toHaveBeenCalledOnce()
+      await new Promise((resolve) => setTimeout(resolve, 0))
+      expect(nestedGetter).not.toHaveBeenCalled()
+      expect(log).not.toHaveBeenCalled()
+    } finally { log.mockRestore() }
+  })
+
+  it('honors first settlement and ignores subsequent callbacks and throws', async () => {
+    const log = vi.spyOn(console, 'error').mockImplementation(() => {})
+    try {
+      const first = Error('first rejection')
+      const later = Error('later rejection')
+      const listeners = new Set<(_: number) => void>([
+        () => ({ then: (resolve: () => void, reject: (error: unknown) => void) => {
+          resolve(); reject(later); resolve(); throw later
+        } }),
+        () => ({ then: (resolve: () => void, reject: (error: unknown) => void) => {
+          reject(first); reject(later); resolve(); throw later
+        } }),
+        () => ({ then: () => { throw later } }),
+      ])
+      expect(emitListeners(listeners, 0)).toBe(true)
+      expect(log).not.toHaveBeenCalled()
+      await new Promise((resolve) => setTimeout(resolve, 0))
+      expect(log.mock.calls).toEqual([['WebVSP event listener:', first], ['WebVSP event listener:', later]])
     } finally { log.mockRestore() }
   })
 

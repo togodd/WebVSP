@@ -19,10 +19,18 @@ export function emitListeners<T>(
       if (result !== null && (typeof result === 'object' || typeof result === 'function')) {
         const then = (result as { then?: unknown }).then
         if (typeof then === 'function') {
-          // Capture the getter once, but let Promise assimilation enforce single settlement
-          // and contain exceptions thrown by the thenable itself.
-          void Promise.resolve({ then: (resolve: (value: unknown) => void, reject: (reason: unknown) => void) =>
-            Reflect.apply(then, result, [resolve, reject]) }).catch((error: unknown) => report(error, true))
+          // Listener results are void: observe only the first settlement, never assimilate
+          // its success value. A then implementation that itself loops forever cannot be guarded.
+          queueMicrotask(() => {
+            let settled = false
+            const resolve = () => { settled = true }
+            const reject = (error: unknown) => {
+              if (settled) return
+              settled = true
+              report(error, true)
+            }
+            try { Reflect.apply(then, result, [resolve, reject]) } catch (error) { reject(error) }
+          })
         }
       }
     } catch (error) {
