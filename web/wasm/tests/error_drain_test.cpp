@@ -37,6 +37,64 @@ void Case( const std::vector<const char *> &entries, const std::string &expected
     Check( !again.had_errors && again.message.empty(), "second drain empty" );
 }
 
+// These fakes throw at explicitly defined points, not inside real manager methods.
+struct FakeException {};
+
+enum class ThrowPoint { count_after_pop, pop_before_removal, string_after_removal };
+
+struct ThrowingError
+{
+    std::string text;
+    bool should_throw;
+    FakeException *exception;
+    std::string GetErrorString()
+    {
+        if ( should_throw ) throw exception;
+        return text;
+    }
+};
+
+struct ThrowingManager
+{
+    std::vector<std::string> stack = { "first", "second", "third" };
+    ThrowPoint point;
+    FakeException exception;
+    int count_calls = 0;
+    int pop_calls = 0;
+
+    explicit ThrowingManager( ThrowPoint p ) : point( p ) {}
+    int GetNumTotalErrors()
+    {
+        if ( ++count_calls == 2 && point == ThrowPoint::count_after_pop ) throw &exception;
+        return static_cast<int>( stack.size() );
+    }
+    ThrowingError PopLastError()
+    {
+        ++pop_calls;
+        if ( pop_calls == 2 && point == ThrowPoint::pop_before_removal ) throw &exception;
+        std::string text = stack.back();
+        stack.pop_back();
+        return { text, pop_calls == 2 && point == ThrowPoint::string_after_removal, &exception };
+    }
+};
+
+void ExceptionCase( ThrowPoint point, const std::vector<std::string> &remaining )
+{
+    ThrowingManager mgr( point );
+    bool caught = false;
+    try
+    {
+        (void)DrainErrors( mgr, fallback );
+    }
+    catch ( FakeException *exception )
+    {
+        caught = true;
+        Check( exception == &mgr.exception, "same exception propagated" );
+    }
+    Check( caught, "fake exception propagated" );
+    Check( mgr.stack == remaining, "remaining fake stack" );
+}
+
 // This models the caller contract; it is not an integration test of engine.cpp.
 std::string Phase( Manager &mgr, bool setter_started )
 {
@@ -55,6 +113,10 @@ int main()
     Case( { "", "diagnostic" }, f + "; diagnostic" );
     Case( { "diagnostic", "" }, "diagnostic; " + f );
     Case( { "first", "", "last" }, "first; " + f + "; last" );
+
+    ExceptionCase( ThrowPoint::count_after_pop, { "first", "second" } );
+    ExceptionCase( ThrowPoint::pop_before_removal, { "first", "second" } );
+    ExceptionCase( ThrowPoint::string_after_removal, { "first" } );
 
     Manager mgr;
     mgr.Add( "" );
