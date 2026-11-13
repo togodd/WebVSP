@@ -103,7 +103,8 @@ export function createParameterService(adapter: ParameterReadAdapter, signal: Ab
   }
   async function read<T>(fn: () => Promise<unknown>, snapshot: (result: unknown) => T, owner: 'geometry' | 'crossSection', identity?: ModelIdentity): Promise<T> {
     checkOpen()
-    try { const result = await raceClose(signal, fn); checkOpen(); const copy = snapshot(result); checkOpen(); return copy } catch (error) {
+    let result: unknown
+    try { result = await raceClose(signal, fn); checkOpen() } catch (error) {
       checkOpen()
       let code: unknown
       try {
@@ -117,6 +118,10 @@ export function createParameterService(adapter: ParameterReadAdapter, signal: Ab
       if (identity !== undefined && code === 'STALE_MODEL') throw new ModelingError('STALE_MODEL', 'The model identity is stale')
       if (owner === 'geometry' && code === 'GEOMETRY_NOT_FOUND') throw new ModelingError('GEOMETRY_NOT_FOUND', 'Geometry not found')
       if (owner === 'crossSection' && code === 'CROSS_SECTION_NOT_FOUND') throw new ModelingError('CROSS_SECTION_NOT_FOUND', 'Cross section not found')
+      throw new ModelingError('ENGINE_ERROR', 'The OpenVSP parameter request failed')
+    }
+    try { const copy = snapshot(result); checkOpen(); return copy } catch {
+      checkOpen()
       throw new ModelingError('ENGINE_ERROR', 'The OpenVSP parameter request failed')
     }
   }

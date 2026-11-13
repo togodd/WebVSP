@@ -17,6 +17,23 @@ vi.mock('../api/wasmEngine', () => ({
 }))
 
 describe('linkable parameter reads', () => {
+  it('does not classify errors thrown while decoding responses as engine rejections', async () => {
+    const identity = { sessionId: 'session', modelEpoch: '1' }
+    for (const code of ['STALE_MODEL', 'GEOMETRY_NOT_FOUND', 'CROSS_SECTION_NOT_FOUND']) {
+      const thrown = new WasmEngineError(404, 'secret', undefined, undefined, code)
+      const bad = Object.defineProperty({}, 'id', { get() { throw thrown } })
+      const badIds = Object.defineProperty(['p'], '0', { get() { throw thrown } })
+      const adapter = { surfaces: async () => [bad] as never, fuselageLength: async () => bad as never, fuselageShapes: async () => [bad] as never, wingShapes: async () => [bad] as never, list: async () => badIds, get: async () => bad as never }
+      const service = createParameterService(adapter)
+      for (const call of [() => service.listSurfaces('g', identity), () => service.getFuselageLength('g', identity), () => service.getGeometryParameter('g', 'p', identity), () => service.getCrossSectionParameter('x', 'p', identity), () => service.listGeometryParameterIds('g', identity), () => service.listCrossSectionParameterIds('x', identity), () => service.listFuselageShapes('g', identity), () => service.listWingShapes('g', identity)]) {
+        await expect(call()).rejects.toMatchObject({ code: 'ENGINE_ERROR', message: 'The OpenVSP parameter request failed' })
+      }
+      const controller = new AbortController()
+      const closing = Object.defineProperty({}, 'id', { get() { controller.abort(); throw thrown } })
+      const closedService = createParameterService({ ...adapter, surfaces: async () => [closing] as never }, controller.signal)
+      await expect(closedService.listSurfaces('g', identity)).rejects.toMatchObject({ code: 'SESSION_CLOSED' })
+    }
+  })
   it('routes geometry and cross section owners distinctly', async () => {
     const adapter = { fuselageLength: vi.fn(async () => ({ id: 'parm', value: 1, type: 0, name: 'Length', group: 'Design', container: 'geom', lowerLimit: 0, upperLimit: 10, active: true })), surfaces: vi.fn(async () => [{ id: 'surf', xsecs: ['xs'] }]), list: vi.fn(async () => ['parm']), get: vi.fn(async () => ({ id: 'parm', value: 1, type: 0, name: 'Length', group: 'Design', container: 'geom', lowerLimit: 0, upperLimit: 10, active: true })) }
     const service = createParameterService(adapter)
