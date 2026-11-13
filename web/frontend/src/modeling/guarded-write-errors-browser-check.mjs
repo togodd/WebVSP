@@ -75,6 +75,17 @@ try {
           out.push({ point, mode, before, args, result, after, recoveryArgs, recovery, recovered })
         }
       }
+      for (const mode of ['empty', 'mixed']) {
+        const before = await snapshot()
+        const args = [id, parm.id, before.length + 1]
+        await arm('GetGeomParmIDs', mode)
+        const result = await attempt(() => write('geomSetParm', ...args))
+        const after = await snapshot()
+        const recoveryArgs = [id, parm.id, before.length + 2]
+        const recovery = await attempt(() => write('geomSetParm', ...recoveryArgs))
+        const recovered = await snapshot()
+        out.push({ point: 'GetGeomParmIDs', mode, geom: true, before, args, result, after, recoveryArgs, recovery, recovered })
+      }
       for (const point of ['GetXSecSurfIDVec', 'GetNumXSec', 'GetXSec', 'GetXSecParmIDs']) {
         for (const mode of ['empty', 'mixed']) {
           const before = await snapshot()
@@ -120,6 +131,18 @@ try {
       }
       assert.ok(c.recovery.value?.ok, label)
       near(c.recovered.origin[0], (c.afterLegacyInjected ?? c.after).origin[0] + 1, label)
+      continue
+    }
+    if (c.geom) {
+      assert.equal(c.result.error?.outcome, 'not_written', label)
+      assert.equal(c.result.error.actual, null, label)
+      assert.equal(c.result.error.message, c.mode === 'mixed' ? 'Injected write error; OpenVSP API error (no message)' : 'OpenVSP API error (no message)', label)
+      assert.deepEqual(c.after, c.before, `${label}: model and observed parameters unchanged`)
+      near(c.recovery.value?.actual, c.recoveryArgs[2], `${label}: recovery result`)
+      near(c.recovered.length, c.recoveryArgs[2], `${label}: recovery value`)
+      assert.deepEqual(c.recovered.ids, c.after.ids, `${label}: recovery preserves geom IDs`)
+      near(c.recovered.section, c.after.section, label)
+      assert.deepEqual(c.recovered.origin, c.after.origin, label)
       continue
     }
     if (c.xsec) {

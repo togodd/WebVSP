@@ -1088,6 +1088,9 @@ bool ParmIDs( bool xsec, const string &owner, vector< string > &ids, string &err
     {
         if ( !CurrentModelGeom( owner, err, missing, strict ) ) return false;
         ids = vsp::GetGeomParmIDs( owner );
+#ifdef WEBVSP_SCRIPT_GUARD_TEST
+        if ( strict ) InjectWriteError( "GetGeomParmIDs" );
+#endif
     }
     return !TakeOwnerErrors( strict, missing != nullptr, err );
 }
@@ -1841,7 +1844,7 @@ void RunImpl( const Job &j )
     if ( j.op == "guardedWriteErrorInjection" )
     {
         if ( j.a != "clear" && j.a != "FindGeoms" && j.a != "GetXSecSurfIDVec" &&
-             j.a != "GetNumXSec" && j.a != "GetXSec" && j.a != "GetXSecParmIDs" &&
+             j.a != "GetNumXSec" && j.a != "GetXSec" && j.a != "GetXSecParmIDs" && j.a != "GetGeomParmIDs" &&
              j.a != "metadata" && j.a != "setter" && j.a != "readback" &&
              j.a != "addUpdate" && j.a != "move" )
             return Result( j.id, "Invalid guarded write error point", "" );
