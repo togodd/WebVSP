@@ -9,11 +9,37 @@ vi.mock('../api/wasmEngine', () => ({
   WasmEngineError: class extends Error {},
 }))
 
-import { discoverModelingProtocol } from '../api/wasmEngine'
+import { callGuarded, discoverModelingProtocol } from '../api/wasmEngine'
 import { createBrowserModelingService } from './index'
 import { createBrowserReadApi } from './browserReadApi'
 
 describe('browser read wrapper session lifetime', () => {
+  it('propagates external close through the wrapper and disposes after the scoped read', async () => {
+    const tree = { geoms: [], active: [], modelEpoch: '42', modelEpochValid: true, rev: 1, version: 'v', fileName: '' }
+    const token = { sessionId: 'tab', modelEpoch: '42' }
+    for (const kind of ['info', 'selection', 'list', 'get'] as const) {
+      for (const late of [false, true]) {
+        const delay = (kind === 'info' ? 4 : 5) + Number(late)
+        vi.mocked(callGuarded).mockResolvedValueOnce(tree)
+        const service = createBrowserModelingService()
+        const events: string[] = []
+        const originalClose = service.close.bind(service)
+        const closeSpy = vi.spyOn(service, 'close').mockImplementation(() => { events.push('wrapper-close'); originalClose() })
+        const factory = vi.fn(() => service)
+        const api = createBrowserReadApi(factory)
+        const pending = (kind === 'info' ? api.model.getInfo(token) : kind === 'selection' ? api.model.getSelection(token) : kind === 'list' ? api.geometry.list(token) : api.geometry.get('missing', token)).then(() => { events.push('consumer'); return 'success' }, error => { events.push('consumer'); return error.code })
+        let remaining = delay
+        const close = () => { if (remaining-- === 0) { events.push('external-close'); originalClose() } else queueMicrotask(close) }
+        queueMicrotask(close)
+        // The adjacent schedules straddle an internal continuation, not necessarily
+        // settlement of the wrapper promise or observation by its consumer.
+        expect(await pending).toBe(late ? (kind === 'get' ? 'GEOMETRY_NOT_FOUND' : 'success') : 'SESSION_CLOSED')
+        expect(factory).toHaveBeenCalledOnce()
+        expect(closeSpy).toHaveBeenCalledOnce()
+        expect(events).toEqual(['external-close', 'wrapper-close', 'consumer'])
+      }
+    }
+  })
   it('does not cancel a pending read when an independent call completes', async () => {
     let resolve!: (value: unknown) => void
     vi.mocked(discoverModelingProtocol).mockReturnValueOnce(new Promise(r => { resolve = r }))

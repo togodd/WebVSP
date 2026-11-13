@@ -120,35 +120,42 @@ export function createReadService(adapter: ModelingReadAdapter, sessionId: strin
       if (tokenSessionId !== sessionId) throw new ModelingError('STALE_MODEL', 'Model identity does not match this session')
       validatedIdentity = { sessionId: tokenSessionId, modelEpoch }
     }
-    const info = await fromEngine(async () => {
-      // The adapter must not be able to alter the values used for our comparison.
-      const method = field(adapter, 'model')
-      const model = await Reflect.apply(method, adapter, validatedIdentity ? [{ ...validatedIdentity }] : [])
-      checkOpen()
-      try {
-        if (!model) throw new Error('Invalid model identity')
-        const modelEpoch = field(model, 'modelEpoch')
-        if (field(model, 'modelEpochValid') !== true || !validEpoch(modelEpoch)) throw new Error('Invalid model identity')
-        const rev = field(model, 'rev'), version = field(model, 'version'), fileName = field(model, 'fileName'), geoms = field(model, 'geoms'), active = field(model, 'active')
-        if (typeof rev !== 'number' || !Number.isFinite(rev) || typeof version !== 'string' || typeof fileName !== 'string' || !Array.isArray(geoms)) throw new Error('Invalid model')
-        const geometries = copyArray(geoms, (g): Geometry => {
-          if (!g || typeof g !== 'object') throw new Error('Invalid geometry')
-          const record = g as Record<string, unknown>
-          const id = field(record, 'id'), name = field(record, 'name'), type = field(record, 'type'), parent = field(record, 'parent'), children = field(record, 'children'), shown = field(record, 'shown')
-          if (typeof id !== 'string' || typeof name !== 'string' || typeof type !== 'string' || (parent !== null && typeof parent !== 'string') || typeof shown !== 'boolean') throw new Error('Invalid geometry')
-          return { id, name, type, parentId: parent, childIds: stringArray(children, checkOpen), shown }
-        }, checkOpen)
-        return {
-          identity: { sessionId, modelEpoch },
-          context: { sessionId, engineRevision: rev, engineVersion: version },
-          fileName,
-          geometries,
-          selectedGeometryIds: stringArray(active, checkOpen),
+    let info: ModelInfo
+    try {
+      info = await fromEngine(async () => {
+        // The adapter must not be able to alter the values used for our comparison.
+        const method = field(adapter, 'model')
+        const model = await Reflect.apply(method, adapter, validatedIdentity ? [{ ...validatedIdentity }] : [])
+        checkOpen()
+        try {
+          if (!model) throw new Error('Invalid model identity')
+          const modelEpoch = field(model, 'modelEpoch')
+          if (field(model, 'modelEpochValid') !== true || !validEpoch(modelEpoch)) throw new Error('Invalid model identity')
+          const rev = field(model, 'rev'), version = field(model, 'version'), fileName = field(model, 'fileName'), geoms = field(model, 'geoms'), active = field(model, 'active')
+          if (typeof rev !== 'number' || !Number.isFinite(rev) || typeof version !== 'string' || typeof fileName !== 'string' || !Array.isArray(geoms)) throw new Error('Invalid model')
+          const geometries = copyArray(geoms, (g): Geometry => {
+            if (!g || typeof g !== 'object') throw new Error('Invalid geometry')
+            const record = g as Record<string, unknown>
+            const id = field(record, 'id'), name = field(record, 'name'), type = field(record, 'type'), parent = field(record, 'parent'), children = field(record, 'children'), shown = field(record, 'shown')
+            if (typeof id !== 'string' || typeof name !== 'string' || typeof type !== 'string' || (parent !== null && typeof parent !== 'string') || typeof shown !== 'boolean') throw new Error('Invalid geometry')
+            return { id, name, type, parentId: parent, childIds: stringArray(children, checkOpen), shown }
+          }, checkOpen)
+          return {
+            identity: { sessionId, modelEpoch },
+            context: { sessionId, engineRevision: rev, engineVersion: version },
+            fileName,
+            geometries,
+            selectedGeometryIds: stringArray(active, checkOpen),
+          }
+        } catch {
+          throw new Error('Invalid model response')
         }
-      } catch {
-        throw new Error('Invalid model response')
-      }
-    })
+      })
+    } catch (error) {
+      checkOpen()
+      throw error
+    }
+    checkOpen()
     if (validatedIdentity && info.identity.modelEpoch !== validatedIdentity.modelEpoch) throw new ModelingError('STALE_MODEL', 'Model identity does not match the snapshot')
     return info
   }
@@ -160,7 +167,9 @@ export function createReadService(adapter: ModelingReadAdapter, sessionId: strin
     model: {
       getInfo: getModel,
       async getSelection(): Promise<{ context: ModelInfo['context']; geometryIds: string[] }> {
-        const info = await getModel()
+        let info: ModelInfo
+        try { info = await getModel() } catch (error) { checkOpen(); throw error }
+        checkOpen()
         return { context: info.context, geometryIds: info.selectedGeometryIds }
       },
       /** Bounds of shown surfaces only, not all model geometry; a separate non-atomic read. */
@@ -190,14 +199,18 @@ export function createReadService(adapter: ModelingReadAdapter, sessionId: strin
         })
       },
       async list(): Promise<{ context: ModelInfo['context']; geometries: Geometry[] }> {
-        const info = await getModel()
+        let info: ModelInfo
+        try { info = await getModel() } catch (error) { checkOpen(); throw error }
+        checkOpen()
         return { context: info.context, geometries: info.geometries }
       },
       /** Optional identity compares this snapshot only; it does not guard later operations. */
       async get(geometryId: string, expectedIdentity?: ModelIdentity): Promise<{ context: ModelInfo['context']; geometry: Geometry }> {
         checkOpen()
         if (typeof geometryId !== 'string' || !geometryId.trim()) throw new ModelingError('INVALID_ARGUMENT', 'geometryId must be a nonempty string')
-        const info = await getModel(expectedIdentity)
+        let info: ModelInfo
+        try { info = await getModel(expectedIdentity) } catch (error) { checkOpen(); throw error }
+        checkOpen()
         const geometry = info.geometries.find((g) => g.id === geometryId)
         if (!geometry) throw new ModelingError('GEOMETRY_NOT_FOUND', 'Geometry does not exist', { geometryId })
         return { context: info.context, geometry }

@@ -450,6 +450,40 @@ describe('browser-local read service', () => {
     await expect(service.model.getInfo()).resolves.toMatchObject({ identity: { modelEpoch: '42' } })
     await expect(service.model.getVisibleSurfaceBounds()).resolves.toBeNull()
   })
+  it('checks closure at each asynchronous model projection boundary', async () => {
+    const reads = [
+      (s: ReturnType<typeof createReadService>) => s.model.getInfo({ sessionId: 'tab', modelEpoch: '43' }),
+      (s: ReturnType<typeof createReadService>) => s.model.getSelection(),
+      (s: ReturnType<typeof createReadService>) => s.geometry.list(),
+      (s: ReturnType<typeof createReadService>) => s.geometry.get('missing'),
+    ]
+    for (const [index, read] of reads.entries()) {
+      for (const late of [false, true]) {
+        const service = createReadService({ model: async () => fixture(), bbox: async () => null }, 'tab')
+        const pending = read(service).then(() => 'success', (error: ModelingError) => error.code)
+        // Schedule closure between the relevant internal await and its continuation.
+        // The adjacent schedule retains the original outcome; consumer callbacks
+        // alone do not identify when an internal promise settled.
+        let remaining = (index === 0 ? 2 : 3) + Number(late)
+        const close = () => { if (remaining-- === 0) service.close(); else queueMicrotask(close) }
+        queueMicrotask(close)
+        expect(await pending).toBe(late ? (index === 0 ? 'STALE_MODEL' : index === 3 ? 'GEOMETRY_NOT_FOUND' : 'success') : 'SESSION_CLOSED')
+      }
+    }
+  })
+  it('checks close while propagating rejected model reads', async () => {
+    for (const kind of ['info', 'selection', 'list', 'get'] as const) {
+      for (const late of [false, true]) {
+        const delay = (kind === 'info' ? 2 : 3) + Number(late)
+        const service = createReadService({ model: async () => { throw new Error('private') }, bbox: async () => null }, 'tab')
+        const pending = (kind === 'info' ? service.model.getInfo() : kind === 'selection' ? service.model.getSelection() : kind === 'list' ? service.geometry.list() : service.geometry.get('missing')).then(() => 'success', error => error.code)
+        let remaining = delay
+        const close = () => { if (remaining-- === 0) service.close(); else queueMicrotask(close) }
+        queueMicrotask(close)
+        expect(await pending).toBe(late ? 'ENGINE_ERROR' : 'SESSION_CLOSED')
+      }
+    }
+  })
   it('does not return a response after close during a pending request', async () => {
     let resolve!: (m: ModelTree) => void
     const service = createReadService({ model: () => new Promise((r) => { resolve = r }), bbox: async () => null }, 'tab')
