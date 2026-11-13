@@ -104,6 +104,14 @@ function load(): Promise<VspModule> {
   return modulePromise
 }
 
+// Keep engine error metadata and status handling shared with the result dispatcher.
+export function makeBridgeError(result: Record<string, unknown>): WasmEngineError {
+  const outcome = result.outcome === 'not_written' || result.outcome === 'different' || result.outcome === 'unknown' ? result.outcome : undefined
+  const actual = typeof result.actual === 'number' && Number.isFinite(result.actual) ? result.actual : result.actual === null ? null : undefined
+  const code = typeof result.code === 'string' ? result.code : undefined
+  return new WasmEngineError(code === 'STALE_MODEL' ? 409 : 400, String(result.error), outcome, actual, code)
+}
+
 function drain(vsp: VspModule) {
   const batch = JSON.parse(vsp.take()) as {
     out: Record<string, unknown>[]
@@ -115,12 +123,7 @@ function drain(vsp: VspModule) {
     else if (r.t === 'kill') killProgram(vsp, r.id)
   }, (m) => {
     if (m.t === 'result') {
-      settleBridgeResult(pending, m, (id) => vsp.takeBinary(id), (result) => {
-        const outcome = result.outcome === 'not_written' || result.outcome === 'different' || result.outcome === 'unknown' ? result.outcome : undefined
-        const actual = typeof result.actual === 'number' && Number.isFinite(result.actual) ? result.actual : result.actual === null ? null : undefined
-        const code = typeof result.code === 'string' ? result.code : undefined
-        return new WasmEngineError(code === 'STALE_MODEL' ? 409 : 400, String(result.error), outcome, actual, code)
-      })
+      settleBridgeResult(pending, m, (id) => vsp.takeBinary(id), makeBridgeError)
     } else if (m.type === 'engine_ready') {
       if (m.gui) {
         emit({ type: 'mirror_snapshot', enabled: true, windows: [], widgets: [], dialogs: [] })

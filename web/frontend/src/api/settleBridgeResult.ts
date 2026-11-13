@@ -24,7 +24,13 @@ export function settleBridgeResult(
   }
   pending.delete(id)
   if (!result.ok) {
-    entry.reject(makeError(result))
+    let error: unknown
+    try {
+      error = makeError(result)
+    } catch {
+      error = new Error('Invalid engine error response')
+    }
+    entry.reject(error)
   } else if (result.bin) {
     try {
       const bytes = takeBinary(id)

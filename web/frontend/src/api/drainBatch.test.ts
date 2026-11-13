@@ -33,14 +33,42 @@ describe('drainBatch', () => {
     expect(calls).toEqual(['proc', 'out', 'mirror', 'microtask'])
   })
 
-  it('propagates an out handler failure without dispatching the remaining batch', () => {
-    const error = new Error('out failed')
-    const calls: string[] = []
-    expect(() => drainBatch({ proc: [1], out: [1, 2], mirror: [1] }, () => calls.push('proc'), () => {
-      calls.push('out')
-      throw error
-    }, () => calls.push('mirror'))).toThrow(error)
-    expect(calls).toEqual(['proc', 'out'])
+  it('isolates each failed out handler and continues without leaking exceptions', () => {
+    const log = vi.spyOn(console, 'error').mockImplementation(() => {})
+    try {
+      const calls: string[] = []
+      drainBatch({ proc: [1], out: [1, 2], mirror: [1] }, () => calls.push('proc'), (out) => {
+        calls.push(`out-${out}`)
+        if (out === 1) throw new Error('secret')
+      }, () => calls.push('mirror'))
+      expect(calls).toEqual(['proc', 'out-1', 'out-2', 'mirror'])
+      expect(log.mock.calls).toEqual([['WebVSP: output handler failed']])
+    } finally {
+      log.mockRestore()
+    }
+  })
+
+  it('continues if logging fails after requestFull throws without falsely signaling ready', () => {
+    const log = vi.spyOn(console, 'error').mockImplementation(() => { throw new Error('log failed') })
+    try {
+      const ready = vi.fn()
+      const requestFull = vi.fn(() => { throw new Error('sensitive requestFull failure') })
+      const next = vi.fn()
+      const mirror = vi.fn()
+      drainBatch({ proc: [], out: ['engine_ready', 'next'], mirror: ['mirror'] }, () => {}, (message) => {
+        if (message === 'engine_ready') {
+          requestFull()
+          ready()
+        } else next()
+      }, mirror)
+      expect(requestFull).toHaveBeenCalledOnce()
+      expect(ready).not.toHaveBeenCalled()
+      expect(next).toHaveBeenCalledOnce()
+      expect(mirror).toHaveBeenCalledExactlyOnceWith(['mirror'])
+      expect(log.mock.calls).toEqual([['WebVSP: output handler failed']])
+    } finally {
+      log.mockRestore()
+    }
   })
 
   it('does not dispatch an empty mirror batch', () => {
