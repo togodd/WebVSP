@@ -45,7 +45,9 @@ try {
       for (const xsec of surface.xsecs) {
         for (const parmId of await write('xsecParmIDs', xsec)) {
           const p = await write('xsecParm', xsec, parmId)
-          if (p.active && p.type === 0 && Number.isFinite(p.value) && p.value + 2 < p.upperLimit) {
+          // All xsec cases cumulatively increase this parm by about 3.6;
+          // reserve extra headroom so later writes cannot clamp at the limit.
+          if (p.active && p.type === 0 && Number.isFinite(p.value) && p.value + 5 < p.upperLimit) {
             section = xsec; sectionParm = p; break
           }
         }
@@ -97,6 +99,19 @@ try {
           const recovery = await attempt(() => write('xsecSetParm', ...recoveryArgs))
           const recovered = await snapshot()
           out.push({ point, mode, xsec: true, before, args, result, after, recoveryArgs, recovery, recovered })
+        }
+      }
+      for (const point of ['metadata', 'setter', 'readback']) {
+        for (const mode of ['empty', 'mixed']) {
+          const before = await snapshot()
+          const args = [section, sectionParm.id, before.section + 0.1]
+          await arm(point, mode)
+          const result = await attempt(() => write('xsecSetParm', ...args))
+          const after = await snapshot()
+          const recoveryArgs = [section, sectionParm.id, after.section + 0.2]
+          const recovery = await attempt(() => write('xsecSetParm', ...recoveryArgs))
+          const recovered = await snapshot()
+          out.push({ point, mode, xsecWrite: true, before, args, result, after, recoveryArgs, recovery, recovered })
         }
       }
       for (const mode of ['empty', 'mixed']) {
@@ -227,6 +242,25 @@ try {
       near(c.recovered.length, c.recoveryArgs[2], `${label}: recovery value`)
       assert.deepEqual(c.recovered.ids, c.after.ids, `${label}: recovery preserves geom IDs`)
       near(c.recovered.section, c.after.section, label)
+      assert.deepEqual(c.recovered.origin, c.after.origin, label)
+      continue
+    }
+    if (c.xsecWrite) {
+      const pre = c.point === 'metadata'
+      const message = c.mode === 'mixed' ? 'Injected write error; OpenVSP API error (no message)' : 'OpenVSP API error (no message)'
+      const prefix = pre ? 'Cannot read parm metadata: ' : c.point === 'setter' ? 'SetParmValUpdate failed: ' : 'Readback failed: '
+      assert.equal(c.result.error?.outcome, pre ? 'not_written' : 'unknown', label)
+      assert.equal(c.result.error.message, prefix + message, label)
+      if (c.point === 'setter') near(c.result.error.actual, c.args[2], `${label}: setter actual`)
+      else assert.equal(c.result.error.actual, null, label)
+      near(c.after.section, pre ? c.before.section : c.args[2], `${label}: observed section`)
+      assert.deepEqual(c.after.ids, c.before.ids, label)
+      near(c.after.length, c.before.length, label)
+      assert.deepEqual(c.after.origin, c.before.origin, label)
+      near(c.recovery.value?.actual, c.recoveryArgs[2], `${label}: recovery result`)
+      near(c.recovered.section, c.recoveryArgs[2], `${label}: recovery observation`)
+      assert.deepEqual(c.recovered.ids, c.after.ids, label)
+      near(c.recovered.length, c.after.length, label)
       assert.deepEqual(c.recovered.origin, c.after.origin, label)
       continue
     }
