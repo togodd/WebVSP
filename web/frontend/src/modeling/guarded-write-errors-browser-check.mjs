@@ -40,7 +40,24 @@ try {
     const write = (op, a = '', b = '', value = 0, epoch = model.modelEpoch) => e.testCallGuarded(op, a, b, value, epoch)
     const id = (await write('addGeom', 'FUSELAGE')).id
     const parm = await write('fuselageLength', id)
-    const snapshot = async () => ({ ids: (await write('model')).geoms.map(g => g.id), length: (await write('geomParm', id, parm.id)).value, origin: await write('origin', id) })
+    let section, sectionParm
+    for (const surface of await write('geomXSecs', id)) {
+      for (const xsec of surface.xsecs) {
+        for (const parmId of await write('xsecParmIDs', xsec)) {
+          const p = await write('xsecParm', xsec, parmId)
+          if (p.active && p.type === 0 && Number.isFinite(p.value) && p.value + 2 < p.upperLimit) {
+            section = xsec; sectionParm = p; break
+          }
+        }
+        if (section) break
+      }
+      if (section) break
+    }
+    if (!section) throw new Error('No suitable active cross-section double parm')
+    const snapshot = async () => {
+      const model = await write('model')
+      return { model, ids: model.geoms.map(g => g.id), length: (await write('geomParm', id, parm.id)).value, section: (await write('xsecParm', section, sectionParm.id)).value, origin: await write('origin', id) }
+    }
     const attempt = async fn => { try { return { value: await fn() } } catch (err) { return { error: { message: err.message, code: err.code, outcome: err.outcome, actual: err.actual } } } }
     const out = []
     try {
@@ -56,6 +73,19 @@ try {
           const recovery = await attempt(() => write(op, ...recoveryArgs))
           const recovered = await snapshot()
           out.push({ point, mode, before, args, result, after, recoveryArgs, recovery, recovered })
+        }
+      }
+      for (const point of ['GetXSecSurfIDVec', 'GetNumXSec', 'GetXSec', 'GetXSecParmIDs']) {
+        for (const mode of ['empty', 'mixed']) {
+          const before = await snapshot()
+          const args = [section, sectionParm.id, before.section + 0.1]
+          await arm(point, mode)
+          const result = await attempt(() => write('xsecSetParm', ...args))
+          const after = await snapshot()
+          const recoveryArgs = [section, sectionParm.id, before.section + 0.2]
+          const recovery = await attempt(() => write('xsecSetParm', ...recoveryArgs))
+          const recovered = await snapshot()
+          out.push({ point, mode, xsec: true, before, args, result, after, recoveryArgs, recovery, recovered })
         }
       }
       for (const control of ['miss', 'stale', 'clear', 'legacy']) {
@@ -90,6 +120,17 @@ try {
       }
       assert.ok(c.recovery.value?.ok, label)
       near(c.recovered.origin[0], (c.afterLegacyInjected ?? c.after).origin[0] + 1, label)
+      continue
+    }
+    if (c.xsec) {
+      assert.equal(c.result.error?.outcome, 'not_written', label)
+      assert.equal(c.result.error.actual, null, label)
+      assert.equal(c.result.error.message, c.mode === 'mixed' ? 'Injected write error; OpenVSP API error (no message)' : 'OpenVSP API error (no message)', label)
+      assert.deepEqual(c.after, c.before, `${label}: model and observed parameters unchanged`)
+      near(c.recovery.value?.actual, c.recoveryArgs[2], `${label}: recovery result`)
+      near(c.recovered.section, c.recoveryArgs[2], `${label}: recovery value`)
+      assert.deepEqual(c.recovered.ids, c.after.ids, `${label}: recovery preserves geom IDs`)
+      near(c.recovered.length, c.after.length, label)
       continue
     }
     const pre = c.point === 'FindGeoms' || c.point === 'metadata'

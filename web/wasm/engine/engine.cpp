@@ -1025,6 +1025,7 @@ bool GeomXSecs( const string &geom, string &json, bool &found, const string &wan
     vector< string > surfaces = vsp::GetXSecSurfIDVec( geom );
 #ifdef WEBVSP_SCRIPT_GUARD_TEST
     InjectParmReadFault( "GetXSecSurfIDVec", guarded );
+    if ( strict ) InjectWriteError( "GetXSecSurfIDVec" );
 #endif
     if ( TakeOwnerErrors( strict, guarded, err ) ) return false;
     json = "[";
@@ -1033,6 +1034,7 @@ bool GeomXSecs( const string &geom, string &json, bool &found, const string &wan
         int count = vsp::GetNumXSec( surfaces[s] );
 #ifdef WEBVSP_SCRIPT_GUARD_TEST
         InjectParmReadFault( "GetNumXSec", guarded );
+        if ( strict ) InjectWriteError( "GetNumXSec" );
 #endif
         if ( TakeOwnerErrors( strict, guarded, err ) ) return false;
         vector< string > ids;
@@ -1041,6 +1043,7 @@ bool GeomXSecs( const string &geom, string &json, bool &found, const string &wan
             string id = vsp::GetXSec( surfaces[s], i );
 #ifdef WEBVSP_SCRIPT_GUARD_TEST
             InjectParmReadFault( "GetXSec", guarded );
+            if ( strict ) InjectWriteError( "GetXSec" );
 #endif
             if ( TakeOwnerErrors( strict, guarded, err ) ) return false;
             ids.push_back( id );
@@ -1077,6 +1080,9 @@ bool ParmIDs( bool xsec, const string &owner, vector< string > &ids, string &err
             return false;
         }
         ids = vsp::GetXSecParmIDs( owner );
+#ifdef WEBVSP_SCRIPT_GUARD_TEST
+        if ( strict ) InjectWriteError( "GetXSecParmIDs" );
+#endif
     }
     else
     {
@@ -1834,8 +1840,10 @@ void RunImpl( const Job &j )
     }
     if ( j.op == "guardedWriteErrorInjection" )
     {
-        if ( j.a != "clear" && j.a != "FindGeoms" && j.a != "metadata" &&
-             j.a != "setter" && j.a != "readback" && j.a != "addUpdate" && j.a != "move" )
+        if ( j.a != "clear" && j.a != "FindGeoms" && j.a != "GetXSecSurfIDVec" &&
+             j.a != "GetNumXSec" && j.a != "GetXSec" && j.a != "GetXSecParmIDs" &&
+             j.a != "metadata" && j.a != "setter" && j.a != "readback" &&
+             j.a != "addUpdate" && j.a != "move" )
             return Result( j.id, "Invalid guarded write error point", "" );
         if ( j.a != "clear" && j.b != "empty" && j.b != "mixed" )
             return Result( j.id, "Invalid guarded write error mode", "" );
