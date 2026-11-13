@@ -108,6 +108,19 @@ try {
         if (control === 'clear') { await arm('clear'); first = await attempt(() => write('move', id, '1,0,0')) }
         if (control === 'legacy') first = await attempt(() => call('move', id, '1,0,0'))
         const after = await snapshot()
+        if (control === 'miss') {
+          // Exercise the armed point itself: a second move cannot prove the
+          // unmatched setter arm was consumed by the first guarded write.
+          const recoveryArgs = [id, parm.id, after.length + 1]
+          const recovery = await attempt(() => write('geomSetParm', ...recoveryArgs))
+          const recovered = await snapshot()
+          await arm('setter')
+          const injectedArgs = [id, parm.id, recovered.length + 1]
+          const injected = await attempt(() => write('geomSetParm', ...injectedArgs))
+          const afterInjected = await snapshot()
+          out.push({ control, before, first, after, recoveryArgs, recovery, recovered, injectedArgs, injected, afterInjected })
+          continue
+        }
         const legacyInjected = control === 'legacy' ? await attempt(() => write('move', id, '1,0,0')) : null
         const afterLegacyInjected = control === 'legacy' ? await snapshot() : null
         const recovery = await attempt(() => write('move', id, '1,0,0'))
@@ -148,6 +161,21 @@ try {
       assert.equal(c.injected.error?.actual, null, label)
       assert.equal(c.injected.error?.message, 'OpenVSP API error (no message)', label)
       near(c.afterInjected.origin[0], c.recovered.origin[0] + 1, label)
+      continue
+    }
+    if (c.control === 'miss') {
+      assert.ok(c.first.value?.ok, label)
+      near(c.after.origin[0], c.before.origin[0] + 1, label)
+      near(c.after.length, c.before.length, label)
+      near(c.recovery.value?.actual, c.recoveryArgs[2], `${label}: unmatched arm consumed`)
+      near(c.recovered.length, c.recoveryArgs[2], `${label}: setter succeeded`)
+      assert.equal(c.injected.error?.outcome, 'unknown', `${label}: re-armed setter fires`)
+      assert.equal(c.injected.error?.message, 'SetParmValUpdate failed: OpenVSP API error (no message)', label)
+      near(c.injected.error?.actual, c.injectedArgs[2], label)
+      near(c.afterInjected.length, c.injectedArgs[2], `${label}: injected setter has side effect`)
+      assert.deepEqual(c.afterInjected.ids, c.recovered.ids, label)
+      assert.deepEqual(c.afterInjected.origin, c.recovered.origin, label)
+      near(c.afterInjected.section, c.recovered.section, label)
       continue
     }
     if (c.control) {
