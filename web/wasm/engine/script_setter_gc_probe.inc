@@ -72,7 +72,11 @@ void ScriptSetterGcProbe( const Job &j )
         const string nested_victim = vsp::AddGeom( "BLANK", "" );
         const string outer_victim = vsp::AddGeom( "BLANK", "" );
         const string restored_victim = vsp::AddGeom( "BLANK", "" );
-        if ( positive.empty() || nested_victim.empty() || outer_victim.empty() || restored_victim.empty() ||
+        const string non_lifo_victim = vsp::AddGeom( "BLANK", "" );
+        if ( non_lifo_victim.empty() || !veh->FindGeom( non_lifo_victim ) ||
+             non_lifo_victim == positive || non_lifo_victim == nested_victim ||
+             non_lifo_victim == outer_victim || non_lifo_victim == restored_victim ||
+             positive.empty() || nested_victim.empty() || outer_victim.empty() || restored_victim.empty() ||
              positive == nested_victim || positive == outer_victim || positive == restored_victim ||
              nested_victim == outer_victim || nested_victim == restored_victim || outer_victim == restored_victim ||
              !veh->FindGeom( positive ) || !veh->FindGeom( nested_victim ) ||
@@ -81,8 +85,10 @@ void ScriptSetterGcProbe( const Job &j )
         const string source = "int destroyed = 0; class Cycle { Cycle@ self; "
             "~Cycle() { destroyed++; DeleteGeom(\"" + nested_victim + "\"); } } "
             "class OuterCycle { OuterCycle@ self; ~OuterCycle() { destroyed++; DeleteGeom(\"" + outer_victim + "\"); } } "
+            "class NonLifoCycle { NonLifoCycle@ self; ~NonLifoCycle() { destroyed++; DeleteGeom(\"" + non_lifo_victim + "\"); } } "
             "int main() { DeleteGeom(\"" + positive + "\"); Cycle@ c = Cycle(); @c.self = c; return 0; } "
             "int outer_fixture() { OuterCycle@ c = OuterCycle(); @c.self = c; return 0; } "
+            "int non_lifo_fixture() { NonLifoCycle@ c = NonLifoCycle(); @c.self = c; return 0; } "
             "int restored() { DeleteGeom(\"" + restored_victim + "\"); return 0; }";
         cleanup.module = mgr.ReadScriptFromMemory( "WebVSP_DeleteProxyControl", source );
         asIScriptModule *module = cleanup.module.empty() ? nullptr : engine->GetModule( cleanup.module.c_str() );
@@ -122,6 +128,30 @@ void ScriptSetterGcProbe( const Job &j )
         }
         const int outer_destroyed_after = *destroyed;
         const bool outer_victim_after = veh->FindGeom( outer_victim ) != nullptr;
+        const int non_lifo_fixture_rc = mgr.ExecuteScript( cleanup.module.c_str(), "int non_lifo_fixture()" );
+        const int non_lifo_destroyed_before = *destroyed;
+        const bool non_lifo_victim_before = veh->FindGeom( non_lifo_victim ) != nullptr;
+        bool non_lifo_outer_before, non_lifo_inner_before, non_lifo_inner_after;
+        int non_lifo_gc_rc;
+        {
+            // The holder is constructed first and safely owns the heap outer guard.
+            // Reset it while inner is alive; never inspect outer after reset.
+            struct OuterHolder
+            {
+                ScriptMgrSingleton::ExecuteScriptGuard *guard;
+                explicit OuterHolder( ScriptMgrSingleton &m ) : guard( new ScriptMgrSingleton::ExecuteScriptGuard( m ) ) {}
+                ~OuterHolder() { delete guard; }
+                void reset() { delete guard; guard = nullptr; }
+            } outer( mgr );
+            ScriptMgrSingleton::ExecuteScriptGuard inner( mgr );
+            non_lifo_outer_before = outer.guard->Attempted();
+            non_lifo_inner_before = inner.Attempted();
+            outer.reset();
+            non_lifo_gc_rc = engine->GarbageCollect( asGC_FULL_CYCLE );
+            non_lifo_inner_after = inner.Attempted();
+        }
+        const int non_lifo_destroyed_after = *destroyed;
+        const bool non_lifo_victim_after = veh->FindGeom( non_lifo_victim ) != nullptr;
         const bool restored_before = veh->FindGeom( restored_victim ) != nullptr;
         const int restored_rc = mgr.ExecuteScript( cleanup.module.c_str(), "int restored()" );
         const bool restored_after = veh->FindGeom( restored_victim ) != nullptr;
@@ -142,6 +172,15 @@ void ScriptSetterGcProbe( const Job &j )
             ",\"outerOnlyBefore\":" + boolean( outer_only_before ) +
             ",\"outerOnlyAfter\":" + boolean( outer_only_after ) +
             ",\"outerGcRc\":" + std::to_string( outer_gc_rc ) +
+            ",\"nonLifoFixtureRc\":" + std::to_string( non_lifo_fixture_rc ) +
+            ",\"nonLifoDestroyedBefore\":" + std::to_string( non_lifo_destroyed_before ) +
+            ",\"nonLifoDestroyedAfter\":" + std::to_string( non_lifo_destroyed_after ) +
+            ",\"nonLifoVictimBefore\":" + boolean( non_lifo_victim_before ) +
+            ",\"nonLifoVictimAfter\":" + boolean( non_lifo_victim_after ) +
+            ",\"nonLifoOuterBefore\":" + boolean( non_lifo_outer_before ) +
+            ",\"nonLifoInnerBefore\":" + boolean( non_lifo_inner_before ) +
+            ",\"nonLifoInnerAfter\":" + boolean( non_lifo_inner_after ) +
+            ",\"nonLifoGcRc\":" + std::to_string( non_lifo_gc_rc ) +
             ",\"restoredBefore\":" + boolean( restored_before ) +
             ",\"restoredAfter\":" + boolean( restored_after ) +
             ",\"restoredRc\":" + std::to_string( restored_rc ) +
