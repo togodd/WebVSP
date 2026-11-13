@@ -11,6 +11,30 @@ beforeAll(async () => {
 })
 
 describe('busy file dialog completion', () => {
+  it('reports mixed sync and async completion failures once without exposing reasons', async () => {
+    testFiles.clear()
+    const subscribe = (testFiles as unknown as { subscribe: (f: (event: unknown) => void) => () => void }).subscribe
+    const log = vi.spyOn(console, 'error').mockImplementation(() => {})
+    const mirrorEvent = vi.fn()
+    const next = vi.fn()
+    const unsubscribers = [
+      subscribe(() => { throw Error('private sync') }),
+      subscribe(() => Promise.reject(Error('private async'))),
+      subscribe(next),
+    ]
+    try {
+      Object.assign(window, { showOpenFilePicker: async () => [] })
+      await answer({ mirrorEvent } as never, { seq: 99, mode: 0, filter: '*.vsp3' } as never)
+      await new Promise((resolve) => setTimeout(resolve, 0))
+      expect(mirrorEvent).toHaveBeenCalledOnce()
+      expect(next).toHaveBeenCalledOnce()
+      expect(log.mock.calls).toEqual([['WebVSP: file dialog completion notification failed']])
+    } finally {
+      unsubscribers.forEach((unsubscribe) => unsubscribe())
+      log.mockRestore()
+    }
+  })
+
   it('answers once before notifying even when a subscriber throws', async () => {
     testFiles.clear()
     const data = new Map<string, Uint8Array>()

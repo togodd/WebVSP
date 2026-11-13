@@ -366,12 +366,18 @@ async function answerFileDialog(vsp: VspModule, d: MDialog) {
       diagnostic('WebVSP: file dialog answer delivery unknown')
       throw deliveryUnknown // Preserve the import commit's isolation on uncertain delivery.
     }
+    let completionFailureReported = false
+    const reportCompletionFailure = () => {
+      if (completionFailureReported) return
+      completionFailureReported = true
+      diagnostic('WebVSP: file dialog completion notification failed')
+    }
     try {
-      if (!emitListeners(listeners, { type: 'dialog_done', seq: d.seq }, true)) {
-        diagnostic('WebVSP: file dialog completion notification failed')
+      if (!emitListeners(listeners, { type: 'dialog_done', seq: d.seq }, true, reportCompletionFailure)) {
+        reportCompletionFailure()
       }
     } catch {
-      diagnostic('WebVSP: file dialog completion notification failed')
+      reportCompletionFailure()
     }
   }
   try {

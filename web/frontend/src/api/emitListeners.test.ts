@@ -31,6 +31,108 @@ describe('emitListeners', () => {
     } finally { log.mockRestore() }
   })
 
+  it('observes rejected promises and thenables without waiting or stopping later listeners', async () => {
+    const log = vi.spyOn(console, 'error').mockImplementation(() => {})
+    try {
+      const promiseError = new Error('promise')
+      const thenableError = new Error('thenable')
+      const next = vi.fn()
+      const listeners = new Set<(_: string) => void>([
+        () => Promise.reject(promiseError),
+        () => ({ then: (_resolve: unknown, reject: (error: unknown) => void) => reject(thenableError) }),
+        next,
+      ])
+      expect(emitListeners(listeners, 'event')).toBe(true)
+      expect(next).toHaveBeenCalledExactlyOnceWith('event')
+      expect(log).not.toHaveBeenCalled()
+      await new Promise((resolve) => setTimeout(resolve, 0))
+      expect(log).toHaveBeenCalledTimes(2)
+      expect(log).toHaveBeenCalledWith('WebVSP event listener:', promiseError)
+      expect(log).toHaveBeenCalledWith('WebVSP event listener:', thenableError)
+    } finally { log.mockRestore() }
+  })
+
+  it('assimilates a then function whose own call property is overridden', async () => {
+    const log = vi.spyOn(console, 'error').mockImplementation(() => {})
+    try {
+      const error = new Error('then rejection')
+      const then = Object.assign(function (this: unknown, _resolve: unknown, reject: (reason: unknown) => void) {
+        expect(this).toBe(thenable)
+        reject(error)
+      }, { call: null })
+      const thenable = { then }
+      const next = vi.fn()
+      const listeners = new Set<(_: number) => void>([() => thenable, next])
+      expect(emitListeners(listeners, 0)).toBe(true)
+      expect(next).toHaveBeenCalledOnce()
+      await new Promise((resolve) => setTimeout(resolve, 0))
+      expect(log).toHaveBeenCalledExactlyOnceWith('WebVSP event listener:', error)
+    } finally { log.mockRestore() }
+  })
+
+  it('reads then once synchronously and invokes it after all listeners', async () => {
+    const calls: string[] = []
+    const thenable = { get then() {
+      calls.push('getter')
+      return (resolve: (value: unknown) => void) => { calls.push('then'); resolve(undefined) }
+    } }
+    const listeners = new Set<(_: number) => void>([
+      () => { calls.push('first'); return thenable },
+      () => { calls.push('second'); return 42 },
+    ])
+    expect(emitListeners(listeners, 0)).toBe(true)
+    expect(calls).toEqual(['first', 'getter', 'second'])
+    await new Promise((resolve) => setTimeout(resolve, 0))
+    expect(calls).toEqual(['first', 'getter', 'second', 'then'])
+  })
+
+  it('reads an ordinary object then getter once but does not assimilate non-functions', () => {
+    const calls: string[] = []
+    const ordinary = { get then() { calls.push('getter'); return 1 } }
+    const listeners = new Set<(_: number) => void>([
+      () => ordinary,
+      () => { calls.push('next') },
+    ])
+    expect(emitListeners(listeners, 0)).toBe(true)
+    expect(calls).toEqual(['getter', 'next'])
+  })
+
+  it('contains throwing then getters synchronously and reads them once', () => {
+    const log = vi.spyOn(console, 'error').mockImplementation(() => {})
+    try {
+      const error = new Error('getter')
+      const getter = vi.fn(() => { throw error })
+      const next = vi.fn()
+      const listeners = new Set<(_: string) => void>([() => ({ get then() { return getter() } }), next])
+      expect(emitListeners(listeners, 'event')).toBe(false)
+      expect(getter).toHaveBeenCalledOnce()
+      expect(next).toHaveBeenCalledOnce()
+      expect(log).toHaveBeenCalledExactlyOnceWith('WebVSP event listener:', error)
+    } finally { log.mockRestore() }
+  })
+
+  it('keeps private asynchronous failures secret and cooperates with a once-only diagnostic', async () => {
+    const log = vi.spyOn(console, 'error').mockImplementation(() => {})
+    try {
+      const diagnostic = vi.fn()
+      let reported = false
+      const report = () => { if (!reported) { reported = true; diagnostic() } }
+      const next = vi.fn()
+      const listeners = new Set<(_: string) => void>([
+        () => { throw Error('secret sync') },
+        () => Promise.reject(Error('secret async')),
+        () => ({ then: () => { throw Error('secret thenable') } }),
+        next,
+      ])
+      if (!emitListeners(listeners, 'event', true, report)) report()
+      expect(diagnostic).toHaveBeenCalledOnce()
+      expect(next).toHaveBeenCalledOnce()
+      await new Promise((resolve) => setTimeout(resolve, 0))
+      expect(diagnostic).toHaveBeenCalledOnce()
+      expect(log).not.toHaveBeenCalled()
+    } finally { log.mockRestore() }
+  })
+
   it('retains live Set iteration, including deletion, insertion and re-addition', () => {
     const calls: string[] = []
     const listeners = new Set<(event: number) => void>()
