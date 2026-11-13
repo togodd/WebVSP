@@ -40,6 +40,66 @@ describe('browser read wrapper session lifetime', () => {
       }
     }
   })
+  it.each(['no close', 'before inner settlement', 'after inner settlement'] as const)(
+    'preserves the rejection outcome with external close %s', async (timing) => {
+      let rejectAdapter!: (reason: Error) => void
+      vi.mocked(discoverModelingProtocol).mockReturnValueOnce(new Promise((_resolve, reject) => { rejectAdapter = reject }))
+      const service = createBrowserModelingService()
+      const originalClose = service.close.bind(service)
+      const events: string[] = []
+      const closeSpy = vi.spyOn(service, 'close').mockImplementation(() => { events.push('wrapper-close'); originalClose() })
+      const originalProtocol = service.protocol.bind(service)
+      let innerSettled = false
+      let outerSettled = false
+      let outerSettledAtExternalClose: boolean | undefined
+      vi.spyOn(service, 'protocol').mockImplementation(() => {
+        const inner = originalProtocol()
+        // Register before run() awaits this same promise: this observes the real
+        // service promise settling, not the adapter or the consumer settling.
+        void inner.then(() => { innerSettled = true }, () => {
+          innerSettled = true
+          events.push('inner-rejected')
+          if (timing === 'after inner settlement') {
+            outerSettledAtExternalClose = outerSettled
+            events.push('external-close')
+            originalClose()
+          }
+        })
+        return inner
+      })
+      const factory = vi.fn(() => service)
+      const api = createBrowserReadApi(factory)
+      const pending = api.protocol().then(
+        () => { outerSettled = true; events.push('outer-fulfilled'); return 'success' },
+        error => { outerSettled = true; events.push('outer-rejected'); return error.code },
+      )
+      try {
+        rejectAdapter(new Error('adapter failed'))
+        expect(innerSettled).toBe(false)
+        expect(outerSettled).toBe(false)
+        if (timing === 'before inner settlement') {
+          events.push('external-close')
+          originalClose()
+        }
+        expect(await pending).toBe(timing === 'before inner settlement' ? 'SESSION_CLOSED' : 'ENGINE_ERROR')
+        expect(innerSettled).toBe(true)
+        expect(outerSettled).toBe(true)
+        if (timing === 'after inner settlement') expect(outerSettledAtExternalClose).toBe(false)
+        expect(factory).toHaveBeenCalledOnce()
+        expect(closeSpy).toHaveBeenCalledOnce()
+        expect(events).toEqual(timing === 'before inner settlement'
+          ? ['external-close', 'inner-rejected', 'wrapper-close', 'outer-rejected']
+          : timing === 'after inner settlement'
+            ? ['inner-rejected', 'external-close', 'wrapper-close', 'outer-rejected']
+            : ['inner-rejected', 'wrapper-close', 'outer-rejected'])
+      } finally {
+        rejectAdapter(new Error('adapter failed'))
+        await pending
+        vi.mocked(discoverModelingProtocol).mockReset()
+      }
+    },
+  )
+
   it('does not cancel a pending read when an independent call completes', async () => {
     let resolve!: (value: unknown) => void
     vi.mocked(discoverModelingProtocol).mockReturnValueOnce(new Promise(r => { resolve = r }))
