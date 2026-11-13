@@ -70,12 +70,20 @@ void ScriptSetterGcProbe( const Job &j )
     {
         const string positive = vsp::AddGeom( "BLANK", "" );
         const string nested_victim = vsp::AddGeom( "BLANK", "" );
-        if ( positive.empty() || nested_victim.empty() || positive == nested_victim ||
-             !veh->FindGeom( positive ) || !veh->FindGeom( nested_victim ) )
+        const string outer_victim = vsp::AddGeom( "BLANK", "" );
+        const string restored_victim = vsp::AddGeom( "BLANK", "" );
+        if ( positive.empty() || nested_victim.empty() || outer_victim.empty() || restored_victim.empty() ||
+             positive == nested_victim || positive == outer_victim || positive == restored_victim ||
+             nested_victim == outer_victim || nested_victim == restored_victim || outer_victim == restored_victim ||
+             !veh->FindGeom( positive ) || !veh->FindGeom( nested_victim ) ||
+             !veh->FindGeom( outer_victim ) || !veh->FindGeom( restored_victim ) )
             return Result( j.id, "Could not create fixed control fixtures", "" );
         const string source = "int destroyed = 0; class Cycle { Cycle@ self; "
             "~Cycle() { destroyed++; DeleteGeom(\"" + nested_victim + "\"); } } "
-            "int main() { DeleteGeom(\"" + positive + "\"); Cycle@ c = Cycle(); @c.self = c; return 0; }";
+            "class OuterCycle { OuterCycle@ self; ~OuterCycle() { destroyed++; DeleteGeom(\"" + outer_victim + "\"); } } "
+            "int main() { DeleteGeom(\"" + positive + "\"); Cycle@ c = Cycle(); @c.self = c; return 0; } "
+            "int outer_fixture() { OuterCycle@ c = OuterCycle(); @c.self = c; return 0; } "
+            "int restored() { DeleteGeom(\"" + restored_victim + "\"); return 0; }";
         cleanup.module = mgr.ReadScriptFromMemory( "WebVSP_DeleteProxyControl", source );
         asIScriptModule *module = cleanup.module.empty() ? nullptr : engine->GetModule( cleanup.module.c_str() );
         int index = module ? module->GetGlobalVarIndexByName( "destroyed" ) : -1;
@@ -96,6 +104,27 @@ void ScriptSetterGcProbe( const Job &j )
             outer_after = outer.Attempted();
             inner_after = inner.Attempted();
         }
+        const int nested_destroyed_after = *destroyed;
+        const int outer_fixture_rc = mgr.ExecuteScript( cleanup.module.c_str(), "int outer_fixture()" );
+        const int outer_destroyed_before = *destroyed;
+        const bool outer_victim_before = veh->FindGeom( outer_victim ) != nullptr;
+        bool outer_only_before, outer_only_after, inner_popped_before;
+        int outer_gc_rc;
+        {
+            ScriptMgrSingleton::ExecuteScriptGuard outer( mgr );
+            {
+                ScriptMgrSingleton::ExecuteScriptGuard inner( mgr );
+                inner_popped_before = inner.Attempted();
+            }
+            outer_only_before = outer.Attempted();
+            outer_gc_rc = engine->GarbageCollect( asGC_FULL_CYCLE );
+            outer_only_after = outer.Attempted();
+        }
+        const int outer_destroyed_after = *destroyed;
+        const bool outer_victim_after = veh->FindGeom( outer_victim ) != nullptr;
+        const bool restored_before = veh->FindGeom( restored_victim ) != nullptr;
+        const int restored_rc = mgr.ExecuteScript( cleanup.module.c_str(), "int restored()" );
+        const bool restored_after = veh->FindGeom( restored_victim ) != nullptr;
         auto boolean = []( bool value ) { return value ? "true" : "false"; };
         const string err = TakeErrors();
         const string json = string( "{\"buildMode\":" ) + Quote( build_mode ) + ",\"executeRc\":" + std::to_string( rc ) +
@@ -103,7 +132,19 @@ void ScriptSetterGcProbe( const Job &j )
             ",\"victimAliveBefore\":" + boolean( victim_before ) +
             ",\"victimAliveAfter\":" + boolean( veh->FindGeom( nested_victim ) != nullptr ) +
             ",\"destroyedBefore\":" + std::to_string( before ) +
-            ",\"destroyedAfter\":" + std::to_string( *destroyed ) +
+            ",\"destroyedAfter\":" + std::to_string( nested_destroyed_after ) +
+            ",\"outerFixtureRc\":" + std::to_string( outer_fixture_rc ) +
+            ",\"outerDestroyedBefore\":" + std::to_string( outer_destroyed_before ) +
+            ",\"outerDestroyedAfter\":" + std::to_string( outer_destroyed_after ) +
+            ",\"outerVictimBefore\":" + boolean( outer_victim_before ) +
+            ",\"outerVictimAfter\":" + boolean( outer_victim_after ) +
+            ",\"innerPoppedBefore\":" + boolean( inner_popped_before ) +
+            ",\"outerOnlyBefore\":" + boolean( outer_only_before ) +
+            ",\"outerOnlyAfter\":" + boolean( outer_only_after ) +
+            ",\"outerGcRc\":" + std::to_string( outer_gc_rc ) +
+            ",\"restoredBefore\":" + boolean( restored_before ) +
+            ",\"restoredAfter\":" + boolean( restored_after ) +
+            ",\"restoredRc\":" + std::to_string( restored_rc ) +
             ",\"gcRc\":" + std::to_string( gc_rc ) +
             ",\"outerBefore\":" + boolean( outer_before ) + ",\"innerBefore\":" + boolean( inner_before ) +
             ",\"outerAfter\":" + boolean( outer_after ) + ",\"innerAfter\":" + boolean( inner_after ) +
