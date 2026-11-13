@@ -23,7 +23,16 @@ export function settleBridgeResult(
     return
   }
   pending.delete(id)
-  if (!result.ok) {
+  // Only the engine's boolean discriminator and string error establish a
+  // trustworthy result. In particular, never promote malformed metadata to a
+  // WasmEngineError: a dispatched write may already have taken effect.
+  if (typeof result.ok !== 'boolean' || (result.ok === false && typeof result.error !== 'string')) {
+    // A malformed result may still have caused the engine to retain a payload.
+    if (result.bin) {
+      try { takeBinary(id) } catch { /* Preserve the protocol error. */ }
+    }
+    entry.reject(new Error('Invalid engine result response'))
+  } else if (result.ok === false) {
     let error: unknown
     try {
       error = makeError(result)
