@@ -173,6 +173,40 @@ describe('read-only fuselage service', () => {
       await expect(g.service.get('g')).rejects.toBe(error)
     }
   })
+  it('can combine earlier geometry and length with later shapes without an epoch change', async () => {
+    const f = fixture()
+    const identity: ModelIdentity = { sessionId: 's', modelEpoch: 'epoch' }
+    const oldInfo = { ...f.info, geometry: { ...f.info.geometry, childIds: [...f.info.geometry.childIds] } }
+    const oldLength = length()
+    let shapes = [{ id: 'surface0', xsecs: [{ id: 'a', shape: 2 }] }]
+    let enterShapes!: () => void, releaseShapes!: () => void
+    const shapesEntered = new Promise<void>(resolve => { enterShapes = resolve })
+    const shapesGate = new Promise<void>(resolve => { releaseShapes = resolve })
+    f.parameter.getFuselageLength.mockResolvedValue(oldLength)
+    f.parameter.listFuselageShapes.mockImplementation(async () => {
+      enterShapes()
+      await shapesGate
+      return shapes
+    })
+
+    // Characterize independent reads with controlled dependencies, not a real GUI edit.
+    const pending = f.service.get('g', identity)
+    await shapesEntered
+    expect(f.geometry.get).toHaveBeenCalledOnce()
+    expect(f.parameter.getFuselageLength).toHaveBeenCalledOnce()
+    expect(f.parameter.listFuselageShapes).toHaveBeenCalledOnce()
+    shapes = [{ id: 'surface0', xsecs: [{ id: 'a', shape: 5 }, { id: 'new', shape: 3 }] }]
+    releaseShapes()
+
+    const result = await pending
+    expect(identity).toEqual({ sessionId: 's', modelEpoch: 'epoch' })
+    expect(f.geometry.get.mock.calls[0][1]).toBe(identity)
+    expect(f.parameter.getFuselageLength.mock.calls[0][1]).toBe(identity)
+    expect(f.parameter.listFuselageShapes.mock.calls[0][1]).toBe(identity)
+    expect(result).toEqual({ ...oldInfo, length: oldLength, surfaces: [
+      { id: 'surface0', index: 0, sections: [{ id: 'a', index: 0, shape: 5 }, { id: 'new', index: 1, shape: 3 }] },
+    ] })
+  })
   it('does not claim atomicity when replacement reuses IDs during asynchronous reads', async () => {
     const f = fixture()
     f.parameter.getFuselageLength.mockImplementation(async () => ({ ...length(), value: 55 }))
