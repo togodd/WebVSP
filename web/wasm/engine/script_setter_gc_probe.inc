@@ -82,6 +82,18 @@ void ScriptSetterGcProbe( const Job &j )
              !veh->FindGeom( positive ) || !veh->FindGeom( nested_victim ) ||
              !veh->FindGeom( outer_victim ) || !veh->FindGeom( restored_victim ) )
             return Result( j.id, "Could not create fixed control fixtures", "" );
+        // Separate fixed clone fixtures distinguish explicit non-default forwarding
+        // from the script binding's default LEAVE_EMPTY behavior.
+        const string clone_original = vsp::AddGeom( "POD", "" );
+        const string default_original = vsp::AddGeom( "POD", "" );
+        const vector< string > clones = vsp::CloneGeomVec( { clone_original } );
+        const vector< string > default_clones = vsp::CloneGeomVec( { default_original } );
+        if ( clone_original.empty() || default_original.empty() || clone_original == default_original ||
+             clones.size() != 1 || default_clones.size() != 1 || clones[0].empty() || default_clones[0].empty() ||
+             clones[0] == clone_original || default_clones[0] == default_original || clones[0] == default_clones[0] ||
+             !veh->FindGeom( clone_original ) || !veh->FindGeom( clones[0] ) ||
+             !veh->FindGeom( default_original ) || !veh->FindGeom( default_clones[0] ) )
+            return Result( j.id, "Could not create fixed clone fixtures", "" );
         const string source = "int destroyed = 0; class Cycle { Cycle@ self; "
             "~Cycle() { destroyed++; DeleteGeom(\"" + nested_victim + "\"); } } "
             "class OuterCycle { OuterCycle@ self; ~OuterCycle() { destroyed++; DeleteGeom(\"" + outer_victim + "\"); } } "
@@ -89,7 +101,9 @@ void ScriptSetterGcProbe( const Job &j )
             "int main() { DeleteGeom(\"" + positive + "\"); Cycle@ c = Cycle(); @c.self = c; return 0; } "
             "int outer_fixture() { OuterCycle@ c = OuterCycle(); @c.self = c; return 0; } "
             "int non_lifo_fixture() { NonLifoCycle@ c = NonLifoCycle(); @c.self = c; return 0; } "
-            "int restored() { DeleteGeom(\"" + restored_victim + "\"); return 0; }";
+            "int restored() { DeleteGeom(\"" + restored_victim + "\"); return 0; } "
+            "int explicit_clone_delete() { DeleteGeom(\"" + clone_original + "\", CLONE_DELETE_WITH_ORIGINAL); return 0; } "
+            "int default_clone_delete() { DeleteGeom(\"" + default_original + "\"); return 0; }";
         cleanup.module = mgr.ReadScriptFromMemory( "WebVSP_DeleteProxyControl", source );
         asIScriptModule *module = cleanup.module.empty() ? nullptr : engine->GetModule( cleanup.module.c_str() );
         int index = module ? module->GetGlobalVarIndexByName( "destroyed" ) : -1;
@@ -155,9 +169,25 @@ void ScriptSetterGcProbe( const Job &j )
         const bool restored_before = veh->FindGeom( restored_victim ) != nullptr;
         const int restored_rc = mgr.ExecuteScript( cleanup.module.c_str(), "int restored()" );
         const bool restored_after = veh->FindGeom( restored_victim ) != nullptr;
+        const int explicit_clone_rc = mgr.ExecuteScript( cleanup.module.c_str(), "int explicit_clone_delete()" );
+        const bool explicit_original_after = veh->FindGeom( clone_original ) != nullptr;
+        const bool explicit_clone_after = veh->FindGeom( clones[0] ) != nullptr;
+        const string explicit_errors = TakeErrors();
+        const int default_clone_rc = mgr.ExecuteScript( cleanup.module.c_str(), "int default_clone_delete()" );
+        const bool default_original_after = veh->FindGeom( default_original ) != nullptr;
+        const bool default_clone_after = veh->FindGeom( default_clones[0] ) != nullptr;
+        const string default_errors = TakeErrors(); // LEAVE_EMPTY reports the detached clone.
         auto boolean = []( bool value ) { return value ? "true" : "false"; };
         const string err = TakeErrors();
         const string json = string( "{\"buildMode\":" ) + Quote( build_mode ) + ",\"executeRc\":" + std::to_string( rc ) +
+            ",\"explicitErrors\":" + Quote( explicit_errors ) +
+            ",\"defaultErrors\":" + Quote( default_errors ) +
+            ",\"explicitCloneRc\":" + std::to_string( explicit_clone_rc ) +
+            ",\"explicitOriginalAfter\":" + boolean( explicit_original_after ) +
+            ",\"explicitCloneAfter\":" + boolean( explicit_clone_after ) +
+            ",\"defaultCloneRc\":" + std::to_string( default_clone_rc ) +
+            ",\"defaultOriginalAfter\":" + boolean( default_original_after ) +
+            ",\"defaultCloneAfter\":" + boolean( default_clone_after ) +
             ",\"positiveAliveAfter\":" + boolean( positive_alive ) +
             ",\"victimAliveBefore\":" + boolean( victim_before ) +
             ",\"victimAliveAfter\":" + boolean( veh->FindGeom( nested_victim ) != nullptr ) +
