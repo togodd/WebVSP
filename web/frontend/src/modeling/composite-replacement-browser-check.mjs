@@ -94,7 +94,7 @@ try {
       c.pending = composite.get(id, identity).then(value => ({ status: 'resolved', value }), error => ({ status: 'rejected', code: error.code }))
       return { id, identity }
     }, kind)
-    await page.waitForFunction(() => window.__case.trace.includes('xsec:waiting'), { timeout: 30000 })
+    await page.waitForFunction(() => window.__case.trace.includes('xsec:waiting'), null, { timeout: 30000 })
     assert.deepEqual(await page.evaluate(() => window.__case.trace), kind === 'wing'
       ? ['geometry:start', 'geometry:done', 'xsec:waiting']
       : ['geometry:start', 'geometry:done', 'length:start', 'length:done', 'xsec:waiting'])
