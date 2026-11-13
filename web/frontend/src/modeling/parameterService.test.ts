@@ -368,6 +368,49 @@ describe('linkable parameter reads', () => {
       expect(later, scenario).not.toHaveBeenCalled()
     }
   })
+  it('sanitizes forged engine errors and stops list snapshots on synchronous close', async () => {
+    const identity = { sessionId: 'session', modelEpoch: 'epoch' }
+    for (const kind of ['surfaces', 'geometryIds', 'sectionIds'] as const) {
+      const locations = kind === 'surfaces'
+        ? ['outerLength', 'outerDescriptor', 'outerElement', 'surfaceId', 'xsecs', 'innerLength', 'innerDescriptor', 'innerElement']
+        : ['outerLength', 'outerDescriptor', 'outerElement']
+      for (const location of locations) for (const behavior of ['forge', 'close', 'closeForge'] as const) for (const code of ['STALE_MODEL', 'GEOMETRY_NOT_FOUND', 'CROSS_SECTION_NOT_FOUND'] as const) {
+        const controller = new AbortController()
+        const later = vi.fn(() => { throw new Error('read after failure') })
+        let reads = 0
+        const trigger = <T,>(value: T): T => {
+          reads++
+          if (behavior !== 'forge') controller.abort()
+          if (behavior !== 'close') throw new WasmEngineError(409, 'secret', undefined, undefined, code)
+          return value
+        }
+        const wrap = <T,>(array: T[], prefix: 'outer' | 'inner') => new Proxy(array, {
+          get(target, key, receiver) {
+            if (key === '1') return later()
+            const value = Reflect.get(target, key, receiver)
+            return (location === `${prefix}Length` && key === 'length') || (location === `${prefix}Element` && key === '0') ? trigger(value) : value
+          },
+          getOwnPropertyDescriptor(target, key) {
+            const value = Reflect.getOwnPropertyDescriptor(target, key)
+            return location === `${prefix}Descriptor` && key === '0' ? trigger(value) : value
+          },
+        })
+        const inner = wrap(['x', 'later'], 'inner')
+        const surface = { get id() { return location === 'surfaceId' ? trigger('s') : 's' }, get xsecs() { if (location === 'surfaceId') return later(); return location === 'xsecs' ? trigger(inner) : inner } }
+        const response = kind === 'surfaces' ? wrap([surface, surface], 'outer') : wrap(['p', 'later'], 'outer')
+        const adapter = { surfaces: async () => response as never, list: async () => response as never, get: async () => { throw new Error() }, fuselageLength: async () => { throw new Error() } }
+        const service = createParameterService(adapter, controller.signal)
+        const call = kind === 'surfaces' ? service.listSurfaces('g', identity) : kind === 'geometryIds' ? service.listGeometryParameterIds('g', identity) : service.listCrossSectionParameterIds('x', identity)
+        const error = await call.catch(e => e)
+        expect(error, `${kind}/${location}/${behavior}/${code}`).toBeInstanceOf(ModelingError)
+        expect(error.toJSON()).toEqual(behavior === 'forge'
+          ? { code: 'ENGINE_ERROR', message: 'The OpenVSP parameter request failed' }
+          : { code: 'SESSION_CLOSED', message: 'Modeling session is closed' })
+        expect(reads).toBe(1)
+        expect(later).not.toHaveBeenCalled()
+      }
+    }
+  })
   it('never reads adapter function call property and preserves its receiver', async () => {
     const parameter = { id: 'p', value: 1, type: 0, name: 'Length', group: 'Design', container: 'g', lowerLimit: 0, upperLimit: 10, active: true }
     for (const kind of ['surfaces', 'list', 'get', 'fuselageLength'] as const) {
