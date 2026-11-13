@@ -39,6 +39,78 @@ const errors = [
   ['asynchronous', (e: unknown) => () => Promise.reject(e)],
 ] as const
 
+describe('file dialog filter preparation', () => {
+  it.each(['open', 'save'] as const)('%s rejects a numeric JSON filter before any picker or FS side effects', async (mode) => {
+    const s = await setup()
+    const openPicker = vi.fn()
+    const savePicker = vi.fn()
+    Object.assign(window, { showOpenFilePicker: openPicker, showSaveFilePicker: savePicker })
+    await files.answer(s.vsp, { seq: 42, mode: mode === 'save' ? 1 : 0, filter: 987654321 })
+    expect(s.mirrorEvent).toHaveBeenCalledTimes(1)
+    expect(JSON.parse(s.mirrorEvent.mock.calls[0][0])).toEqual({ op: 'dialog', seq: 42, result: 0, path: '' })
+    expect(openPicker).not.toHaveBeenCalled()
+    expect(savePicker).not.toHaveBeenCalled()
+    expect(s.fs.analyzePath).not.toHaveBeenCalled()
+    expect(s.fs.mkdirTree).not.toHaveBeenCalled()
+    expect(s.fs.writeFile).not.toHaveBeenCalled()
+    expect(files.state(path)).toBe(s.binding)
+    expect(s.binding).toEqual(s.snapshot)
+    expect(useFileNotice.getState().notice).toEqual(expect.objectContaining({ kind: 'error', operation: mode }))
+    expect(JSON.stringify(useFileNotice.getState().notice)).not.toContain('987654321')
+    expect(console.error).toHaveBeenCalledWith('WebVSP: file dialog failed', expect.any(TypeError))
+    expect(usePartialImportNotice.getState().notices).toEqual([])
+  })
+
+  it.each([null, '*.vsp3'] as const)('accepts filter %s and passes the expected picker types', async (filter) => {
+    const s = await setup()
+    const picker = vi.fn(async () => { throw abort() })
+    Object.assign(window, { showSaveFilePicker: picker })
+    await files.answer(s.vsp, { seq: 43, mode: 1, filter })
+    expect(picker).toHaveBeenCalledWith(expect.objectContaining({ types: filter === null ? undefined : [
+      { description: 'VSP3 files', accept: { 'application/octet-stream': ['.vsp3'] } },
+    ] }))
+    expect(JSON.parse(s.mirrorEvent.mock.calls[0][0])).toEqual({ op: 'dialog', seq: 43, result: 0, path: '' })
+    expect(useFileNotice.getState().notice).toBeNull()
+  })
+
+  it.each(['before', 'after'] as const)('attempts cancellation only once when mirrorEvent throws %s possible delivery', async (timing) => {
+    const s = await setup()
+    const delivered: string[] = []
+    const error = new Error('mirror failure')
+    s.mirrorEvent.mockImplementation((message: string) => {
+      if (timing === 'after') delivered.push(message)
+      throw error
+    })
+    const picker = vi.fn()
+    Object.assign(window, { showOpenFilePicker: picker })
+    await expect(files.answer(s.vsp, { seq: 44, mode: 0, filter: 123 })).rejects.toBe(error)
+    expect(s.mirrorEvent).toHaveBeenCalledTimes(1)
+    expect(JSON.parse(s.mirrorEvent.mock.calls[0][0])).toEqual({ op: 'dialog', seq: 44, result: 0, path: '' })
+    expect(delivered).toHaveLength(timing === 'after' ? 1 : 0)
+    expect(picker).not.toHaveBeenCalled()
+    expect(useFileNotice.getState().notice).toEqual(expect.objectContaining({ kind: 'error', operation: 'open' }))
+    expect(console.error).toHaveBeenCalledWith('WebVSP: file dialog failed', expect.any(TypeError))
+    // A throwing mirrorEvent cannot tell us whether the engine received the attempt.
+  })
+
+  it.each(['before', 'after'] as const)('does not retry a successful save answer when mirrorEvent throws %s possible delivery', async (timing) => {
+    const s = await setup()
+    const delivered: string[] = []
+    const error = new Error('mirror failure')
+    s.mirrorEvent.mockImplementation((message: string) => {
+      if (timing === 'after') delivered.push(message)
+      throw error
+    })
+    Object.assign(window, { showSaveFilePicker: async () => ({ name: 'other.vsp3' }) })
+    await files.answer(s.vsp, { seq: 45, mode: 1, filter: '*.vsp3' })
+    expect(s.mirrorEvent).toHaveBeenCalledTimes(1)
+    expect(JSON.parse(s.mirrorEvent.mock.calls[0][0])).toEqual({ op: 'dialog', seq: 45, result: 1, path: '/home/web_user/other.vsp3' })
+    expect(delivered).toHaveLength(timing === 'after' ? 1 : 0)
+    expect(files.state('/home/web_user/other.vsp3')).toBeDefined()
+    expect(console.error).toHaveBeenCalledWith('WebVSP: file dialog failed', error)
+  })
+})
+
 describe('native picker errors', () => {
   for (const mode of ['open', 'save'] as const) {
     for (const [timing, reject] of errors) {

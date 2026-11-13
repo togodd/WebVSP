@@ -357,11 +357,11 @@ async function answerFileDialog(vsp: VspModule, d: MDialog) {
     vsp.mirrorEvent(JSON.stringify({ op: 'dialog', seq: d.seq, result: path ? 1 : 0, path }))
     emit({ type: 'dialog_done', seq: d.seq })
   }
-  const exts = filterExts(d.filter)
-  const types = exts.length
-    ? [{ description: exts.map((e) => e.toUpperCase()).join(', ') + ' files', accept: { 'application/octet-stream': exts.map((e) => '.' + e) } }]
-    : undefined
   try {
+    const exts = filterExts(d.filter)
+    const types = exts.length
+      ? [{ description: exts.map((e) => e.toUpperCase()).join(', ') + ' files', accept: { 'application/octet-stream': exts.map((e) => '.' + e) } }]
+      : undefined
     if (!d.mode) {
       // Several files can be picked: all are copied in (e.g. a model with its VSPAERO results,
       // for Load Previous Results), and OpenVSP gets the one its filter asks for.
