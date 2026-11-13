@@ -99,6 +99,19 @@ try {
           out.push({ point, mode, xsec: true, before, args, result, after, recoveryArgs, recovery, recovered })
         }
       }
+      for (const mode of ['empty', 'mixed']) {
+        const before = await snapshot()
+        const expectedIds = await write('xsecParmIDs', section)
+        const args = [section, sectionParm.id, before.section + 0.1]
+        await arm('GetXSecParmIDs', mode)
+        const read = await attempt(() => write('xsecParmIDs', section))
+        const result = await attempt(() => write('xsecSetParm', ...args))
+        const after = await snapshot()
+        const recoveryArgs = [section, sectionParm.id, before.section + 0.2]
+        const recovery = await attempt(() => write('xsecSetParm', ...recoveryArgs))
+        const recovered = await snapshot()
+        out.push({ control: 'xsec-read-preserves-arm', mode, before, expectedIds, read, args, result, after, recoveryArgs, recovery, recovered })
+      }
       for (const control of ['miss', 'stale', 'clear', 'legacy']) {
         const before = await snapshot()
         await arm(control === 'miss' ? 'setter' : 'move')
@@ -149,6 +162,20 @@ try {
   const near = (a, b, label) => assert.ok(Math.abs(a - b) < 1e-8, `${label}: ${a} != ${b}`)
   for (const c of cases) {
     const label = `${c.point ?? c.control}/${c.mode ?? 'control'}`
+    if (c.control === 'xsec-read-preserves-arm') {
+      assert.ok(c.expectedIds.includes(c.args[1]), `${label}: selected parm belongs to section`)
+      assert.deepEqual(c.read, { value: c.expectedIds }, `${label}: guarded read succeeds with exact IDs`)
+      assert.equal(c.result.error?.outcome, 'not_written', label)
+      assert.equal(c.result.error.actual, null, label)
+      assert.equal(c.result.error.message, c.mode === 'mixed' ? 'Injected write error; OpenVSP API error (no message)' : 'OpenVSP API error (no message)', label)
+      assert.deepEqual(c.after, c.before, `${label}: failed write leaves model unchanged`)
+      near(c.recovery.value?.actual, c.recoveryArgs[2], `${label}: recovery result`)
+      near(c.recovered.section, c.recoveryArgs[2], `${label}: recovery value`)
+      assert.deepEqual(c.recovered.ids, c.after.ids, label)
+      near(c.recovered.length, c.after.length, label)
+      assert.deepEqual(c.recovered.origin, c.after.origin, label)
+      continue
+    }
     if (c.control === 'unsafe') {
       assert.deepEqual(c.fixture, { kind: 'advlink', id: '', detached: false }, label)
       assert.equal(c.first.error?.code, 'UNSAFE_SCRIPT_CONTEXT', label)
