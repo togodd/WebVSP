@@ -114,12 +114,42 @@ try {
         const recovered = await snapshot()
         out.push({ control, before, first, after, legacyInjected, afterLegacyInjected, recovery, recovered })
       }
+      // A real unsafe context must consume the one-shot arm even though move
+      // returns before reaching its injection point.
+      const before = await snapshot()
+      const fixture = await call('scriptPreflightFixture', 'advlink')
+      await arm('move')
+      const first = await attempt(() => write('move', id, '1,0,0'))
+      const after = await snapshot()
+      await call('scriptPreflightFixture', 'cleanup')
+      const recovery = await attempt(() => write('move', id, '1,0,0'))
+      const recovered = await snapshot()
+      await arm('move')
+      const injected = await attempt(() => write('move', id, '1,0,0'))
+      const afterInjected = await snapshot()
+      out.push({ control: 'unsafe', fixture, before, first, after, recovery, recovered, injected, afterInjected })
       return out
-    } finally { await arm('clear') }
+    } finally {
+      try { await call('scriptPreflightFixture', 'cleanup') } finally { await arm('clear') }
+    }
   })
   const near = (a, b, label) => assert.ok(Math.abs(a - b) < 1e-8, `${label}: ${a} != ${b}`)
   for (const c of cases) {
     const label = `${c.point ?? c.control}/${c.mode ?? 'control'}`
+    if (c.control === 'unsafe') {
+      assert.deepEqual(c.fixture, { kind: 'advlink', id: '', detached: false }, label)
+      assert.equal(c.first.error?.code, 'UNSAFE_SCRIPT_CONTEXT', label)
+      assert.equal(c.first.error?.outcome, 'not_written', label)
+      assert.equal(c.first.error?.actual, null, label)
+      assert.deepEqual(c.after, c.before, `${label}: unsafe move leaves model unchanged`)
+      assert.ok(c.recovery.value?.ok, `${label}: arm consumed by unsafe move`)
+      near(c.recovered.origin[0], c.after.origin[0] + 1, label)
+      assert.equal(c.injected.error?.outcome, 'unknown', label)
+      assert.equal(c.injected.error?.actual, null, label)
+      assert.equal(c.injected.error?.message, 'OpenVSP API error (no message)', label)
+      near(c.afterInjected.origin[0], c.recovered.origin[0] + 1, label)
+      continue
+    }
     if (c.control) {
       if (c.control === 'stale') assert.equal(c.first.error?.code, 'STALE_MODEL', label)
       else assert.ok(c.first.value?.ok, label)
