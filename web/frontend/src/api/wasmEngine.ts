@@ -139,7 +139,9 @@ function drain(vsp: VspModule) {
     for (const m of files) m.native = true
     // The UI must know a prompt before it hears it was answered.
     emit({ type: 'mirror', msgs: mirror })
-    for (const m of files) void answerFileDialog(vsp, m as unknown as MDialog)
+    for (const m of files) void answerFileDialog(vsp, m as unknown as MDialog).catch(() => {
+      try { console.error('WebVSP: file dialog failed unexpectedly') } catch { /* best effort */ }
+    })
   })
   watchLinked(vsp)
 }
@@ -259,6 +261,7 @@ export async function wasmRequest(method: string, path: string, body?: unknown):
       watch: watchLinked,
       clear: () => linked.clear(),
       state: (path: string) => linked.get(path),
+      subscribe: (listener: (event: SocketMessage) => void) => { listeners.add(listener); return () => listeners.delete(listener) },
     },
   } : {}),
 }
@@ -351,11 +354,25 @@ async function answerFileDialog(vsp: VspModule, d: MDialog) {
   let answered = false
   let importCommitStarted = false
   let newBinding: LinkedFile | undefined
+  const deliveryUnknown = Symbol('dialog delivery unknown')
+  const diagnostic = (message: string) => { try { console.error(message) } catch { /* best effort */ } }
   const answer = (path: string) => {
     if (answered) return
-    answered = true // An exception after delivery must not trigger a second answer.
-    vsp.mirrorEvent(JSON.stringify({ op: 'dialog', seq: d.seq, result: path ? 1 : 0, path }))
-    emit({ type: 'dialog_done', seq: d.seq })
+    answered = true // Even a reentrant getter or serialization failure must not trigger another attempt.
+    const message = JSON.stringify({ op: 'dialog', seq: d.seq, result: path ? 1 : 0, path })
+    try {
+      vsp.mirrorEvent(message)
+    } catch {
+      diagnostic('WebVSP: file dialog answer delivery unknown')
+      throw deliveryUnknown // Preserve the import commit's isolation on uncertain delivery.
+    }
+    try {
+      if (!emitListeners(listeners, { type: 'dialog_done', seq: d.seq }, true)) {
+        diagnostic('WebVSP: file dialog completion notification failed')
+      }
+    } catch {
+      diagnostic('WebVSP: file dialog completion notification failed')
+    }
   }
   try {
     const exts = filterExts(d.filter)
@@ -446,12 +463,14 @@ async function answerFileDialog(vsp: VspModule, d: MDialog) {
       // commitSync isolated the whole batch before control returned here.
       if (newBinding && linked.get(newBinding.path) === newBinding) linked.delete(newBinding.path)
     }
-    try { console.error('WebVSP: file dialog failed', err) } catch { /* logging is best effort */ }
+    if (err !== deliveryUnknown) {
+      try { console.error('WebVSP: file dialog failed', err) } catch { /* logging is best effort */ }
+    }
     if (importCommitStarted) {
       // Answer first even if UI subscribers fail; a delivered answer is never repeated.
-      try { if (!answered) answer('') } finally { safelyNotifyPartialImport() }
+      try { if (!answered) answer('') } catch { /* already diagnosed */ } finally { safelyNotifyPartialImport() }
     } else if (!answered) {
-      try { answer('') } finally { safelyNotifyFileError({ kind: 'error', operation: d.mode ? 'save' : 'open' }) }
+      try { answer('') } catch { /* already diagnosed */ } finally { safelyNotifyFileError({ kind: 'error', operation: d.mode ? 'save' : 'open' }) }
     }
   }
 }

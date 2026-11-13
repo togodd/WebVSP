@@ -2,7 +2,7 @@ import { beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
 import { useFileNotice } from './fileNotice'
 import { usePartialImportNotice } from './partialImportNotice'
 
-type Files = { answer(vsp: unknown, dialog: unknown): Promise<void>; clear(): void; state(path: string): unknown }
+type Files = { answer(vsp: unknown, dialog: unknown): Promise<void>; clear(): void; state(path: string): unknown; subscribe(listener: (event: { type: string }) => void): () => void }
 let files: Files
 const path = '/home/web_user/a.vsp3'
 beforeAll(async () => {
@@ -83,7 +83,7 @@ describe('file dialog filter preparation', () => {
     })
     const picker = vi.fn()
     Object.assign(window, { showOpenFilePicker: picker })
-    await expect(files.answer(s.vsp, { seq: 44, mode: 0, filter: 123 })).rejects.toBe(error)
+    await expect(files.answer(s.vsp, { seq: 44, mode: 0, filter: 123 })).resolves.toBeUndefined()
     expect(s.mirrorEvent).toHaveBeenCalledTimes(1)
     expect(JSON.parse(s.mirrorEvent.mock.calls[0][0])).toEqual({ op: 'dialog', seq: 44, result: 0, path: '' })
     expect(delivered).toHaveLength(timing === 'after' ? 1 : 0)
@@ -107,7 +107,68 @@ describe('file dialog filter preparation', () => {
     expect(JSON.parse(s.mirrorEvent.mock.calls[0][0])).toEqual({ op: 'dialog', seq: 45, result: 1, path: '/home/web_user/other.vsp3' })
     expect(delivered).toHaveLength(timing === 'after' ? 1 : 0)
     expect(files.state('/home/web_user/other.vsp3')).toBeDefined()
-    expect(console.error).toHaveBeenCalledWith('WebVSP: file dialog failed', error)
+    expect(console.error).toHaveBeenCalledWith('WebVSP: file dialog answer delivery unknown')
+    expect(console.error).not.toHaveBeenCalledWith('WebVSP: file dialog failed', error)
+  })
+})
+
+describe('dialog completion diagnostics', () => {
+  it('does not call delivery or claim unknown delivery when preparing the answer throws', async () => {
+    const s = await setup()
+    const received = vi.fn()
+    const off = files.subscribe(received)
+    const seq = vi.fn(() => { throw Error('private sequence') })
+    try {
+      Object.assign(window, { showSaveFilePicker: async () => { throw abort() } })
+      await expect(files.answer(s.vsp, { get seq() { return seq() }, mode: 1 })).resolves.toBeUndefined()
+      expect(seq).toHaveBeenCalledTimes(1)
+      expect(s.mirrorEvent).not.toHaveBeenCalled()
+      expect(received).not.toHaveBeenCalled()
+      expect(console.error).not.toHaveBeenCalledWith('WebVSP: file dialog answer delivery unknown')
+    } finally { off() }
+  })
+
+  it('does not quarantine an imported path for a failed completion subscriber', async () => {
+    const s = await setup()
+    const off = files.subscribe(() => { throw Error('private') })
+    Object.assign(window, { showOpenFilePicker: async () => [{ getFile: async () => ({ name: 'notify-only.vsp3', arrayBuffer: async () => new Uint8Array([1]).buffer }) }] })
+    try {
+      await files.answer(s.vsp, { seq: 70, mode: 0, filter: '*.vsp3' })
+      expect(files.state('/home/web_user/notify-only.vsp3')).toBeDefined()
+      expect(usePartialImportNotice.getState().notices).toEqual([])
+      files.clear() // Remove the fake binding; this fixture does not persist writes in its FS.
+      await files.answer(s.vsp, { seq: 71, mode: 0, filter: '*.vsp3' })
+      expect(JSON.parse(s.mirrorEvent.mock.calls.at(-1)![0])).toMatchObject({ seq: 71, result: 1 })
+    } finally { off() }
+  })
+
+  it('reports listener failure once without leaking its value and continues delivery', async () => {
+    const s = await setup()
+    const received = vi.fn()
+    const off1 = files.subscribe(() => { throw Error('secret filename') })
+    const off2 = files.subscribe(received)
+    try {
+      Object.assign(window, { showSaveFilePicker: async () => { throw abort() } })
+      await expect(files.answer(s.vsp, { seq: 33, mode: 1 })).resolves.toBeUndefined()
+      expect(received).toHaveBeenCalledWith({ type: 'dialog_done', seq: 33 })
+      expect(console.error).toHaveBeenCalledExactlyOnceWith('WebVSP: file dialog completion notification failed')
+      expect(s.mirrorEvent).toHaveBeenCalledTimes(1)
+    } finally { off1(); off2() }
+  })
+
+  it('does not emit completion when delivery throws, even if logging throws', async () => {
+    const s = await setup()
+    const received = vi.fn()
+    const off = files.subscribe(received)
+    try {
+      vi.mocked(console.error).mockImplementation(() => { throw Error('logger') })
+      s.mirrorEvent.mockImplementation(() => { throw Error('secret path') })
+      Object.assign(window, { showSaveFilePicker: async () => { throw abort() } })
+      await expect(files.answer(s.vsp, { seq: 34, mode: 1 })).resolves.toBeUndefined()
+      expect(received).not.toHaveBeenCalled()
+      expect(console.error).toHaveBeenCalledExactlyOnceWith('WebVSP: file dialog answer delivery unknown')
+      expect(s.mirrorEvent).toHaveBeenCalledTimes(1)
+    } finally { off() }
   })
 })
 

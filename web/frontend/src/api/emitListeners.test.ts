@@ -19,6 +19,18 @@ describe('emitListeners', () => {
     }
   })
 
+  it('contains a failing logger and reports private listener failure without exposing it', () => {
+    const log = vi.spyOn(console, 'error').mockImplementation(() => { throw Error('logger') })
+    try {
+      const next = vi.fn()
+      const listeners = new Set<(_: string) => void>([() => { throw Error('private path') }, next])
+      expect(emitListeners(listeners, 'ordinary')).toBe(false)
+      expect(emitListeners(listeners, 'dialog', true)).toBe(false)
+      expect(next).toHaveBeenCalledTimes(2)
+      expect(log).toHaveBeenCalledTimes(1)
+    } finally { log.mockRestore() }
+  })
+
   it('retains live Set iteration, including deletion, insertion and re-addition', () => {
     const calls: string[] = []
     const listeners = new Set<(event: number) => void>()
