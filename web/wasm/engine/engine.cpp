@@ -54,6 +54,7 @@
 
 #include "VSP_Geom_API.h"
 #include "APIErrorMgr.h"
+#include "error_drain.h"
 #include "AdvLinkMgr.h"
 #include "DrawObj.h"
 #include "MeshGeom.h"
@@ -927,6 +928,17 @@ enum class MissingParmOwner { None, Geom, XSec };
 // One-shot fault at the API boundary, only for guarded parameter reads.
 string g_ParmReadFault;
 string g_ParmReadFaultMessage;
+// Arms belong to exactly one guarded write, including early-return paths.
+string g_WriteErrorArmed, g_WriteErrorMode, g_WriteErrorActive, g_WriteErrorActiveMode;
+void InjectWriteError( const char *point )
+{
+    if ( !g_GuardedWrite || g_WriteErrorActive != point ) return;
+    g_WriteErrorActive.clear();
+    auto &mgr = vsp::ErrorMgrSingleton::getInstance();
+    if ( g_WriteErrorActiveMode == "mixed" )
+        mgr.AddError( vsp::VSP_INVALID_PTR, "Injected write error" );
+    mgr.AddError( vsp::VSP_INVALID_ID, "" );
+}
 void InjectParmReadFault( const char *point, bool guarded )
 {
     if ( guarded && g_ParmReadFault == point )
@@ -946,15 +958,44 @@ string TakeParmErrors( bool guarded )
     return had_errors && err.empty() ? "OpenVSP parameter API error (no message)" : err;
 }
 
+// Strict writes must distinguish an empty error description from no error. Keep
+// TakeErrors and guarded read formatting unchanged for their existing callers.
+DrainedErrors TakeWriteErrors()
+{
+    return DrainErrors( vsp::ErrorMgrSingleton::getInstance(), "OpenVSP API error (no message)" );
+}
+
+bool TakeOwnerErrors( bool strict, bool guarded_read, string &err )
+{
+    if ( strict )
+    {
+        DrainedErrors errors = TakeWriteErrors();
+        err = errors.message;
+        return errors.had_errors;
+    }
+    err = TakeParmErrors( guarded_read );
+    return !err.empty();
+}
+
+DrainedErrors TakeScopedWriteErrors( bool guarded )
+{
+    if ( guarded ) return TakeWriteErrors();
+    DrainedErrors errors;
+    errors.message = TakeErrors();
+    errors.had_errors = !errors.message.empty();
+    return errors;
+}
+
 // Parameter owners must be reachable from the current model, not merely registered in
 // the vehicle's geom store (which also contains clipboard copies).
-bool CurrentModelGeom( const string &geom, string &err, MissingParmOwner *missing = nullptr )
+bool CurrentModelGeom( const string &geom, string &err, MissingParmOwner *missing = nullptr, bool strict = false )
 {
     vector< string > geoms = vsp::FindGeoms();
 #ifdef WEBVSP_SCRIPT_GUARD_TEST
     InjectParmReadFault( "FindGeoms", missing != nullptr );
+    if ( strict ) InjectWriteError( "FindGeoms" );
 #endif
-    if ( !( err = TakeParmErrors( missing != nullptr ) ).empty() ) return false;
+    if ( TakeOwnerErrors( strict, missing != nullptr, err ) ) return false;
     if ( std::find( geoms.begin(), geoms.end(), geom ) == geoms.end() )
     {
         err = "Geom not found in the current model: " + geom;
@@ -979,13 +1020,13 @@ void ParmReadFailure( const Job &j, const string &err, MissingParmOwner missing 
 
 // Enumerate only live XSecs reachable through a geom; a globally registered XSec may be a
 // clipboard or otherwise not part of the current model. Propagate errors even for empty lists.
-bool GeomXSecs( const string &geom, string &json, bool &found, const string &wanted, string &err, bool guarded = false )
+bool GeomXSecs( const string &geom, string &json, bool &found, const string &wanted, string &err, bool guarded = false, bool strict = false )
 {
     vector< string > surfaces = vsp::GetXSecSurfIDVec( geom );
 #ifdef WEBVSP_SCRIPT_GUARD_TEST
     InjectParmReadFault( "GetXSecSurfIDVec", guarded );
 #endif
-    if ( !( err = TakeParmErrors( guarded ) ).empty() ) return false;
+    if ( TakeOwnerErrors( strict, guarded, err ) ) return false;
     json = "[";
     for ( size_t s = 0; s < surfaces.size(); ++s )
     {
@@ -993,7 +1034,7 @@ bool GeomXSecs( const string &geom, string &json, bool &found, const string &wan
 #ifdef WEBVSP_SCRIPT_GUARD_TEST
         InjectParmReadFault( "GetNumXSec", guarded );
 #endif
-        if ( !( err = TakeParmErrors( guarded ) ).empty() ) return false;
+        if ( TakeOwnerErrors( strict, guarded, err ) ) return false;
         vector< string > ids;
         for ( int i = 0; i < count; ++i )
         {
@@ -1001,7 +1042,7 @@ bool GeomXSecs( const string &geom, string &json, bool &found, const string &wan
 #ifdef WEBVSP_SCRIPT_GUARD_TEST
             InjectParmReadFault( "GetXSec", guarded );
 #endif
-            if ( !( err = TakeParmErrors( guarded ) ).empty() ) return false;
+            if ( TakeOwnerErrors( strict, guarded, err ) ) return false;
             ids.push_back( id );
             if ( !wanted.empty() && id == wanted ) found = true;
         }
@@ -1012,20 +1053,21 @@ bool GeomXSecs( const string &geom, string &json, bool &found, const string &wan
     return true;
 }
 
-bool ParmIDs( bool xsec, const string &owner, vector< string > &ids, string &err, MissingParmOwner *missing = nullptr )
+bool ParmIDs( bool xsec, const string &owner, vector< string > &ids, string &err, MissingParmOwner *missing = nullptr, bool strict = false )
 {
     if ( xsec )
     {
         vector< string > geoms = vsp::FindGeoms();
 #ifdef WEBVSP_SCRIPT_GUARD_TEST
         InjectParmReadFault( "FindGeoms", missing != nullptr );
+        if ( strict ) InjectWriteError( "FindGeoms" );
 #endif
-        if ( !( err = TakeParmErrors( missing != nullptr ) ).empty() ) return false;
+        if ( TakeOwnerErrors( strict, missing != nullptr, err ) ) return false;
         bool found = false;
         for ( const string &geom : geoms )
         {
             string unused;
-            if ( !GeomXSecs( geom, unused, found, owner, err, missing != nullptr ) ) return false;
+            if ( !GeomXSecs( geom, unused, found, owner, err, missing != nullptr, strict ) ) return false;
             if ( found ) break;
         }
         if ( !found )
@@ -1038,11 +1080,10 @@ bool ParmIDs( bool xsec, const string &owner, vector< string > &ids, string &err
     }
     else
     {
-        if ( !CurrentModelGeom( owner, err, missing ) ) return false;
+        if ( !CurrentModelGeom( owner, err, missing, strict ) ) return false;
         ids = vsp::GetGeomParmIDs( owner );
     }
-    err = TakeParmErrors( missing != nullptr );
-    return err.empty();
+    return !TakeOwnerErrors( strict, missing != nullptr, err );
 }
 
 // Error stack entries persist across successful API calls, so inspect it before accepting any
@@ -1122,7 +1163,7 @@ void ScopedParmWrite( const Job &j, bool xsec )
 {
     vector< string > ids;
     string err;
-    if ( !ParmIDs( xsec, j.a, ids, err ) )
+    if ( !ParmIDs( xsec, j.a, ids, err, nullptr, j.guarded ) )
         return ParmWriteFailure( j.id, err, "not_written", "null" );
     if ( std::find( ids.begin(), ids.end(), j.b ) == ids.end() )
         return ParmWriteFailure( j.id, "Parm is not linkable for the requested owner: " + j.b, "not_written", "null" );
@@ -1132,8 +1173,12 @@ void ScopedParmWrite( const Job &j, bool xsec )
     double lower = vsp::GetParmLowerLimit( j.b );
     double upper = vsp::GetParmUpperLimit( j.b );
     bool active = vsp::GetParmActiveFlag( j.b );
-    if ( !( err = TakeErrors() ).empty() )
-        return ParmWriteFailure( j.id, "Cannot read parm metadata: " + err, "not_written", "null" );
+#ifdef WEBVSP_SCRIPT_GUARD_TEST
+    InjectWriteError( "metadata" );
+#endif
+    DrainedErrors metadata_errors = TakeScopedWriteErrors( j.guarded );
+    if ( metadata_errors.had_errors )
+        return ParmWriteFailure( j.id, "Cannot read parm metadata: " + metadata_errors.message, "not_written", "null" );
     if ( !std::isfinite( j.value ) )
         return ParmWriteFailure( j.id, "Requested value must be finite", "not_written", Num( old ) );
     if ( !std::isfinite( old ) || std::isnan( lower ) || std::isnan( upper ) || lower > upper )
@@ -1167,16 +1212,22 @@ void ScopedParmWrite( const Job &j, bool xsec )
 
     if ( !BeginGuardedWrite() ) return;
     vsp::SetParmValUpdate( j.b, j.value );
-    string set_error = TakeErrors();
+#ifdef WEBVSP_SCRIPT_GUARD_TEST
+    InjectWriteError( "setter" );
+#endif
+    DrainedErrors set_error = TakeScopedWriteErrors( j.guarded );
     double actual = vsp::GetParmVal( j.b );
-    string read_error = TakeErrors();
+#ifdef WEBVSP_SCRIPT_GUARD_TEST
+    InjectWriteError( "readback" );
+#endif
+    DrainedErrors read_error = TakeScopedWriteErrors( j.guarded );
     Watch( "Parameter change", true );
-    if ( !set_error.empty() || !read_error.empty() || !std::isfinite( actual ) )
+    if ( set_error.had_errors || read_error.had_errors || !std::isfinite( actual ) )
     {
-        string message = set_error.empty() ? "" : "SetParmValUpdate failed: " + set_error;
-        if ( !read_error.empty() ) message += ( message.empty() ? "" : "; " ) + string( "Readback failed: " ) + read_error;
+        string message = !set_error.had_errors ? "" : "SetParmValUpdate failed: " + set_error.message;
+        if ( read_error.had_errors ) message += ( message.empty() ? "" : "; " ) + string( "Readback failed: " ) + read_error.message;
         else if ( !std::isfinite( actual ) ) message += ( message.empty() ? "" : "; " ) + string( "Readback is non-finite" );
-        return ParmWriteFailure( j.id, message, "unknown", read_error.empty() ? Num( actual ) : "null" );
+        return ParmWriteFailure( j.id, message, "unknown", !read_error.had_errors ? Num( actual ) : "null" );
     }
     if ( actual != j.value )
         return ParmWriteFailure( j.id, "Readback differs from requested value; update may have side effects", "different", Num( actual ) );
@@ -1781,6 +1832,17 @@ void RunImpl( const Job &j )
             ",\"firstCode\":" + std::to_string( static_cast< int >( vsp::VSP_INVALID_ID ) ) +
             ",\"secondCode\":" + std::to_string( static_cast< int >( vsp::VSP_INVALID_PTR ) ) + "}" );
     }
+    if ( j.op == "guardedWriteErrorInjection" )
+    {
+        if ( j.a != "clear" && j.a != "FindGeoms" && j.a != "metadata" &&
+             j.a != "setter" && j.a != "readback" && j.a != "addUpdate" && j.a != "move" )
+            return Result( j.id, "Invalid guarded write error point", "" );
+        if ( j.a != "clear" && j.b != "empty" && j.b != "mixed" )
+            return Result( j.id, "Invalid guarded write error mode", "" );
+        g_WriteErrorArmed = j.a == "clear" ? "" : j.a;
+        g_WriteErrorMode = j.b;
+        return Result( j.id, "", "null" );
+    }
     if ( j.op == "parmReadInjection" )
     {
         if ( j.a != "clear" && j.a != "FindGeoms" && j.a != "GetXSecSurfIDVec" &&
@@ -2036,14 +2098,20 @@ void RunImpl( const Job &j )
         if ( j.guarded && !j.b.empty() && j.b != "NONE" && j.b != veh->GetID() )
         {
             string err;
-            if ( !CurrentModelGeom( j.b, err ) ) return ParmWriteFailure( j.id, err, "not_written", "null" );
+            if ( !CurrentModelGeom( j.b, err, nullptr, true ) ) return ParmWriteFailure( j.id, err, "not_written", "null" );
         }
         if ( !BeginGuardedWrite() ) return;
         string id = vsp::AddGeom( j.a, j.b );
         vsp::Update();
-        string err = TakeErrors();
+#ifdef WEBVSP_SCRIPT_GUARD_TEST
+        InjectWriteError( "addUpdate" );
+#endif
+        DrainedErrors errors;
+        string err;
+        if ( j.guarded ) { errors = TakeWriteErrors(); err = errors.message; }
+        else err = TakeErrors();
         Watch( "Add " + j.a, true );
-        if ( j.guarded && ( !err.empty() || id.empty() ) )
+        if ( j.guarded && ( errors.had_errors || id.empty() ) )
             return ParmWriteFailure( j.id, err.empty() ? "AddGeom returned an empty id" : err, "unknown", "null" );
         return Result( j.id, err, "{\"id\":" + Quote( id ) + "}" );
     }
@@ -2106,13 +2174,19 @@ void RunImpl( const Job &j )
                 return ParmWriteFailure( j.id, "Move requires non-empty geom IDs", "not_written", "null" );
             string err;
             for ( const string &id : ids )
-                if ( !CurrentModelGeom( id, err ) ) return ParmWriteFailure( j.id, err, "not_written", "null" );
+                if ( !CurrentModelGeom( id, err, nullptr, true ) ) return ParmWriteFailure( j.id, err, "not_written", "null" );
         }
         if ( !BeginGuardedWrite() ) return;
         vsp::MirrorMoveGeoms( ids, d );
-        string err = TakeErrors();
+#ifdef WEBVSP_SCRIPT_GUARD_TEST
+        InjectWriteError( "move" );
+#endif
+        DrainedErrors errors;
+        string err;
+        if ( j.guarded ) { errors = TakeWriteErrors(); err = errors.message; }
+        else err = TakeErrors();
         Watch( "Move", true );
-        if ( j.guarded && !err.empty() ) return ParmWriteFailure( j.id, err, "unknown", "null" );
+        if ( j.guarded && errors.had_errors ) return ParmWriteFailure( j.id, err, "unknown", "null" );
         return Result( j.id, err, "{\"ok\":true}" );
     }
     if ( j.op == "duplicate" )
@@ -2241,6 +2315,18 @@ void Run( const Job &j )
 
 #ifdef WEBVSP_SCRIPT_GUARD_TEST
     // Consume before any preflight, including stale-epoch and unsafe-context failures.
+    struct RestoreWriteError
+    {
+        string point, mode;
+        RestoreWriteError() : point( std::move( g_WriteErrorActive ) ), mode( std::move( g_WriteErrorActiveMode ) )
+        {
+            g_WriteErrorActive = std::move( g_WriteErrorArmed );
+            g_WriteErrorActiveMode = std::move( g_WriteErrorMode );
+            g_WriteErrorArmed.clear();
+            g_WriteErrorMode.clear();
+        }
+        ~RestoreWriteError() { g_WriteErrorActive = std::move( point ); g_WriteErrorActiveMode = std::move( mode ); }
+    } restore_write_error;
     string previous_injection = std::move( g_InjectionActive );
     g_InjectionActive = std::move( g_InjectionArmed );
     g_InjectionArmed.clear();

@@ -1,0 +1,112 @@
+// Real ErrorMgr empty-description write faults in a disposable test-macro WASM.
+// Serve a dedicated loopback Vite instance with a disposable model and WASM.
+// Set WEBVSP_TEST_PAGE to its HTTP origin root, WEBVSP_TEST_CHROMIUM to Chrome,
+// and WEBVSP_TEST_TOKEN to random hex (at least 32 characters). The server must
+// return exactly that token at /__guarded_write_errors_test_token; do not use an
+// existing user-facing server. A matching marker identifies the intended instance.
+import assert from 'node:assert/strict'
+import { chromium } from 'playwright-core'
+
+const executablePath = process.env.WEBVSP_TEST_CHROMIUM
+if (!executablePath) throw new Error('Set WEBVSP_TEST_CHROMIUM')
+if (!process.env.WEBVSP_TEST_PAGE) throw new Error('Set WEBVSP_TEST_PAGE to a dedicated loopback test server')
+const testUrl = new URL(process.env.WEBVSP_TEST_PAGE)
+if (testUrl.protocol !== 'http:' || !['127.0.0.1', 'localhost', '[::1]'].includes(testUrl.hostname) || testUrl.username || testUrl.password || testUrl.pathname !== '/' || testUrl.search || testUrl.hash)
+  throw new Error('Test page must be a loopback HTTP origin root')
+const token = process.env.WEBVSP_TEST_TOKEN
+if (!token || !/^[0-9a-f]{32,}$/.test(token)) throw new Error('Set WEBVSP_TEST_TOKEN to a random hexadecimal token of at least 32 characters')
+const marker = await fetch(new URL('/__guarded_write_errors_test_token', testUrl), { redirect: 'error', signal: AbortSignal.timeout(10000), cache: 'no-store' })
+if (!marker.ok || (await marker.text()).trim() !== token) throw new Error('Disposable test server token mismatch')
+const deadline = setTimeout(() => { console.error('FAIL: write error test timed out'); process.exit(1) }, 180000)
+const browser = await chromium.launch({ executablePath, headless: true, args: ['--no-sandbox', '--enable-unsafe-swiftshader'] })
+try {
+  const page = await browser.newPage({ serviceWorkers: 'block' })
+  const errors = []
+  page.on('pageerror', e => errors.push(e.message))
+  await page.goto(testUrl.href)
+  if (page.url() !== testUrl.href) throw new Error('Test server redirected away from the verified origin')
+  const browserMarker = await page.evaluate(async () => {
+    const response = await fetch('/__guarded_write_errors_test_token', { cache: 'no-store', redirect: 'error' })
+    return response.ok ? (await response.text()).trim() : null
+  })
+  if (browserMarker !== token) throw new Error('Browser test server token mismatch')
+  await page.waitForSelector('[data-ready="1"]', { timeout: 120000 })
+  const cases = await page.evaluate(async () => {
+    const e = window.__webvspEngine
+    const call = (op, a = '', b = '', value = 0) => e.testCall(op, a, b, value)
+    const arm = (point, mode = 'empty') => call('guardedWriteErrorInjection', point, mode)
+    await e.request('POST', '/file/new')
+    const model = await call('model')
+    const write = (op, a = '', b = '', value = 0, epoch = model.modelEpoch) => e.testCallGuarded(op, a, b, value, epoch)
+    const id = (await write('addGeom', 'FUSELAGE')).id
+    const parm = await write('fuselageLength', id)
+    const snapshot = async () => ({ ids: (await write('model')).geoms.map(g => g.id), length: (await write('geomParm', id, parm.id)).value, origin: await write('origin', id) })
+    const attempt = async fn => { try { return { value: await fn() } } catch (err) { return { error: { message: err.message, code: err.code, outcome: err.outcome, actual: err.actual } } } }
+    const out = []
+    try {
+      for (const point of ['FindGeoms', 'metadata', 'setter', 'readback', 'addUpdate', 'move']) {
+        for (const mode of ['empty', 'mixed']) {
+          const before = await snapshot()
+          const op = point === 'addUpdate' ? 'addGeom' : point === 'move' ? 'move' : 'geomSetParm'
+          const args = op === 'addGeom' ? ['BLANK', '', 0] : op === 'move' ? [id, '1,0,0', 0] : [id, parm.id, before.length + 1]
+          await arm(point, mode)
+          const result = await attempt(() => write(op, ...args))
+          const after = await snapshot()
+          const recoveryArgs = op === 'geomSetParm' ? [id, parm.id, after.length + 1] : args
+          const recovery = await attempt(() => write(op, ...recoveryArgs))
+          const recovered = await snapshot()
+          out.push({ point, mode, before, args, result, after, recoveryArgs, recovery, recovered })
+        }
+      }
+      for (const control of ['miss', 'stale', 'clear', 'legacy']) {
+        const before = await snapshot()
+        await arm(control === 'miss' ? 'setter' : 'move')
+        let first
+        if (control === 'miss') first = await attempt(() => write('move', id, '1,0,0'))
+        if (control === 'stale') first = await attempt(() => write('move', id, '1,0,0', 0, 'bad'))
+        if (control === 'clear') { await arm('clear'); first = await attempt(() => write('move', id, '1,0,0')) }
+        if (control === 'legacy') first = await attempt(() => call('move', id, '1,0,0'))
+        const after = await snapshot()
+        const legacyInjected = control === 'legacy' ? await attempt(() => write('move', id, '1,0,0')) : null
+        const afterLegacyInjected = control === 'legacy' ? await snapshot() : null
+        const recovery = await attempt(() => write('move', id, '1,0,0'))
+        const recovered = await snapshot()
+        out.push({ control, before, first, after, legacyInjected, afterLegacyInjected, recovery, recovered })
+      }
+      return out
+    } finally { await arm('clear') }
+  })
+  const near = (a, b, label) => assert.ok(Math.abs(a - b) < 1e-8, `${label}: ${a} != ${b}`)
+  for (const c of cases) {
+    const label = `${c.point ?? c.control}/${c.mode ?? 'control'}`
+    if (c.control) {
+      if (c.control === 'stale') assert.equal(c.first.error?.code, 'STALE_MODEL', label)
+      else assert.ok(c.first.value?.ok, label)
+      near(c.after.origin[0], c.before.origin[0] + (c.control === 'stale' ? 0 : 1), label)
+      if (c.control === 'legacy') {
+        assert.equal(c.legacyInjected.error?.outcome, 'unknown', label)
+        assert.equal(c.legacyInjected.error.message, 'OpenVSP API error (no message)', label)
+        near(c.afterLegacyInjected.origin[0], c.after.origin[0] + 1, label)
+      }
+      assert.ok(c.recovery.value?.ok, label)
+      near(c.recovered.origin[0], (c.afterLegacyInjected ?? c.after).origin[0] + 1, label)
+      continue
+    }
+    const pre = c.point === 'FindGeoms' || c.point === 'metadata'
+    assert.equal(c.result.error?.outcome, pre ? 'not_written' : 'unknown', label)
+    const expectedMessage = c.mode === 'mixed' ? 'Injected write error; OpenVSP API error (no message)' : 'OpenVSP API error (no message)'
+    const prefix = c.point === 'metadata' ? 'Cannot read parm metadata: ' : c.point === 'setter' ? 'SetParmValUpdate failed: ' : c.point === 'readback' ? 'Readback failed: ' : ''
+    assert.equal(c.result.error.message, prefix + expectedMessage, label)
+    if (c.point === 'setter') near(c.result.error.actual, c.args[2], label)
+    else assert.equal(c.result.error.actual, null, label)
+    assert.equal(c.after.ids.length - c.before.ids.length, c.point === 'addUpdate' ? 1 : 0, label)
+    near(c.after.length, ['setter', 'readback'].includes(c.point) ? c.args[2] : c.before.length, label)
+    near(c.after.origin[0], c.before.origin[0] + (c.point === 'move' ? 1 : 0), label)
+    assert.ok(c.recovery.value, `${label}: recovery succeeds`)
+    assert.equal(c.recovered.ids.length - c.after.ids.length, c.point === 'addUpdate' ? 1 : 0, label)
+    near(c.recovered.length, ['FindGeoms', 'metadata', 'setter', 'readback'].includes(c.point) ? c.recoveryArgs[2] : c.after.length, label)
+    near(c.recovered.origin[0], c.after.origin[0] + (c.point === 'move' ? 1 : 0), label)
+  }
+  assert.deepEqual(errors, [])
+  console.log(`PASS: ${cases.length} guarded write error and recovery cases`)
+} finally { await browser.close(); clearTimeout(deadline) }
