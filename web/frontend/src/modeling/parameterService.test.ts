@@ -385,6 +385,63 @@ describe('linkable parameter reads', () => {
       expect(fn).toHaveBeenCalledTimes(1)
     }
   })
+  describe('shape snapshot error boundaries', () => {
+    const unused = async (): Promise<never> => { throw new Error('unexpected operation') }
+    const identity = { sessionId: 'session', modelEpoch: 'epoch' }
+    for (const kind of ['fuselage', 'wing'] as const) {
+      it(`${kind} sanitizes engine errors thrown by nested shape getters`, async () => {
+        for (const field of ['id', 'shape'] as const) for (const code of ['STALE_MODEL', 'GEOMETRY_NOT_FOUND', 'CROSS_SECTION_NOT_FOUND'] as const) {
+          const later = vi.fn(() => { throw new Error('read after failure') })
+          const section = field === 'id'
+            ? { get id(): string { throw new WasmEngineError(409, 'secret', undefined, undefined, code) }, get shape(): number { return later() } }
+            : { id: 'x', get shape(): number { throw new WasmEngineError(409, 'secret', undefined, undefined, code) } }
+          const response = [{ id: 's', xsecs: [{ id: 'first', shape: 0 }, section, { get id(): string { return later() }, shape: 0 }] }]
+          const shapes = vi.fn(async () => response)
+          const service = createParameterService({ surfaces: unused, fuselageLength: unused, list: unused, get: unused, fuselageShapes: shapes, wingShapes: shapes })
+          const error = await (kind === 'wing' ? service.listWingShapes('g', identity) : service.listFuselageShapes('g', identity)).catch(e => e)
+          expect(error, `${field}/${code}`).toBeInstanceOf(ModelingError)
+          expect(error.toJSON()).toEqual({ code: 'ENGINE_ERROR', message: 'The OpenVSP parameter request failed' })
+          expect(later).not.toHaveBeenCalled()
+        }
+      })
+
+      it(`${kind} stops nested snapshots on synchronous close, even when the getter throws`, async () => {
+        for (const field of ['id', 'shape'] as const) for (const throws of [false, true]) {
+          const controller = new AbortController()
+          const later = vi.fn(() => { throw new Error('read after close') })
+          const close = <T,>(value: T): T => { controller.abort(); if (throws) throw new WasmEngineError(409, 'secret', undefined, undefined, 'STALE_MODEL'); return value }
+          const section = field === 'id'
+            ? { get id() { return close('x') }, get shape(): number { return later() } }
+            : { id: 'x', get shape() { return close(0) } }
+          const response = [{ id: 's', xsecs: [{ id: 'first', shape: 0 }, section, { get id(): string { return later() }, shape: 0 }] }, { get id(): string { return later() }, xsecs: [] }]
+          const shapes = async () => response
+          const service = createParameterService({ surfaces: unused, fuselageLength: unused, list: unused, get: unused, fuselageShapes: shapes, wingShapes: shapes }, controller.signal)
+          const error = await (kind === 'wing' ? service.listWingShapes('g', identity) : service.listFuselageShapes('g', identity)).catch(e => e)
+          expect(error.toJSON(), `${field}/${throws}`).toEqual({ code: 'SESSION_CLOSED', message: 'Modeling session is closed' })
+          expect(later).not.toHaveBeenCalled()
+        }
+      })
+
+      it(`${kind} preserves genuine adapter rejection mapping`, async () => {
+        let failure: unknown
+        const shapes = vi.fn(async (): Promise<never> => { throw failure })
+        const service = createParameterService({ surfaces: unused, fuselageLength: unused, list: unused, get: unused, fuselageShapes: shapes, wingShapes: shapes })
+        const call = (withIdentity: boolean) => kind === 'wing' ? service.listWingShapes('g', withIdentity ? identity : undefined) : service.listFuselageShapes('g', withIdentity ? identity : undefined)
+        for (const [code, withIdentity, expected, message] of [
+          ['STALE_MODEL', true, 'STALE_MODEL', 'The model identity is stale'],
+          ['STALE_MODEL', false, 'ENGINE_ERROR', 'The OpenVSP parameter request failed'],
+          ['GEOMETRY_NOT_FOUND', true, 'GEOMETRY_NOT_FOUND', 'Geometry not found'],
+          ['CROSS_SECTION_NOT_FOUND', true, 'ENGINE_ERROR', 'The OpenVSP parameter request failed'],
+        ] as const) {
+          failure = new WasmEngineError(409, 'secret', undefined, undefined, code)
+          const error = await call(withIdentity).catch(e => e)
+          expect(error).toBeInstanceOf(ModelingError)
+          expect(error.toJSON()).toEqual({ code: expected, message })
+        }
+      })
+    }
+  })
+
   describe('shape ID uniqueness', () => {
     const unused = async (): Promise<never> => { throw new Error('unexpected operation') }
     for (const kind of ['fuselage', 'wing'] as const) {
