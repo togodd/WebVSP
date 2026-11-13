@@ -267,6 +267,64 @@ describe('browser-local read service', () => {
       }
     }
   })
+  it('rejects duplicate and blank geometry IDs across all model projections before lookup or identity mismatch', async () => {
+    for (const ids of [['f', 'f'], ['w', 'w'], ['', 'w'], ['f', ' \t\n'], ['\u00a0\u2003', 'w']]) {
+      for (const reverse of [false, true]) {
+        const model = fixture()
+        model.geoms[0].id = ids[0]; model.geoms[1].id = ids[1]
+        if (reverse) model.geoms.reverse()
+        const service = createReadService({ model: async () => model, bbox: async () => null }, 'tab')
+        for (const read of [
+          () => service.model.getInfo({ sessionId: 'tab', modelEpoch: '43' }),
+          () => service.model.getSelection(), () => service.geometry.list(),
+          () => service.geometry.get('missing'), () => service.geometry.get(ids[0].trim() ? ids[0] : 'missing'),
+          () => service.geometry.get('missing', { sessionId: 'tab', modelEpoch: '43' }),
+        ]) {
+          await expect(read()).rejects.toMatchObject({ code: 'ENGINE_ERROR', message: 'The OpenVSP engine request failed' })
+        }
+      }
+    }
+  })
+  it('preserves exact IDs and permits incomplete or unrelated topology', async () => {
+    const model = fixture()
+    model.geoms[0].id = ' x,y '; model.geoms[0].parent = ''; model.geoms[0].children = ['', 'missing', 'missing', 'x,y']
+    model.geoms[1].id = 'x,y'; model.geoms[1].type = 'Future Geometry'
+    model.geoms[1].parent = 'missing'; model.active = ['', 'unknown', 'unknown', 'x,y']
+    const service = createReadService({ model: async () => model, bbox: async () => null }, 'tab')
+    expect((await service.geometry.get(' x,y ')).geometry).toMatchObject({ id: ' x,y ', parentId: '', childIds: ['', 'missing', 'missing', 'x,y'] })
+    expect((await service.geometry.get('x,y')).geometry.type).toBe('Future Geometry')
+    expect((await service.model.getSelection()).geometryIds).toEqual(['', 'unknown', 'unknown', 'x,y'])
+    model.geoms = []; model.active = ['unknown']
+    expect((await service.model.getInfo()).geometries).toEqual([])
+    expect((await service.geometry.list()).geometries).toEqual([])
+    expect((await service.model.getSelection()).geometryIds).toEqual(['unknown'])
+    await expect(service.geometry.get('x,y')).rejects.toMatchObject({ code: 'GEOMETRY_NOT_FOUND' })
+  })
+  it('reads geometry ID getters once and prioritizes close at the ID boundary', async () => {
+    const model = fixture()
+    let firstReads = 0, secondReads = 0
+    Object.defineProperty(model.geoms[0], 'id', { get() { return ++firstReads === 1 ? 'f' : 'w' } })
+    Object.defineProperty(model.geoms[1], 'id', { get() { return ++secondReads === 1 ? 'w' : 'f' } })
+    const service = createReadService({ model: async () => model, bbox: async () => null }, 'tab')
+    expect((await service.geometry.get('w')).geometry.id).toBe('w')
+    expect([firstReads, secondReads]).toEqual([1, 1])
+
+    const throwing = fixture()
+    Object.defineProperty(throwing.geoms[0], 'id', { get() { throw new ModelingError('STALE_MODEL', 'private') } })
+    const safe = createReadService({ model: async () => throwing, bbox: async () => null }, 'tab')
+    await expect(safe.geometry.get('f')).rejects.toMatchObject({ code: 'ENGINE_ERROR', message: 'The OpenVSP engine request failed' })
+
+    for (const throws of [false, true]) {
+      const response = fixture()
+      const later = vi.fn()
+      let closing: ReturnType<typeof createReadService>
+      Object.defineProperty(response.geoms[1], 'id', { get() { closing.close(); if (throws) throw new Error('private'); return 'f' } })
+      Object.defineProperty(response.geoms[1], 'name', { get: later })
+      closing = createReadService({ model: async () => response, bbox: async () => null }, 'tab')
+      await expect(closing.geometry.get('missing')).rejects.toMatchObject({ code: 'SESSION_CLOSED' })
+      expect(later).not.toHaveBeenCalled()
+    }
+  })
   it('validates array indices instead of trusting a custom iterator or inherited entries', async () => {
     const masked = <T,>(values: T[], replacement: T[]) => {
       values[Symbol.iterator] = () => replacement[Symbol.iterator]()

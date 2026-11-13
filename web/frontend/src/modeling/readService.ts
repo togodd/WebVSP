@@ -133,11 +133,13 @@ export function createReadService(adapter: ModelingReadAdapter, sessionId: strin
           if (field(model, 'modelEpochValid') !== true || !validEpoch(modelEpoch)) throw new Error('Invalid model identity')
           const rev = field(model, 'rev'), version = field(model, 'version'), fileName = field(model, 'fileName'), geoms = field(model, 'geoms'), active = field(model, 'active')
           if (typeof rev !== 'number' || !Number.isFinite(rev) || typeof version !== 'string' || typeof fileName !== 'string' || !Array.isArray(geoms)) throw new Error('Invalid model')
+          const geometryIds = new Set<string>()
           const geometries = copyArray(geoms, (g): Geometry => {
             if (!g || typeof g !== 'object') throw new Error('Invalid geometry')
             const record = g as Record<string, unknown>
             const id = field(record, 'id'), name = field(record, 'name'), type = field(record, 'type'), parent = field(record, 'parent'), children = field(record, 'children'), shown = field(record, 'shown')
-            if (typeof id !== 'string' || typeof name !== 'string' || typeof type !== 'string' || (parent !== null && typeof parent !== 'string') || typeof shown !== 'boolean') throw new Error('Invalid geometry')
+            if (typeof id !== 'string' || !id.trim() || geometryIds.has(id) || typeof name !== 'string' || typeof type !== 'string' || (parent !== null && typeof parent !== 'string') || typeof shown !== 'boolean') throw new Error('Invalid geometry')
+            geometryIds.add(id)
             return { id, name, type, parentId: parent, childIds: stringArray(children, checkOpen), shown }
           }, checkOpen)
           return {
