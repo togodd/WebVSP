@@ -65,37 +65,51 @@ export function createWriteService(adapter: ModelingWriteAdapter, signal: AbortS
       return false
     }
   }
-  async function readModel(identity?: ModelIdentity): Promise<{ geoms: { id: string; type: string; parent: string | null }[] }> {
-    const m = await request(() => Reflect.apply(field(adapter, 'model'), adapter, identityArgs(identity)))
+  // Rejections from an invoked adapter method or its returned thenable are treated as
+  // engine rejections; this boundary does not authenticate their origin. Method lookup
+  // and response decoding must not be mistaken for engine or service errors.
+  async function readRequest<T>(getMethod: () => unknown, args: unknown[]): Promise<T> {
     checkOpen()
-    const source = m == null ? undefined : field(m, 'geoms')
-    if (!Array.isArray(source)) throw new Error('Invalid model')
-    const geoms: { id: string; type: string; parent: string | null }[] = []
-    const seen = new Set<string>()
-    const length = field(source, 'length')
-    if (!Number.isInteger(length) || length < 0 || length > 0xffffffff) throw new Error('Invalid model')
-    for (let i = 0; i < length; i++) {
-      if (!own(source, i)) throw new Error('Invalid model')
-      const g = field(source, i)
-      if (!g) throw new Error('Invalid model')
-      const id = field(g, 'id'), type = field(g, 'type'), parent = field(g, 'parent')
-      if (!validId(id) || typeof type !== 'string' || !(parent === null || validId(parent)) || seen.has(id)) throw new Error('Invalid model')
-      seen.add(id); geoms.push({ id, type, parent })
+    let method: unknown
+    try { method = getMethod() } catch { checkOpen(); throw new Error('Invalid adapter method') }
+    try {
+      return await request(() => Reflect.apply(method as (...args: never[]) => Promise<T>, adapter, args))
+    } catch (error) {
+      checkOpen()
+      let staleError = false
+      try { staleError = isStale(error) } catch { checkOpen() }
+      if (staleError) return stale()
+      throw new Error('Adapter read failed')
     }
-    return { geoms }
+  }
+  const decode = <T>(fn: () => T): T => {
+    try { return fn() } catch { checkOpen(); throw new Error('Invalid adapter response') }
+  }
+  async function readModel(identity?: ModelIdentity): Promise<{ geoms: { id: string; type: string; parent: string | null }[] }> {
+    const m = await readRequest<ModelTree>(() => field(adapter, 'model'), identityArgs(identity))
+    checkOpen()
+    return decode(() => {
+      const source = m == null ? undefined : field(m, 'geoms')
+      if (!Array.isArray(source)) throw new Error('Invalid model')
+      const geoms: { id: string; type: string; parent: string | null }[] = []
+      const seen = new Set<string>()
+      const length = field(source, 'length')
+      if (!Number.isInteger(length) || length < 0 || length > 0xffffffff) throw new Error('Invalid model')
+      for (let i = 0; i < length; i++) {
+        if (!own(source, i)) throw new Error('Invalid model')
+        const g = field(source, i)
+        if (!g) throw new Error('Invalid model')
+        const id = field(g, 'id'), type = field(g, 'type'), parent = field(g, 'parent')
+        if (!validId(id) || typeof type !== 'string' || !(parent === null || validId(parent)) || seen.has(id)) throw new Error('Invalid model')
+        seen.add(id); geoms.push({ id, type, parent })
+      }
+      return { geoms }
+    })
   }
   async function preflight<T>(read: () => Promise<T>): Promise<T> {
     try { checkOpen(); const result = await read(); checkOpen(); return result } catch (e) {
       checkOpen()
-      try {
-        const modelingError = e instanceof ModelingError
-        checkOpen()
-        if (modelingError) throw e
-        if (isStale(e)) return stale()
-      } catch (error) {
-        checkOpen()
-        if (error === e || error instanceof ModelingError) throw error
-      }
+      if (e instanceof ModelingError) throw e
       throw new ModelingError('ENGINE_ERROR', 'The OpenVSP engine read failed before writing')
     }
   }
@@ -111,17 +125,20 @@ export function createWriteService(adapter: ModelingWriteAdapter, signal: AbortS
         type = t; parentId = p
       } catch { checkOpen(); return invalid('type and explicit parentId are required') }
       const before = await preflight(async () => {
-        const [model, types] = await Promise.all([readModel(identity), request(() => Reflect.apply(field(adapter, 'geomTypes'), adapter, identityArgs(identity)))])
-        if (!Array.isArray(types)) throw new Error('Invalid geometry types')
-        const length = field(types, 'length')
-        if (!Number.isInteger(length) || length < 0 || length > 0xffffffff) throw new Error('Invalid geometry types')
-        let supported = false
-        for (let i = 0; i < length; i++) {
-          if (!own(types, i)) throw new Error('Invalid geometry types')
-          const entry = field(types, i)
-          if (typeof entry !== 'string') throw new Error('Invalid geometry types')
-          if (entry === type) supported = true
-        }
+        const [model, types] = await Promise.all([readModel(identity), readRequest<string[]>(() => field(adapter, 'geomTypes'), identityArgs(identity))])
+        const supported = decode(() => {
+          if (!Array.isArray(types)) throw new Error('Invalid geometry types')
+          const length = field(types, 'length')
+          if (!Number.isInteger(length) || length < 0 || length > 0xffffffff) throw new Error('Invalid geometry types')
+          let supported = false
+          for (let i = 0; i < length; i++) {
+            if (!own(types, i)) throw new Error('Invalid geometry types')
+            const entry = field(types, i)
+            if (typeof entry !== 'string') throw new Error('Invalid geometry types')
+            if (entry === type) supported = true
+          }
+          return supported
+        })
         if (!supported) invalid('Unknown geometry type')
         if (parentId !== null && !model.geoms.some((g) => g.id === parentId)) throw new ModelingError('GEOMETRY_NOT_FOUND', 'Parent geometry does not exist')
         return new Set(model.geoms.map((g) => g.id))
@@ -167,8 +184,8 @@ export function createWriteService(adapter: ModelingWriteAdapter, signal: AbortS
         const model = await readModel(identity)
         const geom = model.geoms.find((g) => g.id === id)
         if (!geom) throw new ModelingError('GEOMETRY_NOT_FOUND', 'Geometry does not exist')
-        const origin = await request(() => Reflect.apply(field(adapter, 'geomOrigin'), adapter, [id, ...identityArgs(identity)]))
-        const snapshot = snapshotVector(origin)
+        const origin = await readRequest<[number, number, number]>(() => field(adapter, 'geomOrigin'), [id, ...identityArgs(identity)])
+        const snapshot = decode(() => snapshotVector(origin))
         const expected: [number, number, number] = [snapshot[0] + delta[0], snapshot[1] + delta[1], snapshot[2] + delta[2]]
         for (let i = 0; i < 3; i++) {
           if (!Number.isFinite(expected[i]) || (delta[i] !== 0 && expected[i] === snapshot[i])) invalid('Delta cannot be represented at this origin')

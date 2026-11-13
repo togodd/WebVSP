@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from 'vitest'
 import type { ModelTree } from '../api/types'
 import { WasmEngineError } from '../api/wasmEngine'
 import { createWriteService, type ModelingWriteAdapter } from './writeService'
-import type { ModelIdentity } from './contracts'
+import { ModelingError, type ModelIdentity } from './contracts'
 
 vi.mock('../api/wasmEngine', () => ({
   WasmEngineError: class WasmEngineError extends Error {
@@ -128,6 +128,60 @@ describe('modeling write service', () => {
           expect(adapter.moveGeoms).not.toHaveBeenCalled()
         }
       }
+    }
+  })
+  it('sanitizes errors from untrusted preflight getters without dispatching', async () => {
+    for (const stage of ['modelMethod', 'typesMethod', 'originMethod', 'modelField', 'geomField', 'typesEntry', 'originEntry'] as const) {
+      for (const forged of [new ModelingError('GEOMETRY_NOT_FOUND', 'private'), new WasmEngineError(409, 'private', undefined, undefined, 'STALE_MODEL')]) {
+        const { adapter, model } = fixture()
+        const op = stage.startsWith('origin') ? 'move' : 'create'
+        const fail = () => { throw forged }
+        if (stage === 'modelMethod') Object.defineProperty(adapter, 'model', { get: fail })
+        if (stage === 'typesMethod') Object.defineProperty(adapter, 'geomTypes', { get: fail })
+        if (stage === 'originMethod') Object.defineProperty(adapter, 'geomOrigin', { get: fail })
+        if (stage === 'modelField') { Object.defineProperty(model, 'geoms', { get: fail }); adapter.model.mockResolvedValue(model) }
+        if (stage === 'geomField') { Object.defineProperty(model.geoms[0], 'id', { get: fail }); adapter.model.mockResolvedValue(model) }
+        if (stage === 'typesEntry') { const types = ['Wing']; Object.defineProperty(types, 0, { get: fail }); adapter.geomTypes.mockResolvedValue(types) }
+        if (stage === 'originEntry') { const origin: [number, number, number] = [1, 2, 3]; Object.defineProperty(origin, 0, { get: fail }); adapter.geomOrigin.mockResolvedValue(origin) }
+        const service = createWriteService(adapter)
+        await expect(op === 'create' ? service.create({ type: 'Wing', parentId: null }) : service.move(move)).rejects.toMatchObject({ code: 'ENGINE_ERROR', message: expect.not.stringContaining('private') })
+        expect(adapter.addGeom).not.toHaveBeenCalled()
+        expect(adapter.moveGeoms).not.toHaveBeenCalled()
+      }
+    }
+  })
+  it('prioritizes closure over hostile getters and real read rejections', async () => {
+    for (const stage of ['method', 'response', 'typesEntry', 'originEntry', 'rejectionCode'] as const) {
+      const { adapter, model } = fixture()
+      const controller = new AbortController()
+      const forged = new WasmEngineError(409, 'private', undefined, undefined, 'STALE_MODEL')
+      const fail = () => { controller.abort(); throw forged }
+      if (stage === 'method') Object.defineProperty(adapter, 'model', { get: fail })
+      if (stage === 'response') { Object.defineProperty(model, 'geoms', { get: fail }); adapter.model.mockResolvedValue(model) }
+      if (stage === 'typesEntry') { const types = ['Wing']; Object.defineProperty(types, 0, { get: fail }); adapter.geomTypes.mockResolvedValue(types) }
+      if (stage === 'originEntry') { const origin: [number, number, number] = [1, 2, 3]; Object.defineProperty(origin, 0, { get: fail }); adapter.geomOrigin.mockResolvedValue(origin) }
+      if (stage === 'rejectionCode') { Object.defineProperty(forged, 'code', { get: fail }); adapter.model.mockRejectedValue(forged) }
+      const service = createWriteService(adapter, controller.signal)
+      const pending = stage === 'typesEntry' ? service.create({ type: 'Wing', parentId: null }) : service.move(move)
+      await expect(pending).rejects.toMatchObject({ code: 'SESSION_CLOSED' })
+      expect(adapter.addGeom).not.toHaveBeenCalled()
+      expect(adapter.moveGeoms).not.toHaveBeenCalled()
+    }
+  })
+  it('preserves local preflight errors and sanitizes genuine non-stale read rejections', async () => {
+    const a = fixture()
+    await expect(a.service.create({ type: 'Unknown', parentId: null })).rejects.toMatchObject({ code: 'INVALID_ARGUMENT' })
+    await expect(a.service.create({ type: 'Wing', parentId: 'missing' })).rejects.toMatchObject({ code: 'GEOMETRY_NOT_FOUND' })
+    await expect(a.service.move({ ...move, geometryId: 'missing' })).rejects.toMatchObject({ code: 'GEOMETRY_NOT_FOUND' })
+    a.adapter.geomOrigin.mockResolvedValueOnce([Number.MAX_VALUE, 2, 3])
+    await expect(a.service.move(move)).rejects.toMatchObject({ code: 'INVALID_ARGUMENT' })
+    expect(a.adapter.addGeom).not.toHaveBeenCalled()
+    expect(a.adapter.moveGeoms).not.toHaveBeenCalled()
+    for (const error of [new ModelingError('INVALID_ARGUMENT', 'private'), new WasmEngineError(500, 'private'), new Error('private')]) {
+      const b = fixture()
+      b.adapter.model.mockRejectedValueOnce(error)
+      await expect(b.service.move(move)).rejects.toMatchObject({ code: 'ENGINE_ERROR', message: expect.not.stringContaining('private') })
+      expect(b.adapter.moveGeoms).not.toHaveBeenCalled()
     }
   })
   it('closes pending preflight without dispatching and consumes late failures', async () => {
