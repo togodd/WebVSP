@@ -4,7 +4,7 @@
 // JavaScript testCall hook is used solely to test the WASM request dispatcher;
 // this does not assert that the hook exists in a production JavaScript bundle.
 // From web/frontend: WEBVSP_TEST_CHROMIUM=/path/to/chromium \
-//   WEBVSP_TEST_PAGE=http://127.0.0.1:5179/ node src/modeling/production-hooks-check.mjs
+//   WEBVSP_TEST_PAGE=http://127.0.0.1:5178/ node src/modeling/production-hooks-check.mjs
 import assert from 'node:assert/strict'
 import { chromium } from 'playwright-core'
 
@@ -26,7 +26,7 @@ try {
     status: 200, contentType: 'text/html', body: '<!doctype html><title>Production WASM export check</title>',
     headers: { 'Cross-Origin-Opener-Policy': 'same-origin', 'Cross-Origin-Embedder-Policy': 'require-corp', 'Cache-Control': 'no-store' },
   }))
-  const base = new URL(process.env.WEBVSP_TEST_PAGE ?? 'http://127.0.0.1:5179/')
+  const base = new URL(process.env.WEBVSP_TEST_PAGE ?? 'http://127.0.0.1:5178/')
   const blankResponse = await rawPage.goto(new URL('/__production_hooks_blank__', base).href)
   assert.ok(blankResponse?.ok(), 'isolated blank page must load successfully')
   const barrierTypes = await rawPage.evaluate(async () => {
@@ -47,7 +47,7 @@ try {
   page.on('console', message => { if (message.type() === 'error') errors.push(`console: ${message.text()}`) })
   page.on('requestfailed', request => errors.push(`request failed: ${request.url()}: ${request.failure()?.errorText}`))
   page.on('response', response => { if (response.status() >= 400) errors.push(`HTTP ${response.status()}: ${response.url()}`) })
-  const response = await page.goto(process.env.WEBVSP_TEST_PAGE ?? 'http://127.0.0.1:5179/', { timeout: 30000 })
+  const response = await page.goto(process.env.WEBVSP_TEST_PAGE ?? 'http://127.0.0.1:5178/', { timeout: 30000 })
   assert.ok(response?.ok(), 'modeling test page must load successfully')
   await page.waitForSelector('[data-ready="1"]', { timeout: 120000 })
   const result = await page.evaluate(async () => {
