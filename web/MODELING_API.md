@@ -1,68 +1,251 @@
-# Internal modeling API: design and implementation status
+# WebVSP 浏览器内部建模接口说明
 
-This document defines the scope and safety rules for WebVSP's browser-local modeling service. It is not an MCP server or a remote-control endpoint. OpenVSP running in the current tab remains the authoritative model; a service must not maintain a second geometric model.
+> 对应代码版本：提交 `aafc8fa` 及之后。
+>
+> 本文说明网页内部的建模接口：能调用什么、怎么调用、出错怎么办，以及**它不保证什么**。
+> 它**不是** MCP 服务，**不是**远程接口，也**不是**安全沙箱。
 
-## Delivery sequence
+## 一、先看这几条
 
-Each increment is committed separately, after its tests pass. Existing GUI behavior and uncommitted work must be preserved. Capabilities are exposed only when implemented and tested; proposed operations below are not promises of current support.
+1. 接口运行在用户打开的网页里，操作的是网页中 OpenVSP 引擎的**内存模型**。
+2. 每次读写都要带一个**身份令牌**（`identity`）。模型被新建或重新打开后，旧令牌失效，调用会返回 `STALE_MODEL`。
+3. 写操作（创建、移动、设置参数）会先检查、再执行、然后**回读确认**。结果不确定时返回 `OUTCOME_UNKNOWN`，**不会自动重试**。
+4. 一次调用不是事务：多步操作中途失败时，可能只完成了一部分，**没有回滚**。
+5. 如果有人同时在图形界面里编辑，接口**无法保证读到一致的快照**。
 
-1. Establish typed contracts, explicit capabilities and errors, and an injectable engine adapter. Add fast contract tests.
-2. Add read-only model, geometry, selection and bounds queries. Validate their behavior against the real browser engine and GUI updates.
-3. Add selected basic writes only where results can be verified. Validate input and explicit parent identity; report before/after and unknown outcomes honestly. Exercise persistence and conflicts.
-4. Investigate and, where safe, add parameter discovery, readback and controlled writes; then add narrowly scoped wing, fuselage and attachment operations. Operations with unverified semantics stay unavailable.
-5. Run unit, integration and browser regression suites, document supported operations, and add a final verification record. MCP protocol, transport, remote access, AI and arbitrary file paths are out of scope.
+## 二、快速上手
 
-### Guarded type discovery
+```ts
+import { createBrowserModelingService } from './modeling'
 
-`geometry.listTypes(identity)` copies the running vehicle's registered type names in engine order, through the guarded `geomTypes` operation. It does not enable geometry creation or attest that any type is safe to create. Current engines declare `geomTypes` in their protocol; older engines may omit the declaration or reject the operation. A valid guarded job follows the engine's normal error-stack handling and can consume pre-existing API errors, even though this branch avoids `GetGeomTypes()` resetting the API last-call flag. A stale epoch is rejected before that normal operation processing.
+const svc = createBrowserModelingService()
 
-## Contract principles
+// 1. 获取模型信息和身份令牌（不带令牌调用）
+const { identity } = await svc.model.getInfo()
 
-- Inputs and results must be serializable, versioned where externally useful, and independent of FLTK widget IDs or screen coordinates.
-- Geom names are not unique identifiers. IDs are scoped to a live model and must not be assumed stable after reload, replacement, copy, or structural edits.
-- Expose unavailable or unknown information as such. Native unit conventions are not inferred; report coordinate frames and model-native values explicitly.
-- A completed request is not proof of the requested geometric effect. For writes, validate, execute, and read back actual state. If a timeout or interruption makes the result uncertain, do not claim failure or retry blindly.
-- A parent-child tree relation does not imply translation or rotation attachment.
-- Do not assert transactionality, rollback, or undo unless that specific operation has been verified. Multi-step partial execution must be reported.
-- Model revision and dirty/undo fields in the current engine are bookkeeping, not established strong concurrency or persistence guarantees. Atomic revision checks require engine-side implementation and tests covering GUI changes; client-side checks alone cannot provide them.
-- Browser sessions and model replacements need explicit identity. Do not conflate a page lifetime, a file name, and a model identity. If trustworthy replacement detection cannot be implemented, expose that limitation rather than inventing a guarantee.
-- Schema and capability definitions must match the running implementation and tests. Never advertise a planned feature as supported.
+// 2. 创建一个机身
+const { geometryId } = await svc.write.create({ type: 'FUSELAGE', parentId: null }, identity)
 
-## Current baseline
+// 3. 列出它的参数
+const parms = await svc.parameter.listGeometryParameterIds(geometryId, identity)
 
-The existing `src/api/client.ts` provides model tree, geometry types, bounds, selection, origin, move, rotate and duplicate calls. `src/api/wasmEngine.ts` also routes add, delete and parameter writes. Those are implementation primitives, not yet a safe domain API. Engine requests and GUI events share an OpenVSP thread, but `engine.cpp` revision detection is based on polling and fingerprints, and the model response currently contains a placeholder undo state. The legacy unscoped parameter write returns a generic acknowledgement; the separate scoped engine operation performs validation and readback, but is not enabled through the guarded facade. These facts prohibit assuming atomic concurrency protection, complete undo, or validated readback.
+// 4. 沿世界坐标 X 方向移动 1 个单位
+const moved = await svc.write.move(
+  { geometryId, frame: 'world', units: 'model-native', delta: [1, 0, 0] },
+  identity,
+)
+console.log(moved.origin) // 移动后的位置（已回读确认）
+```
 
-## Implemented interface and limits
+注意：
 
-Import `createBrowserModelingService` from `web/frontend/src/modeling`. The app also registers a versioned same-origin read-only convenience surface, `window.__webvspModelingReadV1`, documented in `web/frontend/src/modeling/browserReadApi.md`; this surface is not an authorization boundary and its reads need not be side-effect-free. Consumers should use the app's registered instance rather than bundle a second engine module: separately loaded copies have separate session identity and may instantiate another engine. `capabilities()` reports supported model, geometry, parameter, wing and fuselage reads; it describes the facade, not engine readiness. Wing reads expose XSec surface IDs and ordered stations with observed native `XSEC_CRV_TYPE` integer shape values: a non-root station is the outboard airfoil XSec of its inboard section, not a separate segment ID. Fuselage reads expose surface/XSec IDs, observed native `XSEC_CRV_TYPE` integer shape values, and the top-level Design/Length parameter. Each shape is an observation, not a stable parameter-identity guarantee: changing shape can retain the XSec ID while replacing shape-specific parameters. Integers refer to the running engine's enum; cross-version stability is not guaranteed. Neither domain read implies full dimensions, airfoil geometry, driver or editing support. Shape reading requires a matching engine implementing `wingXSecShapes` or `fuselageXSecShapes`; older engines fail with `ENGINE_ERROR`, without substituting an unknown shape. The browser engine needs a secure context with `crypto.randomUUID`; handles share an engine-module session ID.
+- 令牌只在**同一次页面会话、同一个模型版本**内有效。模型被替换后，请重新调用 `model.getInfo()` 取得新令牌。
+- 返回的 `geometryId` 只在当前模型中有意义，不要长期保存。
 
-The additive asynchronous `protocol()` sends a fresh unguarded `modelingProtocol` request each time and validates its declaration; it returns `{ status: 'valid', operations }` containing recognized operations only. Unknown operation names in a valid declaration are ignored, not evidence of absence or incompatibility; malformed entries, including duplicates, invalidate the declaration even when their names are unknown. Malformed declarations and engine failures, including an unknown request on an older engine, return `ENGINE_ERROR`; failures are not cached or used to infer a version. This is a declaration, not a health check, readiness guarantee or authorization, and does not change `capabilities()` or enable operations. In particular, a declaration of `guardedEpochV1` does not prove the separate guarded export exists or works. It has no automatic timeout. Closing before submission prevents it. Closing while the operation is still pending can produce `SESSION_CLOSED` but does not cancel a submitted job; late results are consumed as for facade reads. Closure does not retroactively change a result already settled by an inner service, even if an outer wrapper or consumer has not yet observed it. The engine operation reports a static manifest and does not access or mutate the model or consume the API error stack; startup and the shared engine's normal background activity still occur.
+## 三、接口一览
 
-The additive async `declaredCapabilities()` requests `protocol()` afresh on every call and evaluates its declaration against the v1 requirements. Each result has `name`, `status`, and `missingOperations`: `declared` means the required operation names were declared; `not_declared` means only that the listed required names are missing from this declaration, not that the capability is unsupported. `unknown` with `missingOperations: null` means no sufficient requirements are specified or no usable declaration is available, not proof of unsupported functionality. Neither status proves actual support, readiness, safety, or authorization. The pure evaluator can represent an absent or invalid declaration as `unknown`, but the facade's failed or malformed protocol query throws `ENGINE_ERROR` instead of returning `unknown`; closure propagates `SESSION_CLOSED`. Results do not change `capabilities()` or enable writes. Each read category lists the union of operations directly used by all its public methods, not a per-method verdict. Except for `model.read`, whose unscoped `getInfo` itself uses `modelDiscovery`, these sets do not include the prerequisite discovery needed to obtain an identity. A new engine session needs unscoped `model.getInfo()` before scoped reads; a valid same-session token can be reused without repeating discovery. A `declared` category does not prove that bootstrap, `modelingProtocol`, the guarded bridge, or browser session-ID generation is available.
+| 分组 | 方法 | 作用 | 修改模型？ |
+|---|---|---|---|
+| 生命周期 | `close()` | 关闭句柄；之后的新调用返回 `SESSION_CLOSED` | 否 |
+| 能力 | `capabilities()` | 静态列出接口支持的功能 | 否 |
+| 能力 | `protocol()` | 向引擎查询它声明的操作名称 | 否 |
+| 能力 | `declaredCapabilities()` | 把引擎声明与 v1 需求对照 | 否 |
+| 模型 | `model.getInfo(token?)` | 模型信息；不带令牌时返回新的身份 | 否 |
+| 模型 | `model.getSelection(token)` | 当前选中的几何 | 否 |
+| 模型 | `model.getVisibleSurfaceBounds(token)` | 显示中几何的包围盒 | 否 |
+| 几何 | `geometry.listTypes(token)` | 引擎注册的几何类型名 | 否 |
+| 几何 | `geometry.list(token)` | 模型中所有几何的摘要 | 否 |
+| 几何 | `geometry.get(id, token)` | 单个几何的详细信息 | 否 |
+| 参数 | `parameter.listSurfaces(id, token)` | 几何下的截面（XSec）列表 | 否 |
+| 参数 | `parameter.getFuselageLength(id, token)` | 机身长度参数 | 否 |
+| 参数 | `parameter.listGeometryParameterIds(id, token)` | 几何的可连接参数 ID 列表 | 否 |
+| 参数 | `parameter.listCrossSectionParameterIds(id, token)` | 截面的可连接参数 ID 列表 | 否 |
+| 参数 | `parameter.getGeometryParameter(id, parm, token)` | 读取几何参数 | 否 |
+| 参数 | `parameter.getCrossSectionParameter(id, parm, token)` | 读取截面参数 | 否 |
+| 参数 | `parameter.set(input, token)` | 设置参数值并回读 | **是** |
+| 写入 | `write.create(input, token)` | 创建几何 | **是** |
+| 写入 | `write.move(input, token)` | 移动几何 | **是** |
+| 机翼 | `wing.get(id, token)` | 机翼的组合信息（截面与站位） | 否 |
+| 机身 | `fuselage.get(id, token)` | 机身的组合信息（截面与长度） | 否 |
 
-Call `model.getInfo()` without an identity to obtain `identity: { sessionId, modelEpoch }` along with the model information. Discovery uses the `modelDiscovery` engine operation, which reports serializer API errors instead of silently returning a partial model. A frontend using this operation with an older engine that does not implement it fails with `ENGINE_ERROR`; it does not fall back to the legacy `model` operation because that operation discards those errors. Deploy matching frontend and engine artifacts. An optional identity can instead guard `getInfo` against replacement. Every other facade read (`model.getSelection/getVisibleSurfaceBounds`, `geometry.listTypes/list/get`, parameter reads, `wing.get` and `fuselage.get`) requires an explicit identity. Retain and pass that identity with geometry and parameter IDs; reacquire it and discard old references after replacement. Invalid identities are rejected. A mismatched session is reported locally as `STALE_MODEL`; for a guarded read dispatched to the engine, a mismatched epoch is also reported as `STALE_MODEL`. Disabled writes validate the identity's shape and session locally, but do not dispatch or check the current epoch, so a well-formed same-session stale epoch still yields `UNSUPPORTED_OPERATION`. Model projections reject blank or duplicate geometry IDs with `ENGINE_ERROR`; this is not validation that parent, child or selection references exist or form a consistent topology.
+## 四、身份令牌（identity）
 
-The epoch is a decimal uint64 string, sampled with the model response. Guarded engine jobs compare it on the OpenVSP thread before executing. `Vehicle::Renew` and `Vehicle::ReadXMLFile` increment it, including before a read that may fail; overflow invalidates it rather than wrapping. This catches replacement paths only insofar as they pass through those hooks: it is not a guarantee that every possible model replacement is detected. It is not a model revision, lock, CAS, or transaction isolation: ordinary edits, GUI Insert and synchronous script reentrancy may occur without an epoch change, and multi-job reads are not atomic. Deleting all geometries and then inserting new ones can replace the visible geometry set without replacing the Vehicle or changing the epoch. The epoch also does not identify a geometry object's lifetime: native clone replacement can transfer a geometry ID to a different object, and conversion can swap identities, without incrementing it. A real-browser GUI regression has exercised Clone → Replace: the clone ID and epoch remained the same while the reported geometry type changed from Clone to Wing. Source-level GUI paths also invoke identity-swapping conversion, but browser reachability of every such path has not been established. A matching epoch and ID therefore do not prove that an object is the same instance previously observed.
+```ts
+type ModelIdentity = { sessionId: string; modelEpoch: string }
+```
 
-`getVisibleSurfaceBounds` covers shown geometry with a surface or mesh, not necessarily all geometry or actual rendered visibility. Its read is separate from model reads. `shown` means membership in OpenVSP's shown set, not necessarily rendered. `engineRevision` is an approximate watcher event counter: even equal values do not imply identical state, and it cannot serve as CAS, a transaction revision, or a complete event log.
+- **sessionId**：本次页面会话的标识。
+- **modelEpoch**：模型版本号（十进制字符串）。新建模型或读入文件时，引擎会让它递增。
 
-`parameter.listSurfaces` returns `{ id, xsecs: string[] }[]`. Its arrays must have an own element at each index, and IDs must be strings that are nonempty after trimming; it preserves the original strings and does not require unique IDs. Wing and fuselage shape projections additionally require unique surface IDs and XSec IDs unique across all surfaces, compared as exact original strings. Their arrays also require own elements at each index; empty arrays are allowed. Snapshot validation failures yield `ENGINE_ERROR`, subject to closure taking precedence as `SESSION_CLOSED`. Shape values must be signed 32-bit integers other than `-1`; other values are retained even when unknown to this frontend. The internal shape adapters are not public parameter methods. `wing.get` returns ordered stations per surface, with zero-based per-surface indices and `rootAirfoilStation` or `wingSection` kinds; `fuselage.get` returns ordered sections with zero-based per-surface indices. The latter additionally requires finite Length value, lower limit and upper limit; the general parameter metadata reader accepts finite numbers or `null` for these fields.
+使用规则：
 
-Parameter discovery returns only OpenVSP's linkable geometry/XSec lists. The requested geometry or XSec must be reachable in the live model, and a requested parameter must occur in that owner's linkable list. Geometry lists can include nested XSec, curve and subsurface parameters, so list membership is not the same as the parameter's physical owning container (reported in `container`). `active` is not a complete editability guarantee, numeric null means the engine reported a non-finite number, and metadata does not identify units. XSec indices/surfaces are not equivalent to wing section indices. Reads are separate and do not form an atomic snapshot. Guarded parameter reads report `GEOMETRY_NOT_FOUND` or `CROSS_SECTION_NOT_FOUND` when successful engine-side enumeration determines that the requested owner is absent. Other errors remain `ENGINE_ERROR`; older engines without the structured error code also fall back to `ENGINE_ERROR`. A single `wing.get` or `fuselage.get` call is itself a composite of multiple engine jobs. Its context comes from the initial geometry read, not from later shape or length reads. Same-epoch edits between jobs can produce a successful result combining observations from different model states; for example, `fuselage.get` may return an earlier Length with later XSec shapes. Deletion between jobs can also change the outcome. The epoch guard is not a snapshot or a per-object-generation guard; coordinate mutations, including GUI edits, externally when a consistent view is required.
+- 除 `model.getInfo()` 不带参数外，所有读写都需要传令牌。
+- 令牌**不是对象的身份证**。它只能说明"模型没有被替换过"，不能说明某个 ID 仍指向同一个对象（见第九节）。
+- 令牌来自其他会话，或模型版本已变化：返回 `STALE_MODEL`。
+- 令牌格式不对（空字符串、负数等）：返回 `INVALID_ARGUMENT`。
 
-These reads are not strictly side-effect-free: requests also consume OpenVSP's global API error stack. Guarded model and bounds reads report errors accumulated by their serializer's OpenVSP API calls instead of returning partial results; legacy requests still discard them. The request first consumes the pre-existing global error stack, and the check cannot detect failures that do not report an API error or guarantee isolation from reentrant users of that stack. An uncaught C++ exception during a read can terminate the engine thread without a result; recovery of that session is not guaranteed. Geometry parameter enumeration calls OpenVSP's `AddLinkableParms`: geometry implementations may pass their ID into nested containers, overwriting each encountered parameter's in-memory link-container ID. This can also happen during geometry-scoped parameter read/ownership checks, fuselage length lookup, and the engine's change-detection fingerprints; a failed request can have already performed enumeration. Direct XSec enumeration passes an empty ID through the XSec/curve path and does not itself overwrite those IDs. The link-container ID is distinct from the parameter's owning container reported in metadata. It is used by OpenVSP for link names and group/component linking, and by Snap To to resolve a geometry, so changed IDs can affect subsequent operations; the effect depends on prior state and later enumerations. Enumeration does not itself set parameter values or create links, and the setter for this ID does not itself notify the watcher or establish an undo step. Do not infer a model revision, dirty flag, undo record, persistence effect, or a guaranteed visible change from this bookkeeping mutation. Real-engine interaction and persistence consequences remain unverified.
+## 五、读取接口
 
-`write.create`, `write.move` and `parameter.set` are enabled through the guarded facade. They reuse the existing guarded engine queue, preflight checks and readback validation; they do not bypass ScriptMgr guards or claim script isolation. Each call requires a valid same-session identity captured at dispatch time; writes use that frozen epoch for every guarded step in the same request. Results may still be `OUTCOME_UNKNOWN` when the write was dispatched but readback or closure prevents confirmation; callers must query state rather than auto-retry. `capabilities()` reports these operations as supported by this facade; `declaredCapabilities()` keeps them `unknown` because the v1 protocol vocabulary does not yet include write operation names. A `declared` status would only reflect declaration presence, not runtime safety or authorization.
+### 1. 模型与几何
 
-The facade guard is not a protection for legacy low-level engine requests, existing GUI operations, or independently exported adapter services. Those interfaces can still mutate the model and must not be treated as guarded by this facade. In particular, a successful low-level guarded `move` result only reports that the underlying call did not report an API error; it does not prove that the requested displacement occurred. OpenVSP may skip small local components or clamp position parameters; disposable production-WASM tests observed both no-op cases reporting success. No rollback, complete undo, persistent save, idempotency, or isolation guarantee is made. Closing a handle does not shut down the shared engine. Facade discovery and guarded reads waiting for module startup or engine readiness are not submitted after that handle closes; other handles and legacy requests are unaffected. Once submitted, a read is not cancelled: it may still execute and have the bookkeeping effects described above, even if its caller receives `SESSION_CLOSED`. The bridge retains the pending entry to consume a late result; if no result ever arrives, that entry and promise reactions used by facade reads may remain indefinitely after close. Waiting for shared startup uses removable handle subscriptions, but closing a handle is not a general memory-reclamation guarantee. There is no automatic timeout, so a caller can wait indefinitely until its handle is closed.
+- `model.getInfo()` 返回模型名称、几何树等信息，并返回身份令牌。
+- 几何 ID 不能为空，不能包含空白或控制字符。模型中出现重复或空 ID 时，读取返回 `ENGINE_ERROR`。
+- 读取结果**不检查父子关系或拓扑是否完整**。
 
+### 2. 参数
 
-File loading and saving are excluded from the facade. Low-level file operations use the in-memory filesystem and the GUI file path is separate. On detected open errors the low-level path marks the model dirty: it clears the existing model before reading and does not roll back. Write errors do not clear dirty state, but a filename may already have been changed; successful in-memory writes alone do not prove durable browser or disk persistence. Error detection itself is limited to errors surfaced by the underlying APIs. GUI Open also replaces the previous model before attempting to read; on a reported read failure it warns and makes the current model unnamed, so an ordinary subsequent Save prompts for a destination instead of automatically targeting the failed file. This does not restore the old model, unlink the previously selected browser handle, cancel a write already in flight, or make the existing asynchronous file writeback safe.
+- 两类所有者：`geometry`（几何）和 `crossSection`（截面）。
+- `listGeometryParameterIds` 的列表包含几何内嵌的截面、曲线、子面等参数。**出现在列表里不代表它属于该几何本身**；真正的所属容器见元数据的 `container` 字段。
+- 元数据中的 `value`、`lowerLimit`、`upperLimit` 为有限数字，或 `null`（`null` 表示引擎报告的是非有限数）。
+- `active` 只表示"当前是否活动"，**不代表一定可编辑**。
+- 元数据不包含单位信息。
 
-## Testing and verification limits
+### 3. 机翼与机身（组合读取）
 
-The modeling directory contains contract and adapter-service unit tests, including tests for read, parameter, write, wing and fuselage services. The facade write integration is covered by `index.test.ts` and `disabledWrites.guardedGeomTypes.test.ts` for wiring, stale identity, unknown outcomes and closure semantics. Real Chromium with production WASM is exercised in `facade-write-browser-check.mjs`, which creates both WING and FUSELAGE through the facade, discovers and sets parameters, moves geometry with readback, and verifies invalid-input, stale-identity and closed-session error paths against the actual guarded engine queue. Unit tests and mocked adapters do not establish GUI replacement coverage, synchronous-reentrancy safety, transaction isolation, or durable file round trips. Those require targeted engine and browser integration tests beyond this document's scope.
+- `wing.get`：每个机翼面的截面站位，有序，每个面内序号从 0 开始。
+- `fuselage.get`：每个机身面的截面（有序）及机身长度参数。
+- 形状值是引擎枚举 `XSEC_CRV_TYPE` 的原始整数，只是**观察值**；引擎版本变化后，数值含义可能不同。
+- 这两个接口内部会发起多次引擎请求，**不是一次性快照**。操作期间若有修改，结果可能混合两个状态。
+- 它们不提供完整尺寸、翼型几何或编辑能力。
 
-## Acceptance
+## 六、写入接口
 
-The implemented end-to-end scenario creates a fuselage and a wing through the facade, discovers and sets their parameters, moves them with readback verification, and validates invalid input, stale identity and closed-session error handling against real Chromium and production WASM. Parent attachment, persistence (save/reopen), GUI interference during writes and cross-job atomicity remain out of scope for this release. Any capability that cannot meet its stated contract remains unsupported and its specific blocker is documented.
+### 1. `write.create`
+
+```ts
+write.create({ type: string; parentId: string | null }, identity)
+// 返回 { geometryId: string }
+```
+
+- 已验证的类型：`WING`、`FUSELAGE`。引擎只允许固定的已知类型，其他类型会被拒绝。
+- `parentId: null` 表示不指定父几何。
+- 创建后会回读新几何的 ID 与类型，与请求比对。
+
+### 2. `write.move`
+
+```ts
+write.move({
+  geometryId: string,
+  frame: 'world',                     // 目前只支持世界坐标
+  units: 'model-native',              // 模型原生单位（元数据不标注单位）
+  delta: [number, number, number],    // 每个分量都必须是有限数字，且不能全为 0
+}, identity)
+// 返回 { geometryId: string; origin: [number, number, number] }
+```
+
+- 一次只移动一个几何；ID 不能包含逗号。
+- 移动前读取原位置，移动后再读取并比对。
+- 引擎可能跳过很小的局部分量，或对位置参数做截断。**返回成功不代表位置一定按请求变化**，请以返回的 `origin` 为准。
+
+### 3. `parameter.set`
+
+```ts
+parameter.set({
+  owner: 'geometry' | 'crossSection',
+  ownerId: string,
+  parameterId: string,
+  value: number,                      // 必须是有限数字
+}, identity)
+// 返回 { actual: number }             // 回读到的实际值
+```
+
+- 参数必须出现在该所有者的可连接参数列表中，否则拒绝。
+- 引擎会拒绝部分参数（例如受限、幂次、不等式关系类参数），具体以引擎代码为准。
+- `actual` 是回读的值，可能与请求值不同（例如被范围截断）。
+
+## 七、写入结果与错误
+
+每次写入只有三种结果：
+
+| 结果 | 含义 | 你应该怎么做 |
+|---|---|---|
+| **成功** | 操作完成，并已回读确认 | 继续 |
+| **明确未写入**（`not_written`） | 引擎确定没有修改模型。错误的 `details.outcome` 为 `not_written` | 修正输入后可重试 |
+| **结果未知**（`OUTCOME_UNKNOWN`） | 写入可能已经发生，但无法确认 | **不要自动重试**。先用读取接口查看当前状态，再决定 |
+
+常见错误码：
+
+| 错误码 | 含义 |
+|---|---|
+| `INVALID_ARGUMENT` | 输入或令牌格式不对。大多在本地检查，不发送给引擎 |
+| `STALE_MODEL` | 令牌的会话或模型版本已过期 |
+| `SESSION_CLOSED` | 句柄已关闭 |
+| `GEOMETRY_NOT_FOUND` | 指定的几何不存在 |
+| `CROSS_SECTION_NOT_FOUND` | 指定的截面不存在 |
+| `ENGINE_ERROR` | 引擎报告错误，或返回数据格式不合法 |
+| `OUTCOME_UNKNOWN` | 写入结果无法确认（见上表） |
+
+## 八、能力与协议声明
+
+- `capabilities()`：**接口自己声明**支持哪些功能。写入功能目前标记为 `supported`。
+- `protocol()`：向引擎查询它**声明**的操作名称。每次都会重新请求，不做缓存。
+- `declaredCapabilities()`：把引擎声明与 v1 需求对照。写入功能目前仍为 `unknown`，因为 v1 协议词汇表里还没有写操作的名字。
+
+**所有声明都只是"说明"，不代表运行正常、安全或已授权。** 例如 `guardedEpochV1` 被声明，并不证明对应接口可用。
+
+<a id="implemented-interface-and-limits"></a>
+
+## 九、限制与不保证的事项
+
+使用前请务必阅读本节。
+
+### 1. 身份令牌不是对象身份
+
+- `modelEpoch` 只在模型被替换时递增（新建模型、读入文件等）。
+- 同一版本内，几何可能被删除后重新创建，ID 可能被复用，指向不同的对象。令牌**无法检测**这种情况。
+- 在真实浏览器中观察到过：图形界面"克隆 → 替换"后，克隆出的几何 ID 与版本号都没变，类型却从 Clone 变成了 Wing。
+
+### 2. 读取不是快照
+
+- 多次读取之间，模型可能已被修改。
+- `wing.get` 与 `fuselage.get` 内部是多次引擎请求，结果可能混合两个状态。
+
+### 3. 读取也会产生副作用
+
+- 引擎读取会消耗全局 OpenVSP API 错误栈。
+- 参数枚举会改写参数在内存中的"链接容器 ID"。它用于参数链接和 Snap To，改变后可能影响之后的操作。这一副作用**没有在真实图形界面操作中完整验证**。
+- 读取不会修改参数值，也不会产生撤销记录。
+
+### 4. 写入不是事务
+
+- 多步操作（例如连续移动多个几何）中途失败时，已完成的步骤**不会回滚**。
+- 没有撤销记录，也没有持久化保证。
+
+### 5. 图形界面与其他入口不受保护
+
+- 守卫只覆盖通过本接口发出的请求。
+- 图形界面的操作，以及旧版底层请求（例如 `window.__webvspEngine.request`），仍然可以修改模型，并且不检查令牌。
+- 同时在界面里编辑时，写入结果可能与预期不符。
+
+### 6. 脚本引擎的风险未被排除
+
+- OpenVSP 内置 AngelScript 脚本引擎。在**测试构建**中，人为触发的垃圾回收或脚本对象析构曾经删除了另一个几何，而守卫没有报告。
+- 这只是有限的测试观察。**它不能证明普通写入一定会触发这种情况，也不能证明不会发生。**
+- 因此本接口**没有**脚本隔离保证，**不要用于不受信任的模型**。
+
+### 7. 其他限制
+
+- **无超时**：调用可能一直挂起，直到句柄被关闭。
+- **关闭不取消**：句柄关闭后，已提交给引擎的请求仍可能执行；关闭只让之后的新调用失败。
+- **不是安全边界**：同源网页脚本可以访问同样的接口。`window.__webvspModelingReadV1` 是只读便利入口，不是授权机制。
+- **保存与重开未验证**：写入只发生在浏览器内存中。关闭页面前请在界面里手动保存模型。
+
+## 十、测试与验证
+
+| 层次 | 内容 | 状态 |
+|---|---|---|
+| 单元测试 | Vitest：前端 37 个文件、513 项，覆盖各服务的逻辑与错误分支 | 通过 |
+| 类型与构建 | `tsc -b` 与 `vite build` | 通过 |
+| 真实浏览器 | `facade-write-browser-check.mjs`：隔离的 Chromium + 生产 WASM，覆盖机身与机翼的创建、参数设置、移动、回读，以及越界、旧令牌、关闭后的错误 | 通过 |
+| 引擎故障注入 | 测试构建中模拟中途失败，检查结果分类 | 通过（仅测试构建，不代表生产） |
+
+**未覆盖：** 图形界面并发编辑、保存与重开、脚本安全、对象身份（ABA）、跨多次请求的一致性。
+
+## 十一、相关文件
+
+- 对外入口：[frontend/src/modeling/index.ts](<frontend/src/modeling/index.ts>)
+- 写入服务：[frontend/src/modeling/writeService.ts](<frontend/src/modeling/writeService.ts>)
+- 参数写入：[frontend/src/modeling/parameterWriteService.ts](<frontend/src/modeling/parameterWriteService.ts>)
+- 只读便利入口：[frontend/src/modeling/browserReadApi.md](<frontend/src/modeling/browserReadApi.md>)
+- 浏览器验收脚本：[frontend/src/modeling/facade-write-browser-check.mjs](<frontend/src/modeling/facade-write-browser-check.mjs>)
+- 脚本安全威胁模型（设计讨论，未实现）：[wasm/SCRIPT_FREE_THREAT_MODEL.md](<wasm/SCRIPT_FREE_THREAT_MODEL.md>)
