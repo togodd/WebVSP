@@ -1263,6 +1263,83 @@ bool ParseModelEpoch( const string &text, uint64_t &epoch )
 // This diagnostic is absent unless explicitly compiled in (e.g. with
 // -DWEBVSP_SCRIPT_GUARD_TEST). It accepts no script or other caller-controlled input.
 #ifdef WEBVSP_SCRIPT_GUARD_TEST
+// Fixed VM/cache probe; only a single engine owner job touches these fixtures.
+// Diagnostic evidence only, not a safety guarantee; use an isolated test instance.
+void ScriptModuleCacheGuardCheck( int id, int fault )
+{
+    static bool used = false;
+    if ( used ) return Result( id, "Disposable probe already used; discard instance", "" );
+    used = true; // Irreversible even on failure: this instance is disposable.
+    ScriptMgrSingleton &mgr = ScriptMgrSingleton::getInstance();
+    asIScriptEngine *engine = mgr.GetTestScriptEngine();
+    const string name = "WebVSP_VMCacheProbe_f4a63be_839517";
+    const string other = "WebVSP_VMCacheProbeOther_f4a63be_839517";
+    const string source = "int WebVSP_VMCacheProbe_f4a63be_839517() { return 839517; }";
+    const string changed = "int WebVSP_VMCacheProbe_f4a63be_839517() { return 839518; }";
+    if ( !engine || asGetActiveContext() ||
+         engine->GetModule( name.c_str(), asGM_ONLY_IF_EXISTS ) ||
+         engine->GetModule( other.c_str(), asGM_ONLY_IF_EXISTS ) ||
+         mgr.TestModuleFixtureConflict( name, other, source, changed ) )
+        return Result( id, "Probe module already exists or VM unavailable", "" );
+
+    try
+    {
+    const bool baseline = engine->GetModule( name.c_str(), asGM_ONLY_IF_EXISTS ) != nullptr;
+    // The failure fixture has invalid syntax: builder may leave a VM module without
+    // a map entry. Never discard it directly; destroy the disposable instance.
+    string created = mgr.ReadScriptFromMemory( name, fault == 1 ? "int WebVSP_BrokenProbe( {" : source );
+    if ( created != name ) return Result( id, "Tainted disposable instance: fixture creation failed", "" );
+    asIScriptModule *module = engine->GetModule( name.c_str(), asGM_ONLY_IF_EXISTS );
+    bool initial, cache_same, after_cache, changed_rejected, after_changed;
+    bool remove_rejected, after_remove, sticky_after_cache, intact;
+    {
+        ScriptMgrSingleton::ExecuteScriptGuard guard( mgr );
+        initial = guard.Attempted();
+        cache_same = mgr.ReadScriptFromMemory( name, source ) == name &&
+                     engine->GetModule( name.c_str(), asGM_ONLY_IF_EXISTS ) == module;
+        after_cache = guard.Attempted();
+        changed_rejected = mgr.ReadScriptFromMemory( other, changed ).empty() &&
+                           !engine->GetModule( other.c_str(), asGM_ONLY_IF_EXISTS );
+        after_changed = guard.Attempted();
+        sticky_after_cache = mgr.ReadScriptFromMemory( name, source ) == name && guard.Attempted();
+        remove_rejected = !mgr.RemoveScript( name );
+        after_remove = guard.Attempted();
+        intact = engine->GetModule( name.c_str(), asGM_ONLY_IF_EXISTS ) == module;
+    }
+    bool remove_initial, remove_alone_rejected, remove_alone_attempted;
+    {
+        ScriptMgrSingleton::ExecuteScriptGuard guard( mgr );
+        remove_initial = guard.Attempted();
+        remove_alone_rejected = !mgr.RemoveScript( name );
+        remove_alone_attempted = guard.Attempted();
+    }
+    // Simulate a failed removal without mutating the fixture. No retry: discard
+    // the whole instance. Real failure is handled identically.
+    bool removed = fault == 2 ? false : mgr.RemoveScript( name );
+    bool absent = !engine->GetModule( name.c_str(), asGM_ONLY_IF_EXISTS );
+    if ( fault == 2 ) return Result( id, "Tainted disposable instance: injected cleanup failure", "" );
+    if ( !removed || !absent ) return Result( id, "Tainted disposable instance: actual cleanup failed", "" );
+    if ( baseline || !module || initial || !cache_same || after_cache || !changed_rejected ||
+         !after_changed || !sticky_after_cache || !remove_rejected || !after_remove || !intact ||
+         remove_initial || !remove_alone_rejected || !remove_alone_attempted )
+        return Result( id, "Tainted disposable instance: diagnostic assertion failed", "" );
+    auto b = []( bool value ) { return value ? "true" : "false"; };
+    string json = string( "{\"baseline\":" ) + b( baseline ) + ",\"created\":" + b( module != nullptr ) +
+        ",\"initial\":" + b( initial ) + ",\"cacheSame\":" + b( cache_same ) +
+        ",\"afterCache\":" + b( after_cache ) + ",\"changedRejected\":" + b( changed_rejected ) +
+        ",\"afterChanged\":" + b( after_changed ) + ",\"stickyAfterCache\":" + b( sticky_after_cache ) +
+        ",\"removeRejected\":" + b( remove_rejected ) + ",\"afterRemove\":" + b( after_remove ) +
+        ",\"intact\":" + b( intact ) + ",\"removeInitial\":" + b( remove_initial ) +
+        ",\"removeAloneRejected\":" + b( remove_alone_rejected ) + ",\"removeAloneAttempted\":" + b( remove_alone_attempted ) +
+        ",\"removed\":" + b( removed ) + ",\"absent\":" + b( absent ) + "}";
+    return Result( id, "", json );
+    }
+    catch ( ... )
+    {
+        return Result( id, "Tainted disposable instance: probe exception", "" );
+    }
+}
+
 // One-shot probe for a fresh, disposable module only. Empty geometry alone cannot
 // prove a model is disposable: this operation must never be used on a user session.
 void ScriptGcGuardCheck( int id )
@@ -1928,6 +2005,9 @@ void RunImpl( const Job &j )
         return Result( j.id, "Invalid source build fixture", "" );
     }
     if ( j.op == "scriptPreflightFixture" ) return ScriptPreflightFixture( j );
+    if ( j.op == "scriptModuleCacheGuardCheck" ) return ScriptModuleCacheGuardCheck( j.id, 0 );
+    if ( j.op == "scriptModuleCacheGuardCreateFailure" ) return ScriptModuleCacheGuardCheck( j.id, 1 );
+    if ( j.op == "scriptModuleCacheGuardRemoveFailure" ) return ScriptModuleCacheGuardCheck( j.id, 2 );
     if ( j.op == "scriptGuardCheck" ) return ScriptGuardCheck( j.id );
     if ( j.op == "scriptGcGuardCheck" ) return ScriptGcGuardCheck( j.id );
     if ( j.op == "scriptNormalGcAutoOff" || j.op == "scriptNormalGcAutoOn" || j.op == "scriptNormalGcPositive" ||

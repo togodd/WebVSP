@@ -86,11 +86,19 @@ public:
     static void TestDeleteGeomProxy( const string & geom_id, int clone_delete );
 #endif
 
-#ifdef WEBVSP_SCRIPT_GUARD_TEST
+#if defined(WEBVSP_SCRIPT_GUARD_TEST) && !defined(WEBVSP_PRODUCTION_BUILD)
     // Only for isolated disposable test modules; never expose in production builds.
     asIScriptEngine * GetTestScriptEngine() const { return m_ScriptEngine; }
     // Diagnostic only; false is not a safety or provenance guarantee.
     bool TestSourceBuildAttempted() const { return m_SourceBuildAttempted; }
+    // Inspect both keys and contents, including empty values; diagnostic only.
+    bool TestModuleFixtureConflict( const string & name, const string & other,
+                                    const string & source, const string & changed ) const
+    {
+        for ( const auto &entry : m_ModuleContentMap )
+            if ( entry.first == name || entry.first == other || entry.second == source || entry.second == changed ) return true;
+        return false;
+    }
 #endif
 
     int ExecuteScript(  const char* module_name,  const char* function_name, bool arg_flag = false, double arg = 0.0, bool by_decl = true );

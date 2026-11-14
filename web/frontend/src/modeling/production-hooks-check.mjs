@@ -71,6 +71,7 @@ try {
       ['guardedWriteErrorInjection', 'move'],
       ['scriptPreflightFixture', 'advlink'],
       ['scriptGuardCheck', ''],
+      ['scriptModuleCacheGuardCheck', ''],
       ['scriptSourceBuildState', ''],
       ['scriptSourceBuildFixture', 'success'],
       ['scriptGcGuardCheck', ''],
@@ -103,7 +104,7 @@ try {
     return { id, results }
   })
   assert.ok(result.id)
-  assert.equal(result.results.length, 23)
+  assert.equal(result.results.length, 24)
   for (const { op, before, error, after } of result.results) {
     assert.deepEqual(error, { message: `unknown request: ${op}`, status: 400 }, `${op}: must be rejected by the engine as unknown`)
     assert.equal(before.model.modelEpochValid, true, `${op}: valid model identity`)
