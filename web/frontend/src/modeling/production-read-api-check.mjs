@@ -77,10 +77,10 @@ try {
   assert.ok(Array.isArray(result.types) && result.types.includes('FUSELAGE') && result.types.includes('WING'))
   const names = ['model.read', 'geometry.read', 'geometry.create', 'geometry.move', 'parameter.read', 'parameter.write', 'wing.read', 'wing.edit', 'fuselage.read', 'fuselage.edit', 'assembly.attach']
   const reads = new Set(['model.read', 'geometry.read', 'parameter.read', 'wing.read', 'fuselage.read'])
-  const capabilities = { contractVersion: '0.1', features: names.map(name => reads.has(name)
+  const supported = new Set([...reads, 'geometry.create', 'geometry.move', 'parameter.write'])
+  const capabilities = { contractVersion: '0.1', features: names.map(name => supported.has(name)
     ? { name, status: 'supported' }
-    : { name, status: 'unsupported', reason: ['geometry.create', 'geometry.move', 'parameter.write'].includes(name)
-      ? 'Disabled pending reentrancy safety review' : 'Not implemented or not verified' }) }
+    : { name, status: 'unsupported', reason: 'Not implemented or not verified' }) }
   const protocol = { status: 'valid', operations: [
     'modelDiscovery', 'model', 'geomTypes', 'bbox', 'origin', 'geomXSecs', 'fuselageXSecShapes',
     'wingXSecShapes', 'geomParmIDs', 'xsecParmIDs', 'geomParm', 'xsecParm',
@@ -96,11 +96,11 @@ try {
   assert.deepEqual(result.protocolAgain, protocol, 'protocol is fresh and unchanged')
   assert.deepEqual(result.declaredAgain, declared, 'declared capabilities are fresh and unchanged')
   assert.deepEqual(result.afterDeclarations, result.info, 'declaration calls must not change the model')
-  assert.deepEqual(result.top, ['capabilities', 'declaredCapabilities', 'fuselage', 'geometry', 'model', 'parameter', 'protocol', 'wing'])
+  assert.deepEqual(result.top, ['capabilities', 'declaredCapabilities', 'describeSurface', 'fuselage', 'geometry', 'model', 'parameter', 'protocol', 'wing'])
   assert.deepEqual(result.keys, {
     model: ['getInfo', 'getSelection', 'getVisibleSurfaceBounds'], geometry: ['get', 'list', 'listTypes'],
     parameter: ['getCrossSectionParameter', 'getFuselageLength', 'getGeometryParameter', 'listCrossSectionParameterIds', 'listGeometryParameterIds', 'listSurfaces'],
-    wing: ['get'], fuselage: ['get'],
+    wing: ['get', 'getSectionDimensions'], fuselage: ['get'],
   })
   // Create the fixture only through the mirrored GUI, in this disposable context.
   const select = page.locator('select').filter({ has: page.locator('option:text-is("FUSELAGE")') }).first()

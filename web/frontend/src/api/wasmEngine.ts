@@ -673,8 +673,8 @@ function dirname(path: string) {
 export interface ProgramSpawnDeps {
   programs: Map<number, Worker>
   createWorker: () => Worker
-  solverSpawned: () => void
-  solverExited: (code: number) => void
+  solverSpawned: (id: number) => void
+  solverExited: (id: number, code: number) => void
   openViewer: (vsp: VspModule, id: number, args: string[], exit: (code: number) => void) => void
 }
 
@@ -698,10 +698,10 @@ export function runProgram(vsp: VspModule, r: ProcRequest, deps: ProgramSpawnDep
     if (output) try { vsp.processOutput(r.id, output) } catch { code = 127 }
     if (cmd === 'vspaero') {
       if (!solverStarted) {
-        try { deps.solverSpawned() } catch { code = 127 }
+        try { deps.solverSpawned(r.id) } catch { code = 127 }
       }
       // The callback may have already recorded code before throwing; do not change it.
-      try { deps.solverExited(code) } catch (error) {
+      try { deps.solverExited(r.id, code) } catch (error) {
         try { console.error('solverExited failed', error) } catch { /* best effort */ }
       }
     }
@@ -733,7 +733,7 @@ export function runProgram(vsp: VspModule, r: ProcRequest, deps: ProgramSpawnDep
     programFinishes.set(spawnedWorker, finish)
     if (cmd === 'vspaero') {
       solverStarted = true
-      deps.solverSpawned()
+      deps.solverSpawned(r.id)
       // Its last argument is the model's path without extension (relative to its folder).
       const last = args[args.length - 1] ?? ''
       solverBase = last.startsWith('/') ? last : `${cwd === '/' ? '' : cwd}/${last}`

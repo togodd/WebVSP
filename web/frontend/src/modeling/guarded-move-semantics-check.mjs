@@ -38,17 +38,7 @@ try {
     const reset = await move('-1,-2,-3')
     const limit = await move('1e12,0,0')
     const beyond = await move('1,0,0')
-    const { createBrowserModelingService } = await import('/src/modeling/index.ts')
-    const service = createBrowserModelingService()
-    let facade
-    try {
-      const info = await service.model.getInfo()
-      try {
-        await service.write.move({ geometryId: id, frame: 'world', units: 'model-native', delta: [1, 0, 0] }, info.identity)
-        facade = { code: 'SUCCEEDED' }
-      } catch (error) { facade = { code: error.code } }
-    } finally { service.close() }
-    return { id, createdModel, tiny, ordinary, reset, limit, beyond, facade, final: await origin() }
+    return { id, createdModel, tiny, ordinary, reset, limit, beyond, final: await origin() }
   })
   const root = result.createdModel.geoms.find(g => g.id === result.id)
   assert.ok(root, 'created geometry is in model')
@@ -65,9 +55,8 @@ try {
   assert.deepEqual(result.limit.after, [1e12, 0, 0])
   assert.equal(result.beyond.response.ok, true)
   assert.deepEqual(result.beyond.after, result.beyond.before)
-  assert.equal(result.facade.code, 'UNSUPPORTED_OPERATION')
   assert.deepEqual(result.final, result.beyond.after)
   assert.deepEqual(errors, [])
-  console.log(JSON.stringify({ tiny: result.tiny, ordinary: result.ordinary, limit: result.limit, beyond: result.beyond, facade: result.facade }, null, 2))
-  console.log('PASS: guarded low-level move ok does not imply origin changed; facade move remains disabled')
+  console.log(JSON.stringify({ tiny: result.tiny, ordinary: result.ordinary, limit: result.limit, beyond: result.beyond }, null, 2))
+  console.log('PASS: guarded low-level move ok does not imply origin changed')
 } finally { await browser.close(); clearTimeout(deadline) }

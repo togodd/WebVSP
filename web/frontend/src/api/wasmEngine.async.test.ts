@@ -38,7 +38,8 @@ describe('asynchronous worker completion', () => {
       ['mkdir', '/one'], ['write', '/one/a', [1, 0, 255]],
       ['mkdir', '/two'], ['write', '/two/b', [4, 5]], ['exit', 42, 0],
     ])
-    expect(s.deps.solverExited).toHaveBeenCalledExactlyOnceWith(0)
+    expect(s.deps.solverSpawned).toHaveBeenCalledExactlyOnceWith(42)
+    expect(s.deps.solverExited).toHaveBeenCalledExactlyOnceWith(42, 0)
     expect(s.worker.terminate).toHaveBeenCalledTimes(1)
     expect(s.deps.programs.has(42)).toBe(false)
   })
@@ -56,7 +57,7 @@ describe('asynchronous worker completion', () => {
     ] })
     expect([...written]).toEqual([['/a', [1, 2]]])
     expect(s.vsp.FS.writeFile).toHaveBeenCalledTimes(2)
-    expect(s.deps.solverExited).toHaveBeenCalledExactlyOnceWith(127)
+    expect(s.deps.solverExited).toHaveBeenCalledExactlyOnceWith(42, 127)
     expect(s.vsp.processExit).toHaveBeenCalledExactlyOnceWith(42, 127)
     expect(s.worker.terminate).toHaveBeenCalledTimes(1)
     expect(s.deps.programs.has(42)).toBe(false)
@@ -96,13 +97,13 @@ describe('asynchronous worker completion', () => {
     const s = setup()
     vi.mocked(s.worker.terminate).mockImplementation(() => { throw Error() })
     s.message({ type: 'exit', code: 0, files: [] })
-    expect(s.deps.solverExited).toHaveBeenCalledWith(127)
+    expect(s.deps.solverExited).toHaveBeenCalledWith(42, 127)
     expect(s.vsp.processExit).toHaveBeenCalledWith(42, 127)
   })
   it('preserves the code if solver notification has side effects then throws', () => {
     const s = setup()
     const observed: number[] = []
-    s.deps.solverExited = (code) => { observed.push(code); throw Error('notification') }
+    s.deps.solverExited = (_id, code) => { observed.push(code); throw Error('notification') }
     s.message({ type: 'exit', code: 0, files: [] })
     expect(observed).toEqual([0])
     expect(s.vsp.processExit).toHaveBeenCalledWith(42, 0)
@@ -131,14 +132,14 @@ describe('asynchronous worker completion', () => {
     const s = setup()
     vi.mocked(s.vsp.processOutput).mockImplementation(() => { throw Error('output') })
     killProgram(s.vsp, 42, s.deps.programs)
-    expect(s.deps.solverExited).toHaveBeenCalledExactlyOnceWith(127)
+    expect(s.deps.solverExited).toHaveBeenCalledExactlyOnceWith(42, 127)
     expect(s.vsp.processExit).toHaveBeenCalledExactlyOnceWith(42, 127)
   })
   it('ignores reentrant worker events from terminate', () => {
     const s = setup()
     vi.mocked(s.worker.terminate).mockImplementation(() => { s.late() })
     s.message({ type: 'exit', code: 0, files: [] })
-    expect(s.deps.solverExited).toHaveBeenCalledExactlyOnceWith(0)
+    expect(s.deps.solverExited).toHaveBeenCalledExactlyOnceWith(42, 0)
     expect(s.vsp.processExit).toHaveBeenCalledExactlyOnceWith(42, 0)
     expect(s.worker.terminate).toHaveBeenCalledTimes(1)
   })
@@ -152,7 +153,7 @@ describe('asynchronous worker completion', () => {
     expect(s.deps.programs.has(42)).toBe(false)
     s.late()
     killProgram(s.vsp, 42, s.deps.programs)
-    expect(s.deps.solverExited).toHaveBeenCalledExactlyOnceWith(kind === 'exit' ? 0 : 143)
+    expect(s.deps.solverExited).toHaveBeenCalledExactlyOnceWith(42, kind === 'exit' ? 0 : 143)
     expect(s.worker.terminate).toHaveBeenCalledTimes(1)
     expect(s.vsp.processExit).toHaveBeenCalledExactlyOnceWith(42, kind === 'exit' ? 0 : 143)
   })

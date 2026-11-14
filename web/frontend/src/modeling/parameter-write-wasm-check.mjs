@@ -54,17 +54,20 @@ try {
     window.__writeIntegration = { engine, facade, writer, calls, geom, token, length }
     return { geom, token, length, feature: facade.capabilities().features.find(x => x.name === 'parameter.write') }
   })
-  assert.equal(setup.feature.status, 'unsupported')
+  assert.equal(setup.feature.status, 'supported')
   assert.equal(setup.length.active, true)
-  const target = setup.length.value === 20 ? 21 : 20
-  assert.ok(target >= setup.length.lowerLimit && target <= setup.length.upperLimit)
-  stage = 'facade disabled'
-  const disabled = await run(async ({ target }) => {
+  const target = setup.length.value === 20 ? 22 : 20
+  assert.ok(target !== setup.length.value + 1 && target >= setup.length.lowerLimit && target <= setup.length.upperLimit)
+  stage = 'facade write and readback'
+  // A separate initial value preserves the isolated writer's change-to-target test.
+  const facadeWrite = await run(async () => {
     const { facade, geom, token, length } = window.__writeIntegration
-    try { await facade.parameter.set({ owner: 'geometry', ownerId: geom, parameterId: length.id, value: target }, token); return null }
-    catch (e) { return { code: e.code, after: (await facade.parameter.getFuselageLength(geom, token)).value } }
-  }, { target })
-  assert.deepEqual(disabled, { code: 'UNSUPPORTED_OPERATION', after: setup.length.value })
+    const value = length.value + 1
+    const result = await facade.parameter.set({ owner: 'geometry', ownerId: geom, parameterId: length.id, value }, token)
+    return { value, result, after: (await facade.parameter.getFuselageLength(geom, token)).value }
+  })
+  assert.deepEqual(facadeWrite.result, { actual: facadeWrite.value })
+  assert.equal(facadeWrite.after, facadeWrite.value)
   stage = 'guarded successful write and readback'
   const success = await run(async target => {
     const { writer, facade, geom, token, length, calls } = window.__writeIntegration
@@ -103,7 +106,7 @@ try {
   assert.equal(stale.count, 3)
   assert.deepEqual(errors, [])
   await run(() => window.__writeIntegration.facade.close())
-  console.log(`PASS: production WASM guarded parameter service: copied identity, ${setup.length.value} -> ${target} readback, out-of-range and stale not_written, facade disabled`)
+  console.log(`PASS: production WASM guarded parameter service: copied identity, ${setup.length.value} -> ${target} readback, out-of-range and stale not_written, facade write verified`)
 } finally {
   clearTimeout(deadline)
   await browser.close()

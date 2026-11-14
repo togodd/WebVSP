@@ -192,7 +192,7 @@ function SolverTimer() {
   if (start === null) return null
   const time = formatDuration((end ?? Date.now()) - start)
   if (end === null) return <span className="solver-timer running" title={t('solver.runningTitle')}>{t('solver.running', { time })}</span>
-  const how = code === 0 ? t('solver.done', { time }) : code === 143 ? t('solver.stopped', { time }) : t('solver.failed', { time })
+  const how = code === null ? t('solver.unknown', { time }) : code === 0 ? t('solver.done', { time }) : code === 143 ? t('solver.stopped', { time }) : t('solver.failed', { time })
   return <span className={'solver-timer' + (code === 0 ? '' : ' failed')} title={t('solver.lastRun')}>{how}</span>
 }
 

@@ -20,8 +20,8 @@ function setup() {
   } as unknown as Parameters<typeof runProgram>[0]
   const deps: ProgramSpawnDeps = {
     programs: new Map(), createWorker: () => worker,
-    solverSpawned: () => { events.push('spawn') },
-    solverExited: () => { events.push('solverExit') },
+    solverSpawned: vi.fn(() => { events.push('spawn') }),
+    solverExited: vi.fn(() => { events.push('solverExit') }),
     openViewer: () => {},
   }
   const request = { t: 'spawn' as const, id: 42, cmd: 'vspaero', args: [] }
@@ -34,6 +34,8 @@ describe('synchronous program spawn failure', () => {
     s.deps.createWorker = () => { throw Error('worker') }
     runProgram(s.vsp, s.request, s.deps)
     expect(s.events).toEqual(['output', 'spawn', 'solverExit', 'exit:127'])
+    expect(s.deps.solverSpawned).toHaveBeenCalledExactlyOnceWith(42)
+    expect(s.deps.solverExited).toHaveBeenCalledExactlyOnceWith(42, 127)
     expect(s.deps.programs.size).toBe(0)
   })
   it('records FS failure even when the solver notification throws', () => {

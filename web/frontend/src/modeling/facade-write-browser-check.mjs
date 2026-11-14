@@ -1,5 +1,5 @@
-// Real Chromium + production WASM facade write E2E. Run only after the write
-// facade is wired; current disabled implementations intentionally fail this test.
+// Real Chromium + production WASM facade write E2E for the enabled facade.
+// This verifies the documented cases; it does not prove script isolation or concurrency safety.
 // From web/frontend, after npm ci and a production engine build:
 //   WEBVSP_TEST_CHROMIUM=/absolute/path/to/chromium \
 //   WEBVSP_TEST_WASM_DIR=/absolute/path/to/production/wasm \

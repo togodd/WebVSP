@@ -57,26 +57,28 @@ try {
         geometryParameter: () => s.parameter.getGeometryParameter(body, length.id, old),
         sectionParameter: () => s.parameter.getCrossSectionParameter(section, sectionIds[0], old),
       })) stale[name] = await fail(fn)
-      // Writes are disabled pending protection against reentrant engine scripts.
-      const disabledWrites = {}
+      const staleWrites = {}
       for (const [name, fn] of Object.entries({
-        createOld: () => s.write.create({ type: 'WING', parentId: null }, old),
-        createFresh: () => s.write.create({ type: 'WING', parentId: null }, identity),
-        moveOld: () => s.write.move(move, old),
-        moveFresh: () => s.write.move(move, identity),
-        setOld: () => s.parameter.set(input, old),
-        setFresh: () => s.parameter.set(input, identity),
-      })) disabledWrites[name] = await fail(fn)
+        create: () => s.write.create({ type: 'WING', parentId: null }, old),
+        move: () => s.write.move(move, old),
+        set: () => s.parameter.set(input, old),
+      })) staleWrites[name] = await fail(fn)
       const capabilities = s.capabilities()
       const after = await s.model.getInfo()
       const lengthAfter = await s.parameter.getFuselageLength(body, identity)
       const originAfter = await engine.request('GET', `/geoms/${wing}/origin`)
       const freshWing = await s.wing.get(wing, identity)
       const freshBody = await s.fuselage.get(body, identity)
+      // Fresh writes run only after all stale-write state observations; never retry unknown outcomes.
+      const created = await s.write.create({ type: 'WING', parentId: null }, identity)
+      const moved = await s.write.move(move, identity)
+      const set = await s.parameter.set(input, identity)
       const finalModel = await s.model.getInfo(identity)
+      const finalOrigin = await engine.request('GET', `/geoms/${wing}/origin`)
+      const finalLength = await s.parameter.getFuselageLength(body, identity)
       return { first, replacement, before, after, length, lengthAfter, originBefore, originAfter, stale,
         wing, body, surfaces, geomIds, sectionIds, geomParameter, sectionParameter,
-        freshWing, freshBody, disabledWrites, capabilities, finalModel, invalidAsync }
+        freshWing, freshBody, staleWrites, capabilities, created, moved, set, finalOrigin, finalLength, finalModel, invalidAsync }
     } finally { s.close() }
   })
   assert.equal(result.invalidAsync, 'STALE_MODEL')
@@ -100,10 +102,19 @@ try {
   assert.ok(result.freshBody.surfaces[0].sections.length, 'standard fuselage should have sections')
   console.log(`Standard engine fuselage type: ${result.freshBody.geometry.type}`)
   for (const name of ['parameter.write', 'geometry.create', 'geometry.move']) {
-    assert.equal(result.capabilities.features.find(c => c.name === name).status, 'unsupported', name)
+    assert.equal(result.capabilities.features.find(c => c.name === name).status, 'supported', name)
   }
-  for (const [name, error] of Object.entries(result.disabledWrites)) assert.equal(error.code, 'UNSUPPORTED_OPERATION', `${name}: ${JSON.stringify(error)}`)
-  assert.deepEqual(result.finalModel.geometries, result.before.geometries)
+  for (const [name, error] of Object.entries(result.staleWrites)) assert.equal(error.code, 'STALE_MODEL', `${name}: ${JSON.stringify(error)}`)
+  assert.equal(result.staleWrites.set.details?.outcome, 'not_written')
+  assert.equal(result.finalModel.geometries.length, result.before.geometries.length + 1)
+  const created = result.finalModel.geometries.find(g => g.id === result.created.geometryId)
+  assert.ok(created)
+  assert.equal(created.parentId, null)
+  assert.equal(created.type.toUpperCase(), 'WING')
+  assert.deepEqual(result.moved, { geometryId: result.wing, origin: result.finalOrigin })
+  for (let i = 0; i < 3; i++) assert.ok(Math.abs(result.finalOrigin[i] - result.originBefore[i] - (i === 0 ? 1 : 0)) < 1e-7)
+  assert.equal(result.set.actual, result.length.value + 1)
+  assert.equal(result.finalLength.value, result.set.actual)
   assert.deepEqual(errors, [])
   console.log('PASS: facade guards reject stale identities and fresh identities recover')
 } finally { await browser.close() }

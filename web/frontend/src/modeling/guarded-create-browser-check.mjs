@@ -40,14 +40,10 @@ try {
       const identity = model.identity
       const bodyView = await facade.fuselage.get(body.id, identity)
       const wingView = await facade.wing.get(wing.id, identity)
-      const disabled = []
-      for (const fn of [
-        () => facade.write.create({ type: 'WING', parentId: body.id }, identity),
-        () => facade.write.move({ geometryId: wing.id, frame: 'world', units: 'model-native', delta: [1, 0, 0] }, identity),
-      ]) {
-        try { await fn(); disabled.push('SUCCEEDED') } catch (error) { disabled.push(error.code) }
-      }
-      return { body, wing, tree, before, moved, after, model, bodyView, wingView, disabled,
+      // Use the existing model only after capturing the direct-engine observations.
+      const created = await facade.write.create({ type: 'WING', parentId: body.id }, identity)
+      const facadeMove = await facade.write.move({ geometryId: wing.id, frame: 'world', units: 'model-native', delta: [1, 0, 0] }, identity)
+      return { body, wing, tree, before, moved, after, model, bodyView, wingView, created, facadeMove,
         capabilities: facade.capabilities(), finalTree: await call('model'), finalOrigin: await call('origin', wing.id) }
     } finally { facade.close() }
   })
@@ -68,10 +64,13 @@ try {
   assert.equal(result.model.identity.modelEpoch, result.tree.modelEpoch)
   assert.equal(result.moved.ok, true)
   for (let i = 0; i < 3; i++) assert.ok(Math.abs(result.after[i] - result.before[i] - (i === 0 ? 2 : 0)) < 1e-7, `origin axis ${i}`)
-  assert.deepEqual(result.disabled, ['UNSUPPORTED_OPERATION', 'UNSUPPORTED_OPERATION'])
-  for (const name of ['geometry.create', 'geometry.move']) assert.equal(result.capabilities.features.find(c => c.name === name).status, 'unsupported')
-  assert.deepEqual(result.finalTree.geoms, result.tree.geoms)
-  assert.deepEqual(result.finalOrigin, result.after)
+  for (const name of ['geometry.create', 'geometry.move']) assert.equal(result.capabilities.features.find(c => c.name === name).status, 'supported')
+  assert.notEqual(result.created.geometryId, result.wing.id)
+  assert.equal(result.finalTree.geoms.length, 3)
+  assert.equal(result.finalTree.geoms.find(g => g.id === result.created.geometryId)?.parent, result.body.id)
+  assert.equal(result.finalTree.geoms.find(g => g.id === result.created.geometryId)?.type.toUpperCase(), 'WING')
+  assert.deepEqual(result.facadeMove, { geometryId: result.wing.id, origin: result.finalOrigin })
+  for (let i = 0; i < 3; i++) assert.ok(Math.abs(result.finalOrigin[i] - result.after[i] - (i === 0 ? 1 : 0)) < 1e-7)
   assert.equal(result.bodyView.length.value, 30)
   assert.equal(result.bodyView.surfaces[0].sections.length, 5)
   assert.equal(result.wingView.surfaces[0].stations[0].kind, 'rootAirfoilStation')
@@ -85,6 +84,6 @@ try {
   assert.ok(rows.some(row => row.includes('FuselageGeom')))
   assert.ok(rows.some(row => row.includes('WingGeom')))
   assert.deepEqual(errors, [])
-  console.log(JSON.stringify({ body: result.body, wing: result.wing, tree: result.tree, before: result.before, moved: result.moved, after: result.after, disabled: result.disabled, guiRows: rows }, null, 2))
-  console.log('PASS: guarded addGeom root/child and actual move in production WASM; model and GUI agree; facade writes remain disabled')
+  console.log(JSON.stringify({ body: result.body, wing: result.wing, tree: result.tree, before: result.before, moved: result.moved, after: result.after, created: result.created, facadeMove: result.facadeMove, guiRows: rows }, null, 2))
+  console.log('PASS: guarded addGeom root/child and actual move in production WASM; model and GUI agree; facade writes verified by readback')
 } finally { await browser.close(); clearTimeout(deadline) }

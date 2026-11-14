@@ -8,8 +8,8 @@
 ## 一、先看这几条
 
 1. 接口运行在用户打开的网页里，操作的是网页中 OpenVSP 引擎的**内存模型**。
-2. 每次读写都要带一个**身份令牌**（`identity`）。模型被新建或重新打开后，旧令牌失效，调用会返回 `STALE_MODEL`。
-3. 写操作（创建、移动、设置参数）会先检查、再执行、然后**回读确认**。结果不确定时返回 `OUTCOME_UNKNOWN`，**不会自动重试**。
+2. 除无令牌的 `model.getInfo()` 和能力查询外，模型读写需要**身份令牌**（`identity`）。模型被新建或重新打开后，旧令牌失效，调用会返回 `STALE_MODEL`。
+3. 写操作（创建、移动、设置参数）有检查和回读；不能确认请求效果时返回 `OUTCOME_UNKNOWN`，**不会自动重试**。回读不保证隔离并发修改。
 4. 一次调用不是事务：多步操作中途失败时，可能只完成了一部分，**没有回滚**。
 5. 如果有人同时在图形界面里编辑，接口**无法保证读到一致的快照**。
 
@@ -59,13 +59,14 @@ console.log(moved.origin) // 移动后的位置（已回读确认）
 | 参数 | `parameter.listSurfaces(id, token)` | 几何下的截面（XSec）列表 | 否 |
 | 参数 | `parameter.getFuselageLength(id, token)` | 机身长度参数 | 否 |
 | 参数 | `parameter.listGeometryParameterIds(id, token)` | 几何的可连接参数 ID 列表 | 否 |
-| 参数 | `parameter.listCrossSectionParameterIds(id, token)` | 截面的可连接参数 ID 列表 | 否 |
+| 参数 | `parameter.listCrossSectionParameterIds(xsecId, token)` | 截面的可连接参数 ID 列表 | 否 |
 | 参数 | `parameter.getGeometryParameter(id, parm, token)` | 读取几何参数 | 否 |
 | 参数 | `parameter.getCrossSectionParameter(id, parm, token)` | 读取截面参数 | 否 |
 | 参数 | `parameter.set(input, token)` | 设置参数值并回读 | **是** |
 | 写入 | `write.create(input, token)` | 创建几何 | **是** |
 | 写入 | `write.move(input, token)` | 移动几何 | **是** |
 | 机翼 | `wing.get(id, token)` | 机翼的组合信息（截面与站位） | 否 |
+| 机翼 | `wing.getSectionDimensions(id, xsecId, token)` | 翼段原生展长、根弦和梢弦观察值 | 否 |
 | 机身 | `fuselage.get(id, token)` | 机身的组合信息（截面与长度） | 否 |
 
 ## 四、身份令牌（identity）
@@ -79,7 +80,7 @@ type ModelIdentity = { sessionId: string; modelEpoch: string }
 
 使用规则：
 
-- 除 `model.getInfo()` 不带参数外，所有读写都需要传令牌。
+- 模型读写除 `model.getInfo()` 可不带参数外，都需要传令牌；`capabilities()`、`protocol()` 和 `declaredCapabilities()` 不需要令牌。
 - 令牌**不是对象的身份证**。它只能说明"模型没有被替换过"，不能说明某个 ID 仍指向同一个对象（见第九节）。
 - 令牌来自其他会话，或模型版本已变化：返回 `STALE_MODEL`。
 - 令牌格式不对（空字符串、负数等）：返回 `INVALID_ARGUMENT`。
@@ -105,7 +106,8 @@ type ModelIdentity = { sessionId: string; modelEpoch: string }
 - `wing.get`：每个机翼面的截面站位，有序，每个面内序号从 0 开始。
 - `fuselage.get`：每个机身面的截面（有序）及机身长度参数。
 - 形状值是引擎枚举 `XSEC_CRV_TYPE` 的原始整数，只是**观察值**；引擎版本变化后，数值含义可能不同。
-- 这两个接口内部会发起多次引擎请求，**不是一次性快照**。操作期间若有修改，结果可能混合两个状态。
+- `wing.getSectionDimensions(geometryId, xsecId, token)` 接受 `wing.get` 返回的非根外侧站 XSec ID，读取该翼段原生 `Span`、`Root_Chord`、`Tip_Chord`；长度采用模型原生单位，不假定米。它核验参数容器、组、名称和有限数值，不提供驱动组或可编辑性判断。
+- 这些接口内部会发起多次引擎请求，**不是一次性快照**。拓扑、对象或参数所有权在请求间可能变化，epoch 也不能阻止 ID 复用；调用方须协调包括 GUI 在内的所有修改。
 - 它们不提供完整尺寸、翼型几何或编辑能力。
 
 ## 六、写入接口
@@ -117,9 +119,9 @@ write.create({ type: string; parentId: string | null }, identity)
 // 返回 { geometryId: string }
 ```
 
-- 已验证的类型：`WING`、`FUSELAGE`。引擎只允许固定的已知类型，其他类型会被拒绝。
+- 浏览器验收脚本覆盖 `WING`、`FUSELAGE`；调用前会核对引擎返回的类型列表，引擎还有独立的写入检查。出现在列表中不保证创建一定成功。
 - `parentId: null` 表示不指定父几何。
-- 创建后会回读新几何的 ID 与类型，与请求比对。
+- 创建后回读并核对新 ID、类型与父几何；这不是并发隔离或对象身份的证明。
 
 ### 2. `write.move`
 
@@ -134,8 +136,8 @@ write.move({
 ```
 
 - 一次只移动一个几何；ID 不能包含逗号。
-- 移动前读取原位置，移动后再读取并比对。
-- 引擎可能跳过很小的局部分量，或对位置参数做截断。**返回成功不代表位置一定按请求变化**，请以返回的 `origin` 为准。
+- 移动前读取原位置，移动后回读并按容差与预期位置比对；无法确认请求的变化时返回 `OUTCOME_UNKNOWN`，而不是以未达预期的回读作为成功。
+- 引擎可能跳过很小的局部分量或截断位置参数；成功时返回回读的 `origin`，但这只是该时刻的观察，不能排除并发修改。
 
 ### 3. `parameter.set`
 
@@ -151,17 +153,20 @@ parameter.set({
 
 - 参数必须出现在该所有者的可连接参数列表中，否则拒绝。
 - 引擎会拒绝部分参数（例如受限、幂次、不等式关系类参数），具体以引擎代码为准。
-- `actual` 是回读的值，可能与请求值不同（例如被范围截断）。
+- 成功要求有限的回读值 `actual` 与请求值相等；越界等情况可能在写前被拒绝。写后值不同或无法确认时返回 `OUTCOME_UNKNOWN`，不会作为成功返回；错误的 `details` 有时包含 `outcome` 和有限的 `actual`（无法取得时为 `null`）。
 
 ## 七、写入结果与错误
 
-每次写入只有三种结果：
+写入成功表示通过了相应回读检查，但不证明事务性或隔离。失败时要区分写入前失败、引擎报告未写入，以及发出写请求后不能确认结果：
 
 | 结果 | 含义 | 你应该怎么做 |
 |---|---|---|
-| **成功** | 操作完成，并已回读确认 | 继续 |
-| **明确未写入**（`not_written`） | 引擎确定没有修改模型。错误的 `details.outcome` 为 `not_written` | 修正输入后可重试 |
-| **结果未知**（`OUTCOME_UNKNOWN`） | 写入可能已经发生，但无法确认 | **不要自动重试**。先用读取接口查看当前状态，再决定 |
+| **成功** | 相应的回读检查通过 | 根据返回值继续；不要视为并发隔离 |
+| **写入前失败** | 例如输入校验、预检查或令牌检查失败，尚未发出写请求 | 根据错误修正后决定是否重试 |
+| **引擎报告未写入**（`not_written`） | 参数写入可能以 `ENGINE_ERROR` 或 `STALE_MODEL` 携带 `details.outcome: 'not_written'` | 检查错误及当前状态后决定；这不是其他副作用的回滚保证 |
+| **结果未知**（`OUTCOME_UNKNOWN`） | 写入可能已经发生，或回读不符合要求 | **不要自动重试**。先用读取接口查看当前状态，再决定 |
+
+创建和移动在写请求发出后，即使引擎报告其他 `not_written` 错误，也通常保守地映射为 `OUTCOME_UNKNOWN`；明确的过期令牌且引擎报告 `not_written` 则映射为 `STALE_MODEL`。参数写入错误的 `details.outcome` 还可能是 `different` 或 `unknown`；并非所有错误都带有 `details`。
 
 常见错误码：
 
@@ -209,7 +214,7 @@ parameter.set({
 ### 4. 写入不是事务
 
 - 多步操作（例如连续移动多个几何）中途失败时，已完成的步骤**不会回滚**。
-- 没有撤销记录，也没有持久化保证。
+- 不保证可撤销，也没有持久化保证。
 
 ### 5. 图形界面与其他入口不受保护
 
@@ -225,8 +230,8 @@ parameter.set({
 
 ### 7. 其他限制
 
-- **无超时**：调用可能一直挂起，直到句柄被关闭。
-- **关闭不取消**：句柄关闭后，已提交给引擎的请求仍可能执行；关闭只让之后的新调用失败。
+- **无内置超时**：引擎请求可能一直挂起；关闭句柄会使等待中的调用结束，但不保证引擎工作停止。
+- **关闭不取消已提交的工作**：关闭后新调用返回 `SESSION_CLOSED`；关闭时在途读取通常以 `SESSION_CLOSED` 结束，写入若已发出则可能以 `OUTCOME_UNKNOWN` 结束。已提交的引擎请求仍可能执行；写入未发出时关闭可返回 `SESSION_CLOSED`。
 - **不是安全边界**：同源网页脚本可以访问同样的接口。`window.__webvspModelingReadV1` 是只读便利入口，不是授权机制。
 - **保存与重开未验证**：写入只发生在浏览器内存中。关闭页面前请在界面里手动保存模型。
 
@@ -234,10 +239,10 @@ parameter.set({
 
 | 层次 | 内容 | 状态 |
 |---|---|---|
-| 单元测试 | Vitest：前端 37 个文件、513 项，覆盖各服务的逻辑与错误分支 | 通过 |
-| 类型与构建 | `tsc -b` 与 `vite build` | 通过 |
-| 真实浏览器 | `facade-write-browser-check.mjs`：隔离的 Chromium + 生产 WASM，覆盖机身与机翼的创建、参数设置、移动、回读，以及越界、旧令牌、关闭后的错误 | 通过 |
-| 引擎故障注入 | 测试构建中模拟中途失败，检查结果分类 | 通过（仅测试构建，不代表生产） |
+| 单元测试 | Vitest 前端测试，覆盖服务逻辑与错误分支 | 测试集合会变化，请以实际运行结果为准 |
+| 类型与构建 | `tsc -b` 与 `vite build` | 请以实际运行结果为准 |
+| 真实浏览器 | `facade-write-browser-check.mjs`：Chromium + 生产 WASM，覆盖机身与机翼创建、参数设置、移动、回读及部分错误 | 历史验收；请以当前环境运行结果为准 |
+| 引擎故障注入 | 测试构建中模拟中途失败，检查结果分类 | 历史验证（仅测试构建，不代表生产） |
 
 **未覆盖：** 图形界面并发编辑、保存与重开、脚本安全、对象身份（ABA）、跨多次请求的一致性。
 

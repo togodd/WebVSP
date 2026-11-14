@@ -153,7 +153,10 @@ export function createBrowserModelingService() {
       create: (input: CreateGeometryInput, token: ModelIdentity) => run(token, (s, t) => s.write.create(input, t)),
       move: (input: MoveGeometryInput, token: ModelIdentity) => run(token, (s, t) => s.write.move(input, t)),
     },
-    wing: { get: (id: string, token: ModelIdentity) => run(token, (s, t) => s.wing.get(id, t)) },
+    wing: {
+      get: (id: string, token: ModelIdentity) => run(token, (s, t) => s.wing.get(id, t)),
+      getSectionDimensions: (id: string, sectionId: string, token: ModelIdentity) => run(token, (s, t) => s.wing.getSectionDimensions(id, sectionId, t)),
+    },
     fuselage: { get: (id: string, token: ModelIdentity) => run(token, (s, t) => s.fuselage.get(id, t)) },
   }
 }

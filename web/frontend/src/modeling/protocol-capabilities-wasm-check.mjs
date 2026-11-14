@@ -60,11 +60,11 @@ try {
   })
   const names = ['model.read', 'geometry.read', 'geometry.create', 'geometry.move', 'parameter.read', 'parameter.write', 'wing.read', 'wing.edit', 'fuselage.read', 'fuselage.edit', 'assembly.attach']
   const reads = new Set(['model.read', 'geometry.read', 'parameter.read', 'wing.read', 'fuselage.read'])
+  const supported = new Set([...reads, 'geometry.create', 'geometry.move', 'parameter.write'])
   const capabilities = {
     contractVersion: '0.1',
-    features: names.map(name => reads.has(name) ? { name, status: 'supported' } : {
-      name, status: 'unsupported', reason: ['geometry.create', 'geometry.move', 'parameter.write'].includes(name)
-        ? 'Disabled pending reentrancy safety review' : 'Not implemented or not verified',
+    features: names.map(name => supported.has(name) ? { name, status: 'supported' } : {
+      name, status: 'unsupported', reason: 'Not implemented or not verified',
     }),
   }
   assert.deepEqual(result.capabilitiesBefore, capabilities, 'existing capabilities contract')

@@ -137,6 +137,7 @@ export const EN: Record<string, string> = {
   'solver.done': 'Done in {time}',
   'solver.stopped': 'Stopped after {time}',
   'solver.failed': 'Failed after {time}',
+  'solver.unknown': 'Outcome unknown after {time}',
 
   'lang.label': 'Language',
 }

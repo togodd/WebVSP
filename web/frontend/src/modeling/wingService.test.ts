@@ -7,7 +7,11 @@ const context = { sessionId: 'session', engineRevision: 5, engineVersion: 'v' }
 function dependencies(): WingReadDependencies {
   return {
     geometry: { get: vi.fn(async (id) => ({ context, geometry: { id, name: 'Wing', type: 'Wing', parentId: null, childIds: [], shown: true } })) },
-    parameters: { listWingShapes: vi.fn(async () => [{ id: 'surface', xsecs: [{ id: 'root', shape: 0 }, { id: 'section1', shape: 2 }, { id: 'section2', shape: 987 }] }]) },
+    parameters: {
+      listWingShapes: vi.fn(async () => [{ id: 'surface', xsecs: [{ id: 'root', shape: 0 }, { id: 'section1', shape: 2 }, { id: 'section2', shape: 987 }] }]),
+      listCrossSectionParameterIds: vi.fn(async () => ['span', 'root', 'tip']),
+      getCrossSectionParameter: vi.fn(async (section, id) => ({ id, name: ({ span: 'Span', root: 'Root_Chord', tip: 'Tip_Chord' } as Record<string, string>)[id], group: 'XSec', container: section, value: ({ span: 4, root: 3, tip: 2 } as Record<string, number>)[id], type: 0, lowerLimit: 0, upperLimit: 100, active: true })),
+    },
   }
 }
 
@@ -22,6 +26,8 @@ describe('wing read view', () => {
     ] }] })
     expect(deps.geometry.get).toHaveBeenCalledWith('wing', undefined)
     expect(deps.parameters.listWingShapes).toHaveBeenCalledWith('wing', undefined)
+    expect(deps.parameters.listCrossSectionParameterIds).not.toHaveBeenCalled()
+    expect(deps.parameters.getCrossSectionParameter).not.toHaveBeenCalled()
     const verifyReadonly = () => {
       // @ts-expect-error Views are read-only at the type level.
       result.surfaces[0].stations[0].index = 9
@@ -41,6 +47,59 @@ describe('wing read view', () => {
     const service = createWingService(deps)
     expect((await service.get('w')).surfaces).toEqual([])
     expect((await service.get('w')).surfaces.map((s) => s.stations)).toEqual([[], [{ id: 'r', index: 0, kind: 'rootAirfoilStation', shape: 1 }], [{ id: 's', index: 0, kind: 'rootAirfoilStation', shape: -2 }]])
+  })
+  it('reads dimensions only for sections with the same identity', async () => {
+    const deps = dependencies(), identity = { sessionId: 's', modelEpoch: 'e' }
+    expect(await createWingService(deps).getSectionDimensions('wing', 'section1', identity)).toEqual({ span: 4, rootChord: 3, tipChord: 2 })
+    expect(vi.mocked(deps.parameters.listCrossSectionParameterIds).mock.calls).toEqual([['section1', identity]])
+    expect(vi.mocked(deps.parameters.getCrossSectionParameter).mock.calls).toEqual([
+      ['section1', 'span', identity], ['section1', 'root', identity], ['section1', 'tip', identity],
+    ])
+  })
+  it('rejects root, unknown and invalid station IDs without reading parameters', async () => {
+    const deps = dependencies(), service = createWingService(deps)
+    for (const id of ['', ' ', 'root', 'missing']) await expect(service.getSectionDimensions('w', id)).rejects.toMatchObject({ code: 'INVALID_ARGUMENT' })
+    expect(deps.parameters.listCrossSectionParameterIds).not.toHaveBeenCalled()
+  })
+  it('rejects ambiguous, missing, misowned and invalid dimensions', async () => {
+    for (const mode of ['duplicate', 'missing', 'owner', 'group', 'type', 'nonfinite', 'wrong-id', 'duplicate-id', 'sparse']) {
+      const deps = dependencies(), list = vi.mocked(deps.parameters.listCrossSectionParameterIds), get = vi.mocked(deps.parameters.getCrossSectionParameter)
+      const base = get.getMockImplementation()!
+      if (mode === 'duplicate-id') list.mockResolvedValueOnce(['span', 'span'])
+      if (mode === 'sparse') list.mockResolvedValueOnce(Array(1))
+      if (mode === 'missing') list.mockResolvedValueOnce(['span', 'root'])
+      if (mode === 'duplicate') list.mockResolvedValueOnce(['span', 'root', 'tip', 'other'])
+      get.mockImplementation(async (section, id) => {
+        const p = await base(section, id)
+        if (mode === 'duplicate' && id === 'other') return { ...p, name: 'Span', value: 5 }
+        if (id !== 'span') return p
+        if (mode === 'owner') return { ...p, container: 'nested' }
+        if (mode === 'group') return { ...p, group: 'Other' }
+        if (mode === 'type') return { ...p, type: 1 }
+        if (mode === 'nonfinite') return { ...p, value: NaN }
+        if (mode === 'wrong-id') return { ...p, id: 'wrong' }
+        return p
+      })
+      await expect(createWingService(deps).getSectionDimensions('w', 'section1'), mode).rejects.toMatchObject({ code: 'ENGINE_ERROR' })
+    }
+  })
+  it('rejects hostile dimension response accessors as engine errors', async () => {
+    const deps = dependencies(), boom = () => { throw new Error('hostile') }
+    vi.mocked(deps.parameters.listCrossSectionParameterIds).mockResolvedValueOnce(new Proxy([], { get(target, key) { return key === 'length' ? boom() : Reflect.get(target, key) } }))
+    await expect(createWingService(deps).getSectionDimensions('w', 'section1')).rejects.toMatchObject({ code: 'ENGINE_ERROR' })
+    vi.mocked(deps.parameters.getCrossSectionParameter).mockResolvedValueOnce({ get name() { return boom() } } as never)
+    await expect(createWingService(deps).getSectionDimensions('w', 'section1')).rejects.toMatchObject({ code: 'ENGINE_ERROR' })
+  })
+  it('ignores identically named nested parameters and propagates parameter read failures', async () => {
+    const deps = dependencies(), get = vi.mocked(deps.parameters.getCrossSectionParameter), base = get.getMockImplementation()!
+    vi.mocked(deps.parameters.listCrossSectionParameterIds).mockResolvedValueOnce(['nested', 'span', 'root', 'tip'])
+    get.mockImplementation(async (section, id) => id === 'nested' ? { ...(await base(section, 'span')), id, container: 'curve' } : base(section, id))
+    await expect(createWingService(deps).getSectionDimensions('w', 'section1')).resolves.toEqual({ span: 4, rootChord: 3, tipChord: 2 })
+    const failure = new ModelingError('SESSION_CLOSED', 'closed')
+    vi.mocked(deps.parameters.listCrossSectionParameterIds).mockRejectedValueOnce(failure)
+    await expect(createWingService(deps).getSectionDimensions('w', 'section1')).rejects.toBe(failure)
+    get.mockRejectedValueOnce(failure)
+    await expect(createWingService(deps).getSectionDimensions('w', 'section1')).rejects.toBe(failure)
   })
   it('rejects invalid ids and non-wing geometry without reading surfaces', async () => {
     const deps = dependencies(), service = createWingService(deps)

@@ -8,8 +8,8 @@ interface Run {
 
 /**
  * The last VSPAERO run, timed in the VSPAERO window's title bar: when it started, and when and
- * how it ended (null while running). The run is OpenVSP's whole solver step (writing the
- * geometry, `vspaero`, then `vsploads`): it lasts while the window's Kill Solver button is active
+ * how it ended (code is null while running or if unknown). The run is OpenVSP's whole solver
+ * step (writing the geometry, `vspaero`, then `vsploads`): it lasts while Kill Solver is active
  * (`setSolverRunning`, fed from the mirror). How it ended comes from `vspaero`'s exit code
  * (`solverExited`, from wasmEngine.ts; 143 when it's killed).
  */
@@ -17,19 +17,23 @@ export const useSolverRun = create<Run>(() => ({ start: null, end: null, code: n
 
 /** The run going on: whether vspaero has been launched in it, its exit code once it has exited,
  *  and the last finished run (shown again if this one turns out not to be a run). */
-let spawned = false
+let spawnedId: number | null = null
+let ambiguous = false
 let exitCode: number | null = null
 let previous: Run = { start: null, end: null, code: null }
 
-/** Called when a run ends, with vspaero's exit code. */
-const endListeners = new Set<(code: number) => void>()
-export const onSolverEnded = (listener: (code: number) => void) => endListeners.add(listener)
+/** Called when a run ends, with vspaero's exit code, or null if it is not known. */
+const endListeners = new Set<(code: number | null) => void>()
+export const onSolverEnded = (listener: (code: number | null) => void) => endListeners.add(listener)
 
-export const solverSpawned = () => {
-  spawned = true
+export const solverSpawned = (id: number) => {
+  // Overlapping launches cannot be attributed confidently to one GUI run.
+  if (spawnedId !== null && spawnedId !== id) ambiguous = true
+  else spawnedId = id
 }
-export const solverExited = (code: number) => {
-  exitCode = code
+export const solverExited = (id: number, code: number) => {
+  // Ignore late exits from an earlier GUI run, including between runs.
+  if (spawnedId === id && !ambiguous && exitCode === null) exitCode = code
 }
 
 export function setSolverRunning(running: boolean) {
@@ -42,11 +46,13 @@ export function setSolverRunning(running: boolean) {
     // Kill Solver lit without vspaero being launched (the window appearing): not a run.
     // (OpenVSP launches vspaero just before it lights the button, so these are cleared after a
     // run, not at its start.)
-    const code = exitCode ?? 0
-    const real = spawned
+    // A missing exit is not evidence of success; avoid offering stale/partial results.
+    const code = ambiguous ? null : exitCode
+    const real = spawnedId !== null
     if (!real) useSolverRun.setState(previous)
     else useSolverRun.setState({ end: Date.now(), code })
-    spawned = false
+    spawnedId = null
+    ambiguous = false
     exitCode = null
     if (real) endListeners.forEach((l) => l(code))
   }

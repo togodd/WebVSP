@@ -6,7 +6,7 @@ const methods = {
   model: ['getInfo', 'getSelection', 'getVisibleSurfaceBounds'],
   geometry: ['list', 'listTypes', 'get'],
   parameter: ['listSurfaces', 'getFuselageLength', 'listGeometryParameterIds', 'listCrossSectionParameterIds', 'getGeometryParameter', 'getCrossSectionParameter'],
-  wing: ['get'],
+  wing: ['get', 'getSectionDimensions'],
   fuselage: ['get'],
 } as const
 
@@ -23,13 +23,51 @@ function fixture() {
 describe('versioned browser read API', () => {
   it('exposes exactly the whitelist and does not create a service on construction or installation', () => {
     const { api, factory } = fixture()
-    expect(Object.keys(api).sort()).toEqual(['capabilities', 'declaredCapabilities', 'fuselage', 'geometry', 'model', 'parameter', 'protocol', 'wing'])
+    expect(Object.keys(api).sort()).toEqual(['capabilities', 'declaredCapabilities', 'describeSurface', 'fuselage', 'geometry', 'model', 'parameter', 'protocol', 'wing'])
     for (const [group, names] of Object.entries(methods)) expect(Object.keys((api as any)[group]).sort()).toEqual([...names].sort())
     expect(factory).not.toHaveBeenCalled()
     const target = {} as Window
     installBrowserReadApi(target, factory as never)
     expect(target.__webvspModelingReadV1).toBeDefined()
     expect(factory).not.toHaveBeenCalled()
+  })
+
+  it('describes exactly the public surface and its limitations without creating a service', async () => {
+    const { api, factory } = fixture()
+    const description = await api.describeSurface()
+    expect(description.version).toBe(1)
+    expect(description.methods.root.slice().sort()).toEqual(Object.keys(api).filter(key => typeof (api as any)[key] === 'function').sort())
+    for (const [group, names] of Object.entries(methods)) {
+      expect(description.methods[group as keyof typeof methods].slice().sort()).toEqual([...names].sort())
+      expect(description.methods[group as keyof typeof methods].slice().sort()).toEqual(Object.keys((api as any)[group]).sort())
+    }
+    expect(description.limitations).toEqual({
+      writesExposed: false,
+      generalDispatcherExposed: false,
+      engineAvailabilityVerified: false,
+      atomicSnapshot: false,
+      readsGuaranteedSideEffectFree: false,
+      securityBoundary: false,
+    })
+    expect(factory).not.toHaveBeenCalled()
+    description.methods.root.push('fake')
+    description.methods.model.length = 0
+    description.limitations.securityBoundary = true
+    const again = await api.describeSurface()
+    expect(again.methods.root).not.toContain('fake')
+    expect(again.methods.model).toEqual([...methods.model])
+    expect(again.limitations.securityBoundary).toBe(false)
+    expect(factory).not.toHaveBeenCalled()
+  })
+
+  it('preserves underlying capabilities even when they report write support', async () => {
+    const { api, service } = fixture()
+    const capabilities = { contractVersion: '1', features: [{ name: 'geometry.create', status: 'supported' }] }
+    service.capabilities.mockReturnValueOnce(capabilities)
+    expect(await api.capabilities()).toBe(capabilities)
+    expect(service.capabilities).toHaveBeenCalledOnce()
+    expect(service.close).toHaveBeenCalledOnce()
+    expect((await api.describeSurface()).limitations.writesExposed).toBe(false)
   })
 
   it('forwards all arguments and return values, creating and closing a service per call', async () => {

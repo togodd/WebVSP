@@ -137,6 +137,7 @@ export const ZH: Record<string, string> = {
   'solver.done': '用时 {time} 完成',
   'solver.stopped': '已于 {time} 后停止',
   'solver.failed': '失败（已运行 {time}）',
+  'solver.unknown': '结果未知（已运行 {time}）',
 
   'lang.label': '语言',
 }

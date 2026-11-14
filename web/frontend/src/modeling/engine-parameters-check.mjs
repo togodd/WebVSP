@@ -64,7 +64,7 @@ try {
   assert.deepEqual(facadeIds, ids)
   const capabilities = (await page.evaluate(() => window.testModeling.capabilities())).features
   assert.equal(capabilities.find(x => x.name === 'parameter.read').status, 'supported')
-  assert.equal(capabilities.find(x => x.name === 'parameter.write').status, 'unsupported')
+  assert.equal(capabilities.find(x => x.name === 'parameter.write').status, 'supported')
   assert.ok(surfaces.length && surfaces[0].xsecs.length && ids.length)
   const parameter = await request('GET', `/geoms/${wing}/parms/${ids[0]}`)
   assert.equal(parameter.id, ids[0]); assert.equal(typeof parameter.value, 'number')
@@ -111,14 +111,15 @@ try {
   assert.equal((await request('GET', tessPath)).value, 17)
   const path = `/geoms/${fuselage}/parms/${length.id}`
   const input = { owner: 'geometry', ownerId: fuselage, parameterId: length.id, value: 20 }
-  const disabled = await page.evaluate(async ({ input, token }) => {
-    try { await window.testModeling.parameter.set(input, token); return null }
-    catch (error) { return error.code }
-  }, { input, token })
-  assert.equal(disabled, 'UNSUPPORTED_OPERATION')
-  assert.equal((await request('GET', path)).value, length.value)
-  const actual = await request('PUT', path, { value: 20 })
-  assert.equal(actual.actual, 20)
+  const facadeWrite = await page.evaluate(({ input, token }) => window.testModeling.parameter.set(input, token), { input, token })
+  assert.deepEqual(facadeWrite, { actual: 20 })
+  assert.equal((await request('GET', path)).value, 20)
+  const actual = await request('PUT', path, { value: 21 })
+  assert.equal(actual.actual, 21)
+  assert.equal((await request('GET', path)).value, 21)
+  // Restore the value expected by the later error and race checks.
+  const restored = await request('PUT', path, { value: 20 })
+  assert.equal(restored.actual, 20)
   assert.equal((await request('GET', path)).value, 20)
   const failure = await page.evaluate(async ({ path, value }) => {
     try { await window.__webvspEngine.request('PUT', path, { value }); return null }

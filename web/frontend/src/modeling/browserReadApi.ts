@@ -7,6 +7,28 @@ export function createBrowserReadApi(factory: typeof createBrowserModelingServic
     try { return await read(service) } finally { service.close() }
   }
   return {
+    /** Static description of this wrapper, not a probe of the service or engine. */
+    async describeSurface() {
+      return {
+        version: 1 as const,
+        methods: {
+          root: ['describeSurface', 'capabilities', 'protocol', 'declaredCapabilities'],
+          model: ['getInfo', 'getSelection', 'getVisibleSurfaceBounds'],
+          geometry: ['list', 'listTypes', 'get'],
+          parameter: ['listSurfaces', 'getFuselageLength', 'listGeometryParameterIds', 'listCrossSectionParameterIds', 'getGeometryParameter', 'getCrossSectionParameter'],
+          wing: ['get', 'getSectionDimensions'],
+          fuselage: ['get'],
+        },
+        limitations: {
+          writesExposed: false,
+          generalDispatcherExposed: false,
+          engineAvailabilityVerified: false,
+          atomicSnapshot: false,
+          readsGuaranteedSideEffectFree: false,
+          securityBoundary: false,
+        },
+      }
+    },
     capabilities: () => run(s => s.capabilities()),
     protocol: () => run(s => s.protocol()),
     declaredCapabilities: () => run(s => s.declaredCapabilities()),
@@ -28,7 +50,10 @@ export function createBrowserReadApi(factory: typeof createBrowserModelingServic
       getGeometryParameter: (...args: Parameters<ReturnType<typeof createBrowserModelingService>['parameter']['getGeometryParameter']>) => run(s => s.parameter.getGeometryParameter(...args)),
       getCrossSectionParameter: (...args: Parameters<ReturnType<typeof createBrowserModelingService>['parameter']['getCrossSectionParameter']>) => run(s => s.parameter.getCrossSectionParameter(...args)),
     },
-    wing: { get: (...args: Parameters<ReturnType<typeof createBrowserModelingService>['wing']['get']>) => run(s => s.wing.get(...args)) },
+    wing: {
+      get: (...args: Parameters<ReturnType<typeof createBrowserModelingService>['wing']['get']>) => run(s => s.wing.get(...args)),
+      getSectionDimensions: (...args: Parameters<ReturnType<typeof createBrowserModelingService>['wing']['getSectionDimensions']>) => run(s => s.wing.getSectionDimensions(...args)),
+    },
     fuselage: { get: (...args: Parameters<ReturnType<typeof createBrowserModelingService>['fuselage']['get']>) => run(s => s.fuselage.get(...args)) },
   }
 }

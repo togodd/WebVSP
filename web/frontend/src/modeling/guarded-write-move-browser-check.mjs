@@ -1,5 +1,5 @@
 // Disposable browser/WASM integration test of the isolated write service, not the
-// disabled public write facade. Serve a production WASM via the modeling test page.
+// public write facade. Serve a production WASM via the modeling test page.
 // From web/frontend: WEBVSP_TEST_CHROMIUM=/path/to/chromium node src/modeling/guarded-write-move-browser-check.mjs
 import assert from 'node:assert/strict'
 import { chromium } from 'playwright-core'
@@ -62,10 +62,7 @@ try {
       const limit = await guarded('move', id, '1e12,0,0')
       const limitOrigin = await origin()
       const clamp = await attempt([1, 0, 0])
-      let facadeOutcome
-      try { await facade.write.move({ geometryId: id, frame: 'world', units: 'model-native', delta: [1, 0, 0] }, identity); facadeOutcome = 'SUCCEEDED' }
-      catch (error) { facadeOutcome = error.code }
-      return { id, tiny, ordinary, reset, resetOrigin, limit, limitOrigin, clamp, facadeOutcome, final: await origin() }
+      return { id, tiny, ordinary, reset, resetOrigin, limit, limitOrigin, clamp, final: await origin() }
     } finally { facade.close() }
   })
   for (const [label, test] of [['tiny', result.tiny], ['clamp', result.clamp]]) {
@@ -86,9 +83,8 @@ try {
   assert.equal(result.limit.ok, true)
   assert.deepEqual(result.limitOrigin, [1e12, 0, 0])
   assert.deepEqual(result.clamp.before, result.limitOrigin)
-  assert.equal(result.facadeOutcome, 'UNSUPPORTED_OPERATION')
   assert.deepEqual(result.final, result.clamp.after)
   assert.deepEqual(errors, [])
   console.log(JSON.stringify(result, null, 2))
-  console.log('PASS: isolated write service verifies real guarded moves; facade remains disabled')
+  console.log('PASS: isolated write service verifies real guarded moves; clamped moves report unknown without retry')
 } finally { await browser.close(); clearTimeout(deadline) }

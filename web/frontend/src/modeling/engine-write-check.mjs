@@ -22,21 +22,27 @@ try {
     const token = model.identity
     const fuselageView = await service.fuselage.get(body.id, token)
     const wingView = await service.wing.get(wing.id, token)
-    const disabled = []
-    for (const fn of [() => service.write.create({ type: 'WING', parentId: null }, token), () => service.write.move({ geometryId: wing.id, frame: 'world', units: 'model-native', delta: [1, 0, 0] }, token)]) {
-      try { await fn(); disabled.push('SUCCEEDED') } catch (error) { disabled.push(error.code) }
-    }
+    const created = await service.write.create({ type: 'WING', parentId: null }, token)
+    const facadeMove = await service.write.move({ geometryId: wing.id, frame: 'world', units: 'model-native', delta: [1, 0, 0] }, token)
+    const finalModel = await service.model.getInfo(token)
+    const finalOrigin = await engine.request('GET', `/geoms/${wing.id}/origin`)
     const capabilities = service.capabilities()
     service.close()
-    return { body, wing, before, moved, origin, model, fuselageView, wingView, disabled, capabilities }
+    return { body, wing, before, moved, origin, model, fuselageView, wingView, created, facadeMove, finalModel, finalOrigin, capabilities }
 
   })
   assert.equal(data.model.geometries.length, 2)
   assert.equal(data.model.geometries.find(g => g.id === data.wing.id).parentId, data.body.id)
   assert.equal(data.moved.ok, true)
   assert.ok(Math.abs(data.origin[0] - data.before[0] - 2) < 1e-7)
-  assert.deepEqual(data.disabled, ['UNSUPPORTED_OPERATION', 'UNSUPPORTED_OPERATION'])
-  for (const name of ['geometry.create', 'geometry.move']) assert.equal(data.capabilities.features.find(c => c.name === name).status, 'unsupported')
+  for (const name of ['geometry.create', 'geometry.move']) assert.equal(data.capabilities.features.find(c => c.name === name).status, 'supported')
+  assert.equal(data.finalModel.geometries.length, 3)
+  const created = data.finalModel.geometries.find(g => g.id === data.created.geometryId)
+  assert.ok(created)
+  assert.equal(created.parentId, null)
+  assert.equal(created.type.toUpperCase(), 'WING')
+  assert.deepEqual(data.facadeMove, { geometryId: data.wing.id, origin: data.finalOrigin })
+  for (let i = 0; i < 3; i++) assert.ok(Math.abs(data.finalOrigin[i] - data.origin[i] - (i === 0 ? 1 : 0)) < 1e-7)
   assert.equal(data.fuselageView.length.value, 30)
   assert.equal(data.fuselageView.surfaces[0].sections.length, 5)
   assert.equal(data.wingView.surfaces[0].stations[0].kind, 'rootAirfoilStation')

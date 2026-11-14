@@ -65,11 +65,11 @@ try {
       const before = await call('origin', child)
       const moved = await service.move({ geometryId: child, frame: 'world', units: 'model-native', delta: [1, 2, 3] }, identity)
       const model = await call('model')
+      const originAfterAdapterMove = await call('origin', child)
+      // Exactly one additional facade move; this is not a script-safety proof.
+      const facadeWrite = await facade.write.move({ geometryId: child, frame: 'world', units: 'model-native', delta: [1, 0, 0] }, identity)
       const origin = await call('origin', child)
-      let facadeWrite
-      try { await facade.write.move({ geometryId: child, frame: 'world', units: 'model-native', delta: [1, 0, 0] }, identity); facadeWrite = 'SUCCEEDED' }
-      catch (error) { facadeWrite = error.code }
-      return { identity, root, child, before, moved, model, origin, writes, facadeWrite }
+      return { identity, root, child, before, moved, model, originAfterAdapterMove, origin, writes, facadeWrite }
     } finally { facade.close() }
   })
   assert.equal(result.model.geoms.length, 2)
@@ -77,10 +77,11 @@ try {
   const child = result.model.geoms.find(g => g.id === result.child)
   assert.equal(root.type.toUpperCase(), 'FUSELAGE'); assert.equal(root.parent, null)
   assert.equal(child.type.toUpperCase(), 'WING'); assert.equal(child.parent, result.root)
-  assert.deepEqual(result.origin, result.before.map((v, i) => v + [1, 2, 3][i]))
-  assert.deepEqual(result.moved, { geometryId: result.child, origin: result.origin })
+  assert.deepEqual(result.originAfterAdapterMove, result.before.map((v, i) => v + [1, 2, 3][i]))
+  assert.deepEqual(result.moved, { geometryId: result.child, origin: result.originAfterAdapterMove })
+  assert.deepEqual(result.origin, result.originAfterAdapterMove.map((v, i) => v + [1, 0, 0][i]))
   assert.deepEqual(result.writes, [['create', 'FUSELAGE', null], ['create', 'WING', result.root], ['move', [result.child], [1, 2, 3]]])
-  assert.equal(result.facadeWrite, 'UNSUPPORTED_OPERATION')
+  assert.deepEqual(result.facadeWrite, { geometryId: result.child, origin: result.origin })
   const guiTree = async () => {
     await page.waitForFunction(() => {
       const rows = [...document.querySelectorAll('.m-tree .m-titem')]
