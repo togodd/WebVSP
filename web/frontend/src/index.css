@@ -14,7 +14,7 @@
   --fg-3: #666666;
   --danger: #c76a6a;
 
-  --font: 'Segoe UI', system-ui, -apple-system, sans-serif;
+  --font: 'Segoe UI', system-ui, -apple-system, 'Noto Sans SC', 'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei', sans-serif;
   --mono: 'Cascadia Mono', Consolas, ui-monospace, monospace;
   color-scheme: dark;
 }
@@ -98,6 +98,10 @@ input:focus, select:focus, textarea:focus, button:focus-visible {
   color: var(--fg-3); transition: color 120ms, background 120ms, filter 120ms;
 }
 .topbar .repo-link:hover { color: #fff; background: var(--bg-4); filter: drop-shadow(0 0 4px rgba(255, 255, 255, 0.35)); }
+/* Language switch: EN / 中文, compact segmented buttons next to the menu. */
+.lang-switch { display: flex; flex: none; gap: 2px; margin: 0 8px 0 4px; border: 1px solid var(--line-strong); border-radius: 4px; padding: 1px; }
+.lang-switch button { padding: 2px 8px; font-size: 11px; border-color: transparent; background: transparent; }
+.lang-switch button.on { background: var(--bg-5); color: #fff; }
 
 /* The model's file name, bottom-left over the 3D view. */
 .viewer-file {

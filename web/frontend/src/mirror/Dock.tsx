@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react'
+import { t } from '../i18n'
 import { sendMirror } from './store'
 import type { MWindow } from './types'
 import { MirrorWindow } from './Window'
@@ -155,7 +156,7 @@ export function SidePanel({
           className="side-panel-handle"
           role="separator"
           aria-orientation="vertical"
-          title="Drag to resize · double-click to reset"
+          title={t('view.resizeHint')}
           onPointerDown={onPointerDown}
           onDoubleClick={reset}
         />
@@ -169,7 +170,7 @@ export function ViewerOverlay({ fullscreen, onToggle }: { fullscreen: boolean; o
     <>
       <button
         className="viewer-fullscreen"
-        title={fullscreen ? 'Show panels' : 'Hide panels (fullscreen view)'}
+        title={fullscreen ? t('view.showPanels') : t('view.hidePanels')}
         onClick={onToggle}
       >
         {fullscreen ? (

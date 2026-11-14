@@ -1,5 +1,6 @@
 import { useEffect } from 'react'
 import { create } from 'zustand'
+import { t } from '../i18n'
 import { useStore } from '../store'
 
 /** X / Delete: the geoms waiting on "are you sure", and what deleting them does. */
@@ -42,19 +43,19 @@ export function DeleteConfirm() {
     return () => window.removeEventListener('keydown', onKey, true)
   }, [open, onDelete])
   if (!open) return null
-  const what = names.length === 1 ? names[0] : `${names.length} geoms`
+  const what = names.length === 1 ? t('delete.whatOne', { name: names[0] }) : t('delete.whatMany', { count: names.length })
   return (
     <div className="modal-backdrop" onPointerDown={(e) => e.target === e.currentTarget && close()}>
-      <div className="modal prompt" role="alertdialog" aria-label="Delete">
-        <div className="modal-head">Delete</div>
+      <div className="modal prompt" role="alertdialog" aria-label={t('delete.title')}>
+        <div className="modal-head">{t('delete.title')}</div>
         <div className="prompt-msg">
-          Delete {what}?
+          {t('delete.prompt', { what })}
           {names.length > 1 && <div className="prompt-list">{names.join(', ')}</div>}
         </div>
         <div className="modal-foot">
           <span style={{ flex: 1 }} />
           <button data-cancel="1" onClick={close}>
-            Cancel
+            {t('delete.cancel')}
           </button>
           <button
             className="danger"
@@ -64,7 +65,7 @@ export function DeleteConfirm() {
               close()
             }}
           >
-            Delete
+            {t('delete.confirm')}
           </button>
         </div>
       </div>

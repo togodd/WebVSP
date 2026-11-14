@@ -3,6 +3,7 @@ import { useFrame, useThree } from '@react-three/fiber'
 import { useEffect, useMemo, useRef } from 'react'
 import * as THREE from 'three'
 import { OrbitControls as OrbitControlsImpl } from 'three-stdlib'
+import { t } from '../i18n'
 import type { Layout, ViewName } from '../store'
 
 /**
@@ -474,12 +475,12 @@ export function useViewKeys(onView: (v: ViewName) => void, onToggleOrtho: () => 
   }, [onView, onToggleOrtho, active])
 }
 
-const VIEW_BUTTONS: { view: ViewName; label: string; key: string }[] = [
-  { view: 'front', label: 'Front', key: '1' },
-  { view: 'left', label: 'Side', key: '3' },
-  { view: 'top', label: 'Top', key: '7' },
-  { view: 'bottom', label: 'Bottom', key: 'Ctrl+7' },
-  { view: 'leftiso', label: 'Iso', key: '' },
+const VIEW_BUTTONS: { view: ViewName; labelKey: string; key: string }[] = [
+  { view: 'front', labelKey: 'view.front', key: '1' },
+  { view: 'left', labelKey: 'view.side', key: '3' },
+  { view: 'top', labelKey: 'view.top', key: '7' },
+  { view: 'bottom', labelKey: 'view.bottom', key: 'Ctrl+7' },
+  { view: 'leftiso', labelKey: 'view.iso', key: '' },
 ]
 
 /** Box whose back face shrinks into the distance: perspective projection. */
@@ -531,10 +532,10 @@ function LayoutIcon({ layout }: { layout: Layout }) {
   )
 }
 
-const LAYOUTS: { layout: Layout; label: string }[] = [
-  { layout: 'twoH', label: 'Two side by side' },
-  { layout: 'twoV', label: 'Two stacked' },
-  { layout: 'four', label: 'Four views' },
+const LAYOUTS: { layout: Layout; labelKey: string }[] = [
+  { layout: 'twoH', labelKey: 'view.twoH' },
+  { layout: 'twoV', labelKey: 'view.twoV' },
+  { layout: 'four', labelKey: 'view.four' },
 ]
 
 /** The view preset buttons, the projection switch and (if given) the ground grid switch and
@@ -558,20 +559,23 @@ export function ViewTools({
 }) {
   return (
     <div className="view-tools">
-      {VIEW_BUTTONS.map((b) => (
-        <button key={b.view} onClick={() => onView(b.view)} title={b.key ? `${b.label} view (${b.key})` : `${b.label} view`}>
-          {b.label}
-        </button>
-      ))}
-      <button onClick={() => onView('fit')} title="Fit all (F / Home / numpad .)">
-        Fit
+      {VIEW_BUTTONS.map((b) => {
+        const label = t(b.labelKey)
+        return (
+          <button key={b.view} onClick={() => onView(b.view)} title={b.key ? `${label} ${t('view.suffix')} (${b.key})` : `${label} ${t('view.suffix')}`}>
+            {label}
+          </button>
+        )
+      })}
+      <button onClick={() => onView('fit')} title={t('view.fitAll')}>
+        {t('view.fit')}
       </button>
       <span className="sep" />
       <button
         className="proj"
         onClick={onToggleOrtho}
-        title={ortho ? 'Orthographic — click for perspective (5)' : 'Perspective — click for orthographic (5)'}
-        aria-label={ortho ? 'Orthographic view' : 'Perspective view'}
+        title={ortho ? t('view.toPersp') : t('view.toOrtho')}
+        aria-label={ortho ? t('view.ortho') : t('view.persp')}
       >
         {ortho ? <OrthoIcon /> : <PerspIcon />}
       </button>
@@ -579,8 +583,8 @@ export function ViewTools({
         <button
           className={'proj' + (grid ? '' : ' off')}
           onClick={onToggleGrid}
-          title={grid ? 'Grid shown — click to hide' : 'Grid hidden — click to show'}
-          aria-label={grid ? 'Hide grid' : 'Show grid'}
+          title={grid ? t('view.gridHide') : t('view.gridShow')}
+          aria-label={grid ? t('view.gridHideAria') : t('view.gridShowAria')}
           aria-pressed={!!grid}
         >
           <GridIcon />
@@ -589,19 +593,22 @@ export function ViewTools({
       {onLayout && (
         <>
           <span className="sep" />
-          {LAYOUTS.map((l) => (
-            <button
-              key={l.layout}
-              className={'proj' + (layout === l.layout ? ' on' : ' off')}
-              // Clicking the layout in use goes back to one view.
-              onClick={() => onLayout(layout === l.layout ? 'one' : l.layout)}
-              title={layout === l.layout ? `${l.label} — click for one view` : l.label}
-              aria-label={l.label}
-              aria-pressed={layout === l.layout}
-            >
-              <LayoutIcon layout={l.layout} />
-            </button>
-          ))}
+          {LAYOUTS.map((l) => {
+            const label = t(l.labelKey)
+            return (
+              <button
+                key={l.layout}
+                className={'proj' + (layout === l.layout ? ' on' : ' off')}
+                // Clicking the layout in use goes back to one view.
+                onClick={() => onLayout(layout === l.layout ? 'one' : l.layout)}
+                title={layout === l.layout ? t('view.toOne', { label }) : label}
+                aria-label={label}
+                aria-pressed={layout === l.layout}
+              >
+                <LayoutIcon layout={l.layout} />
+              </button>
+            )
+          })}
         </>
       )}
     </div>

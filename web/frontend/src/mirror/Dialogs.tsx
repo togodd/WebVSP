@@ -1,3 +1,4 @@
+import { displayLabel, displayMessage, t } from '../i18n'
 import { sendMirror, useMirror } from './store'
 import type { MDialog } from './types'
 
@@ -8,18 +9,18 @@ import type { MDialog } from './types'
 export function DialogHost() {
   const dialog = useMirror((s) => s.dialogs[0])
   if (!dialog || dialog.kind === 'file') return null
-  const buttons = dialog.kind === 'choice' ? [dialog.b0, dialog.b1, dialog.b2] : ['OK']
+  const buttons = dialog.kind === 'choice' ? [dialog.b0, dialog.b1, dialog.b2] : [t('dialog.ok')]
   return (
     <div className="modal-backdrop">
       <div className="modal prompt" role="dialog">
-        <div className="modal-head">{dialog.kind === 'alert' ? 'Alert' : dialog.kind === 'message' ? 'Message' : 'WebVSP'}</div>
-        <div className="prompt-msg">{dialog.msg}</div>
+        <div className="modal-head">{dialog.kind === 'alert' ? t('dialog.alert') : dialog.kind === 'message' ? t('dialog.message') : t('dialog.title')}</div>
+        <div className="prompt-msg">{displayMessage(dialog.msg)}</div>
         <div className="modal-foot">
           <span style={{ flex: 1 }} />
           {buttons.map((b, i) =>
             b ? (
               <button key={i} autoFocus={i === buttons.length - 1} onClick={() => answer(dialog, { result: i })}>
-                {b.replace(/&/g, '')}
+                {displayLabel(b)}
               </button>
             ) : null,
           )}

@@ -1,6 +1,7 @@
 import { Canvas } from '@react-three/fiber'
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import * as THREE from 'three'
+import { t } from '../i18n'
 import { isTopZ, nextZ } from '../mirror/Window'
 import { useStore, type ViewName } from '../store'
 import { Navigation, useViewKeys, ViewTools, type Box, type ViewRequest } from '../viewport/camera'
@@ -17,11 +18,11 @@ type Quantity = 'cp' | 'cpSteady' | 'cpUnsteady' | 'gamma' | 'shaded'
 
 // As the desktop viewer titles its legend.
 const QUANTITIES: { key: Quantity; label: (vlm: boolean) => string }[] = [
-  { key: 'cp', label: (vlm) => (vlm ? 'Delta-Cp' : 'Cp') },
-  { key: 'cpSteady', label: (vlm) => (vlm ? 'Steady Delta-Cp' : 'Steady Cp') },
-  { key: 'cpUnsteady', label: (vlm) => (vlm ? 'Unsteady Delta-Cp' : 'Unsteady Cp') },
-  { key: 'gamma', label: () => 'Vorticity' },
-  { key: 'shaded', label: () => 'Shaded' },
+  { key: 'cp', label: (vlm) => (vlm ? t('viewer.cpVlm') : t('viewer.cp')) },
+  { key: 'cpSteady', label: (vlm) => (vlm ? t('viewer.steadyCpVlm') : t('viewer.steadyCp')) },
+  { key: 'cpUnsteady', label: (vlm) => (vlm ? t('viewer.unsteadyCpVlm') : t('viewer.unsteadyCp')) },
+  { key: 'gamma', label: () => t('viewer.vorticity') },
+  { key: 'shaded', label: () => t('viewer.shaded') },
 ]
 
 // The desktop viewer's colour ramp: blue, cyan, green, yellow, red, magenta.
@@ -400,29 +401,29 @@ export function ResultsViewer() {
   const label = QUANTITIES.find((q) => q.key === quantity)!.label(vlm)
   const h = adb?.header
   return (
-    <ViewerWindow title={`VSPAERO Viewer · ${name}`} onClose={close}>
+    <ViewerWindow title={t('viewer.title', { name })} onClose={close}>
       <div className="results-bar">
-        <select value={quantity} onChange={(e) => setQuantity(e.target.value as Quantity)} title="What the surface colours show">
+        <select value={quantity} onChange={(e) => setQuantity(e.target.value as Quantity)} title={t('viewer.colours')}>
           {QUANTITIES.map((q) => (
             <option key={q.key} value={q.key}>
               {q.label(vlm)}
             </option>
           ))}
         </select>
-        <label><input type="checkbox" checked={smooth} onChange={(e) => setSmooth(e.target.checked)} /> Smooth</label>
-        <label><input type="checkbox" checked={wireframe} onChange={(e) => setWireframe(e.target.checked)} /> Mesh</label>
-        <label><input type="checkbox" checked={wakes} onChange={(e) => setWakes(e.target.checked)} /> Wakes</label>
-        <label><input type="checkbox" checked={wakeSurfaces} onChange={(e) => setWakeSurfaces(e.target.checked)} /> Wake surfaces</label>
-        <label><input type="checkbox" checked={mirror} onChange={(e) => setMirror(e.target.checked)} /> Reflect</label>
-        <label><input type="checkbox" checked={showCG} onChange={(e) => setShowCG(e.target.checked)} /> CG</label>
-        <label><input type="checkbox" checked={showAxes} onChange={(e) => setShowAxes(e.target.checked)} /> Axes</label>
+        <label><input type="checkbox" checked={smooth} onChange={(e) => setSmooth(e.target.checked)} /> {t('viewer.smooth')}</label>
+        <label><input type="checkbox" checked={wireframe} onChange={(e) => setWireframe(e.target.checked)} /> {t('viewer.mesh')}</label>
+        <label><input type="checkbox" checked={wakes} onChange={(e) => setWakes(e.target.checked)} /> {t('viewer.wakes')}</label>
+        <label><input type="checkbox" checked={wakeSurfaces} onChange={(e) => setWakeSurfaces(e.target.checked)} /> {t('viewer.wakeSurfaces')}</label>
+        <label><input type="checkbox" checked={mirror} onChange={(e) => setMirror(e.target.checked)} /> {t('viewer.reflect')}</label>
+        <label><input type="checkbox" checked={showCG} onChange={(e) => setShowCG(e.target.checked)} /> {t('viewer.cg')}</label>
+        <label><input type="checkbox" checked={showAxes} onChange={(e) => setShowAxes(e.target.checked)} /> {t('viewer.axes')}</label>
         {quantity !== 'shaded' && (
           <span className="results-range">
-            <label><input type="checkbox" checked={!manual} onChange={(e) => setManual(e.target.checked ? null : st.auto)} /> Auto range</label>
+            <label><input type="checkbox" checked={!manual} onChange={(e) => setManual(e.target.checked ? null : st.auto)} /> {t('viewer.autoRange')}</label>
             {manual && (
               <>
-                <input type="number" step="any" value={manual[0]} onChange={(e) => setManual([Number(e.target.value), manual[1]])} title="Minimum" />
-                <input type="number" step="any" value={manual[1]} onChange={(e) => setManual([manual[0], Number(e.target.value)])} title="Maximum" />
+                <input type="number" step="any" value={manual[0]} onChange={(e) => setManual([Number(e.target.value), manual[1]])} title={t('viewer.min')} />
+                <input type="number" step="any" value={manual[1]} onChange={(e) => setManual([manual[0], Number(e.target.value)])} title={t('viewer.max')} />
               </>
             )}
           </span>
@@ -430,7 +431,7 @@ export function ResultsViewer() {
       </div>
       <div className="results-body">
         {error || readError ? (
-          <div className="results-error">Can't show these results: {error || readError}</div>
+          <div className="results-error">{t('viewer.cantShow', { error: error || readError || '' })}</div>
         ) : c && adb && h ? (
           <>
             <Canvas dpr={[1, 2]} resize={{ scroll: false, debounce: 0 }}>
@@ -440,8 +441,8 @@ export function ResultsViewer() {
             {quantity !== 'shaded' && <Legend label={label} range={range} lo={st.lo} hi={st.hi} />}
             <div className="results-panel">
               <div className="results-case">
-                <span>Solution Case</span>
-                <button className="ghost" disabled={caseIdx <= 0} onClick={() => setCaseIdx(caseIdx - 1)} title="Previous case">
+                <span>{t('viewer.solutionCase')}</span>
+                <button className="ghost" disabled={caseIdx <= 0} onClick={() => setCaseIdx(caseIdx - 1)} title={t('viewer.prevCase')}>
                   ◀
                 </button>
                 <select value={caseIdx} onChange={(e) => setCaseIdx(Number(e.target.value))}>
@@ -451,10 +452,10 @@ export function ResultsViewer() {
                     </option>
                   ))}
                 </select>
-                <button className="ghost" disabled={caseIdx >= count - 1} onClick={() => setCaseIdx(caseIdx + 1)} title="Next case">
+                <button className="ghost" disabled={caseIdx >= count - 1} onClick={() => setCaseIdx(caseIdx + 1)} title={t('viewer.nextCase')}>
                   ▶
                 </button>
-                <span>of {h.timeAccurate ? count - 1 : count}</span>
+                <span>{t('viewer.of')} {h.timeAccurate ? count - 1 : count}</span>
               </div>
               <dl>
                 <dt>Mach</dt><dd>{c.mach.toFixed(4)}</dd>
@@ -464,7 +465,7 @@ export function ResultsViewer() {
               {usefulComment(info?.comment) && <div className="results-comment">{info.comment}</div>}
               {coeffs && (
                 <>
-                  <div className="results-section">Coefficients</div>
+                  <div className="results-section">{t('viewer.coeffs')}</div>
                   <dl>
                     {COEFFS.filter(([k]) => k in coeffs).map(([k, label]) => (
                       <div key={k} className="results-row">
@@ -474,7 +475,7 @@ export function ResultsViewer() {
                   </dl>
                 </>
               )}
-              <div className="results-section">Reference</div>
+              <div className="results-section">{t('viewer.reference')}</div>
               <dl>
                 <dt>Sref</dt><dd>{h.sref.toPrecision(6)}</dd>
                 <dt>Cref</dt><dd>{h.cref.toPrecision(6)}</dd>
@@ -484,7 +485,7 @@ export function ResultsViewer() {
                     <dt>CG</dt><dd>{h.cg.map((v) => v.toFixed(4)).join(', ')}</dd>
                   </>
                 )}
-                <dt>Model</dt><dd>{vlm ? 'Vortex lattice' : 'Panel'}{h.symmetry ? ', symmetric' : ''}</dd>
+                <dt>{t('viewer.modelRow')}</dt><dd>{vlm ? t('viewer.vlm') : t('viewer.panel')}{h.symmetry ? t('viewer.symmetricSuffix') : ''}</dd>
               </dl>
             </div>
             <div className="results-label">
@@ -492,7 +493,7 @@ export function ResultsViewer() {
             </div>
           </>
         ) : (
-          <div className="results-error">No solution cases in this results file.</div>
+          <div className="results-error">{t('viewer.noCases')}</div>
         )}
       </div>
     </ViewerWindow>
@@ -590,10 +591,10 @@ function ViewerWindow({ title, onClose, children }: { title: string; onClose: ()
       >
         <span>{title}</span>
         <span className="results-titlebuttons">
-          <button className="ghost" title={maximized ? 'Restore' : 'Maximize'} onClick={() => setMaximized((m) => !m)}>
+          <button className="ghost" title={maximized ? t('viewer.restore') : t('viewer.maximize')} onClick={() => setMaximized((m) => !m)}>
             {maximized ? '❐' : '▢'}
           </button>
-          <button className="ghost" title="Close the viewer" onClick={onClose}>
+          <button className="ghost" title={t('viewer.close')} onClick={onClose}>
             ✕
           </button>
         </span>

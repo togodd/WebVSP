@@ -1,4 +1,5 @@
 import { useContext, useEffect, useMemo, useRef, useState } from 'react'
+import { t, useLocale } from '../i18n'
 import { modsOf } from './fltk'
 import { sendMirror } from './store'
 import type { GlDraw, MWidget } from './types'
@@ -129,6 +130,7 @@ const PLOT_PAN_MS = 40
  * button and get their left-button input as before.
  */
 function PlotImage({ w, src, input }: { w: MWidget; src: string; input: ReturnType<typeof useRawInput> }) {
+  useLocale((s) => s.locale)
   const ref = useRef<HTMLImageElement>(null)
   const pan = useRef<{ x: number; y: number; dx: number; dy: number; timer: number } | null>(null)
   const { toWin } = useContext(WindowContext)
@@ -173,7 +175,7 @@ function PlotImage({ w, src, input }: { w: MWidget; src: string; input: ReturnTy
       src={src}
       alt=""
       draggable={false}
-      title="Scroll to zoom, drag to pan, double-click to reset"
+      title={t('view.plotHint')}
       style={{ width: w.w, height: w.h }}
       onPointerDown={(e) => {
         if (!pans(e)) return input.onPointerDown(e)

@@ -1,51 +1,54 @@
 import { useEffect, useRef, useState } from 'react'
+import { t } from '../i18n'
 
 /** The 3D view's keys, Blender's, grouped as the popup lists them. */
-const SECTIONS: { title: string; keys: [string, string][] }[] = [
-  {
-    title: 'Select and show',
-    keys: [
-      ['Click', 'Select a geom'],
-      ['Shift / Ctrl + click', 'Add to or take from the selection'],
-      ['A', 'Select all'],
-      ['Alt + A', 'Deselect all'],
-      ['H', 'Hide the selection'],
-      ['Shift + H', 'Hide everything else'],
-      ['Alt + H', 'Show everything'],
-      ['Z', 'Selection: wireframe / shaded'],
-      ['Shift + Z', 'Every geom: wireframe / shaded'],
-    ],
-  },
-  {
-    title: 'Move and rotate',
-    keys: [
-      ['G', 'Move the selection with the mouse'],
-      ['R', 'Rotate, each geom about its own origin'],
-      ['Shift + D', 'Duplicate, then move the copies'],
-      ['X / Del', 'Delete the selection (asks first)'],
-      ['X / Y / Z', 'Hold to that axis'],
-      ['G  X  10', 'Move 10 along X (type the value)'],
-      ['R  Z  90', 'Rotate 90° about Z'],
-      ['Ctrl', 'Snap while moving the mouse'],
-      ['Enter / click', 'Apply'],
-      ['Esc / right-click', 'Cancel'],
-    ],
-  },
-  {
-    title: 'View',
-    keys: [
-      ['1 / 3 / 7', 'Front / side / top (Ctrl: the other way)'],
-      ['5', 'Perspective / orthographic'],
-      ['2 4 6 8', 'Orbit in 30° steps'],
-      ['9', 'Look from the other side'],
-      ['F / Home / .', 'Fit the model'],
-      ['C', 'Center the model (zoom kept)'],
-      ['Left drag', 'Orbit'],
-      ['Right drag', 'Pan'],
-      ['Wheel', 'Zoom to the cursor'],
-    ],
-  },
-]
+function sections(): { title: string; keys: [string, string][] }[] {
+  return [
+    {
+      title: t('keys.selectShow'),
+      keys: [
+        ['Click', t('keys.click')],
+        ['Shift / Ctrl + click', t('keys.shiftClick')],
+        ['A', t('keys.a')],
+        ['Alt + A', t('keys.altA')],
+        ['H', t('keys.h')],
+        ['Shift + H', t('keys.shiftH')],
+        ['Alt + H', t('keys.altH')],
+        ['Z', t('keys.z')],
+        ['Shift + Z', t('keys.shiftZ')],
+      ],
+    },
+    {
+      title: t('keys.moveRotate'),
+      keys: [
+        ['G', t('keys.g')],
+        ['R', t('keys.r')],
+        ['Shift + D', t('keys.shiftD')],
+        ['X / Del', t('keys.xDel')],
+        ['X / Y / Z', t('keys.xyz')],
+        ['G  X  10', t('keys.gx')],
+        ['R  Z  90', t('keys.rz')],
+        ['Ctrl', t('keys.ctrl')],
+        ['Enter / click', t('keys.enter')],
+        ['Esc / right-click', t('keys.esc')],
+      ],
+    },
+    {
+      title: t('keys.view'),
+      keys: [
+        ['1 / 3 / 7', t('keys.137')],
+        ['5', t('keys.5')],
+        ['2 4 6 8', t('keys.2468')],
+        ['9', t('keys.9')],
+        ['F / Home / .', t('keys.fit')],
+        ['C', t('keys.c')],
+        ['Left drag', t('keys.drag')],
+        ['Right drag', t('keys.rightDrag')],
+        ['Wheel', t('keys.wheel')],
+      ],
+    },
+  ]
+}
 
 function KeyboardIcon() {
   return (
@@ -78,15 +81,15 @@ export function KeysHelp() {
       <button
         className={open ? 'on' : undefined}
         onClick={() => setOpen(!open)}
-        title="Keyboard shortcuts"
-        aria-label="Keyboard shortcuts"
+        title={t('keys.title')}
+        aria-label={t('keys.title')}
         aria-expanded={open}
       >
         <KeyboardIcon />
       </button>
       {open && (
-        <div className="keys-popup" role="dialog" aria-label="Keyboard shortcuts">
-          {SECTIONS.map((s) => (
+        <div className="keys-popup" role="dialog" aria-label={t('keys.title')}>
+          {sections().map((s) => (
             <section key={s.title}>
               <h4>{s.title}</h4>
               <dl>

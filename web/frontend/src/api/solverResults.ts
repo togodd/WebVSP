@@ -1,4 +1,5 @@
 import { create } from 'zustand'
+import { t } from '../i18n'
 
 /**
  * VSPAERO's result files saved next to the model on the user's disk, as the desktop leaves them,
@@ -77,7 +78,7 @@ export async function saveOffered() {
   const pick = (window as unknown as { showDirectoryPicker?: DirPicker }).showDirectoryPicker
   if (!pick) {
     for (const f of offer.files) download(f)
-    return note(`Downloaded ${offer.files.length} VSPAERO result files`)
+    return note(t('toast.downloaded', { count: offer.files.length }))
   }
   let dir: DirHandle
   try {
@@ -190,11 +191,15 @@ async function writeAll(dir: DirHandle, offer: ResultsOffer) {
       .getFileHandle(offer.modelName)
       .then((h) => (offer.modelHandle ? h.isSameEntry(offer.modelHandle) : true))
       .catch(() => false)
-    note(`Saved ${offer.files.length} VSPAERO result files ${beside ? `next to ${offer.modelName}` : `in ${dir.name}`}`)
+    note(
+      beside
+        ? t('toast.savedNextTo', { count: offer.files.length, model: offer.modelName })
+        : t('toast.savedIn', { count: offer.files.length, folder: dir.name }),
+    )
   } catch (err) {
     console.warn('WebVSP: saving the VSPAERO results failed', err)
     folders.delete(offer.modelPath)
-    note(`Couldn't save the VSPAERO results in ${dir.name}`, true)
+    note(t('toast.saveFailed', { folder: dir.name }), true)
   }
 }
 

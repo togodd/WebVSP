@@ -4,6 +4,7 @@ import { useEffect, useRef } from 'react'
 import * as THREE from 'three'
 import { create } from 'zustand'
 import { api } from '../api/client'
+import { t } from '../i18n'
 import { useStore } from '../store'
 
 type Vec3 = [number, number, number]
@@ -295,8 +296,8 @@ export function TransformHud() {
     )
   return (
     <div className="transform-hud" role="status">
-      <b>{s.mode === 'move' ? 'Move' : 'Rotate'}</b> <span>{value}</span>
-      <span className="hint">X Y Z axis · type a value · Enter or click to apply · Esc or right-click to cancel · Ctrl snaps</span>
+      <b>{s.mode === 'move' ? t('transform.move') : t('transform.rotate')}</b> <span>{value}</span>
+      <span className="hint">{t('transform.hint')}</span>
     </div>
   )
 }

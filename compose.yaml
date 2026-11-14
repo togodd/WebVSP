@@ -1,0 +1,13 @@
+name: webvsp
+
+services:
+  web:
+    image: webvsp:local
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        BUILD_JOBS: ${WEBVSP_BUILD_JOBS:-4}
+    ports:
+      - "127.0.0.1:${WEBVSP_PORT:-8090}:80"
+    restart: unless-stopped

@@ -1,0 +1,8 @@
+WebVSP source: https://github.com/togodd/WebVSP
+Upstream WebVSP: https://github.com/MohammadAdib/WebVSP
+OpenVSP: https://github.com/OpenVSP/OpenVSP
+License: NASA Open Source Agreement (NOSA) 1.3; see /LICENSE.
+
+Local trial deployment adds Dockerfile, compose.yaml, .dockerignore and deploy/docker/.
+It does not change the OpenVSP engine or the WebVSP application.
+These deployment additions were made on 2026-11-09 for the togodd fork.

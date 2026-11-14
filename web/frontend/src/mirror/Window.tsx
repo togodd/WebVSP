@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { setSolverRunning, useSolverRun } from '../api/solverRun'
+import { displayLabel, t, useLocale } from '../i18n'
 import { useStore, type ViewName } from '../store'
 import { MENU, labelText, shortcutOf, shortcutText } from './fltk'
 import { sendMirror, useMirror } from './store'
@@ -42,6 +43,7 @@ export const isTopZ = (z: number) => z === topZ
 
 /** A floating, draggable frame around a mirrored window (screens and popups). */
 export function FloatingWindow({ win, index, origin }: { win: MWindow; index: number; origin?: MWindow }) {
+  useLocale((s) => s.locale)
   // Open where VSP placed the window relative to its main window; cascade if unknown.
   const [pos, setPos] = useState(() => {
     const vw = window.innerWidth
@@ -128,9 +130,9 @@ export function FloatingWindow({ win, index, origin }: { win: MWindow; index: nu
         }}
         onPointerUp={() => (drag.current = null)}
       >
-        <span>{win.title || win.screen}</span>
+        <span>{displayLabel(win.title || win.screen)}</span>
         {win.screen === 'VSPAERO' && <SolverTimer />}
-        <button className="ghost" title="Close" onClick={() => sendMirror({ op: 'close', win: win.id })}>
+        <button className="ghost" title={t('window.close')} onClick={() => sendMirror({ op: 'close', win: win.id })}>
           ✕
         </button>
       </div>
@@ -157,16 +159,17 @@ useMirror.subscribe((s, prev) => {
 function SolverTimer() {
   const { start, end, code } = useSolverRun()
   const [, tick] = useState(0)
+  useLocale((s) => s.locale)
   useEffect(() => {
     if (start === null || end !== null) return
-    const t = window.setInterval(() => tick((n) => n + 1), 1000)
-    return () => window.clearInterval(t)
+    const timer = window.setInterval(() => tick((n) => n + 1), 1000)
+    return () => window.clearInterval(timer)
   }, [start, end])
   if (start === null) return null
   const time = formatDuration((end ?? Date.now()) - start)
-  if (end === null) return <span className="solver-timer running" title="VSPAERO is running">Running {time}</span>
-  const how = code === 0 ? 'Done in' : code === 143 ? 'Stopped after' : 'Failed after'
-  return <span className={'solver-timer' + (code === 0 ? '' : ' failed')} title="The last VSPAERO run">{how} {time}</span>
+  if (end === null) return <span className="solver-timer running" title={t('solver.runningTitle')}>{t('solver.running', { time })}</span>
+  const how = code === 0 ? t('solver.done', { time }) : code === 143 ? t('solver.stopped', { time }) : t('solver.failed', { time })
+  return <span className={'solver-timer' + (code === 0 ? '' : ' failed')} title={t('solver.lastRun')}>{how}</span>
 }
 
 /** m:ss, or h:mm:ss from an hour. */
@@ -224,10 +227,12 @@ function activate(bar: MWidget, node: MenuNode, path: string[]) {
 
 function MenuList({ bar, nodes, path, close }: { bar: MWidget; nodes: MenuNode[]; path: string[]; close: () => void }) {
   const [sub, setSub] = useState<number | null>(null)
+  useLocale((s) => s.locale)
   return (
     <div className="menu-list">
       {nodes.map((n) => {
-        const label = labelText(n.item.label)
+        const raw = labelText(n.item.label)
+        const label = displayLabel(n.item.label)
         const inactive = (n.item.flags & MENU.INACTIVE) !== 0
         const isSub = (n.item.flags & MENU.SUBMENU) !== 0
         const toggle = (n.item.flags & (MENU.TOGGLE | MENU.RADIO)) !== 0
@@ -249,7 +254,7 @@ function MenuList({ bar, nodes, path, close }: { bar: MWidget; nodes: MenuNode[]
             </button>
             {isSub && sub === n.item.i && (
               <div className="menu-sub">
-                <MenuList bar={bar} nodes={n.children} path={[...path, label]} close={close} />
+                <MenuList bar={bar} nodes={n.children} path={[...path, raw]} close={close} />
               </div>
             )}
             {n.item.flags & MENU.DIVIDER ? <hr /> : null}
@@ -305,17 +310,18 @@ export function MirrorMenuBar() {
     return () => window.removeEventListener('keydown', onKey)
   }, [bar, tree])
 
+  useLocale((s) => s.locale)
   if (!bar) return null
   return (
     <div className="m-menubar" ref={ref}>
       {tree.map((n) => {
-        const label = labelText(n.item.label)
+        const raw = labelText(n.item.label)
         return (
           <div key={n.item.i} className="menu" onMouseEnter={() => open !== null && setOpen(n.item.i)}>
             <button className={'ghost' + (open === n.item.i ? ' on' : '')} onClick={() => setOpen(open === n.item.i ? null : n.item.i)}>
-              {label}
+              {displayLabel(n.item.label)}
             </button>
-            {open === n.item.i && <MenuList bar={bar} nodes={n.children} path={[label]} close={() => setOpen(null)} />}
+            {open === n.item.i && <MenuList bar={bar} nodes={n.children} path={[raw]} close={() => setOpen(null)} />}
           </div>
         )
       })}

@@ -49,6 +49,7 @@ See [CHANGES.md](CHANGES.md) for everything WebVSP adds.
 
 ## Build and develop
 
+- [Docker Desktop trial deployment](deploy/docker/README.md): build and run locally at `http://localhost:8090`.
 - [web/README.md](web/README.md): building, running and deploying the web app.
 - [web/wasm/README.md](web/wasm/README.md): the WebAssembly build of OpenVSP.
 - [AGENTS.md](AGENTS.md): how the code fits together, for contributors and coding agents.

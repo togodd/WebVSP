@@ -1,0 +1,11 @@
+.git
+.github
+build
+buildlibs
+inst
+docs
+**/node_modules
+**/dist
+**/.vite
+**/*.log
+web/frontend/public/wasm

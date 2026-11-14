@@ -1,4 +1,5 @@
 import { createContext, useContext, useEffect, useRef, useState, type CSSProperties, type ReactNode } from 'react'
+import { displayLabel, displayMessage, useLocale } from '../i18n'
 import { ALIGN, BUTTON_TYPE, boxStyle, browserCell, isGray, labelText, modsOf, parseSymbol } from './fltk'
 import { GlBody, ImageBody } from './Custom'
 import { childKey, sendMirror, useMirror } from './store'
@@ -58,13 +59,15 @@ function fontStyle(w: MWidget): CSSProperties {
 }
 
 function tipOf(w: MWidget) {
-  const parts = [w.tip, w.desc, w.parm].filter(Boolean)
-  return parts.length ? parts.join('\n') : undefined
+  const parts = [w.tip, w.desc, w.parm].filter(Boolean) as string[]
+  if (!parts.length) return undefined
+  // Single-word tips (parm names) translate; sentences fall back to English.
+  return parts.map((p) => displayMessage(p)).join('\n')
 }
 
 /** Label drawn outside a widget per its FLTK align bits (inputs, sliders, choices, groups). */
 function OutsideLabel({ w }: { w: MWidget }) {
-  const text = labelText(w.label)
+  const text = displayLabel(w.label)
   if (!text) return null
   const a = w.align
   const fs = fontStyle(w)
@@ -90,7 +93,7 @@ function insideLabel(w: MWidget) {
 /** A label's content: text, or an FLTK symbol drawn rotated/flipped like FLTK does. */
 function LabelContent({ label }: { label?: string }) {
   const sym = parseSymbol(label)
-  if (!sym) return <>{labelText(label)}</>
+  if (!sym) return <>{displayLabel(label)}</>
   const scale = `${sym.flipX ? -1 : 1}, ${sym.flipY ? -1 : 1}`
   return (
     <span className="m-sym" style={{ transform: `rotate(${sym.rotate}deg) scale(${scale})` }}>
@@ -115,6 +118,7 @@ function InnerLabel({ w, children }: { w: MWidget; children?: ReactNode }) {
 }
 
 export function WidgetView({ id, px, py }: { id: number; px: number; py: number }) {
+  useLocale((s) => s.locale)
   const w = useMirror((s) => s.widgets[id])
   if (!w || !w.vis) return null
   const style: CSSProperties = { left: w.x - px, top: w.y - py, width: w.w, height: w.h }
@@ -249,7 +253,7 @@ function TabsBody({ w }: { w: MWidget }) {
             style={{ fontWeight: fontStyle(k).fontWeight }}
             onClick={() => sendMirror({ op: 'tab', id: w.id, child: k.id })}
           >
-            {labelText(k.label)}
+            {displayLabel(k.label)}
           </button>
         ))}
       </div>
@@ -312,7 +316,7 @@ function CheckBody({ w }: { w: MWidget }) {
   return (
     <label className="m-check" onClick={(e) => (e.preventDefault(), sendMirror({ op: 'click', id: w.id }))}>
       <span className={(w.k === 'round' ? 'm-radio' : 'm-checkbox') + (w.v ? ' on' : '')} />
-      <span style={fontStyle(w)}>{labelText(w.label)}</span>
+      <span style={fontStyle(w)}>{displayLabel(w.label)}</span>
     </label>
   )
 }
@@ -468,7 +472,7 @@ function MenuButtonBody({ w }: { w: MWidget }) {
     <>
       <button className="m-btn" onClick={() => setOpen(!open)}>
         <InnerLabel w={w}>
-          {labelText(w.label)} <span style={{ marginLeft: 4, opacity: 0.6 }}>▾</span>
+          {displayLabel(w.label)} <span style={{ marginLeft: 4, opacity: 0.6 }}>▾</span>
         </InnerLabel>
       </button>
       {open && (
