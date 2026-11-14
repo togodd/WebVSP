@@ -43,6 +43,8 @@ export interface TreeItem {
   w: number
   h: number
   lx: number
+  /** FLTK's collapse hit rectangle in window coordinates. */
+  collapsexy?: [number, number, number, number]
   act: boolean
   show?: boolean
   surf?: number

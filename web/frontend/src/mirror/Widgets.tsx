@@ -579,7 +579,12 @@ function TreeBody({ w }: { w: MWidget }) {
   const items = (w.items ?? []) as TreeItem[]
   const down = useRef(0)
   const mouse = (kind: string, e: React.PointerEvent | React.MouseEvent, clicks = 0) => {
-    const [x, y] = toWin(e.clientX, e.clientY)
+    // Use the FLTK hit rectangle's center for the whole visible twist control.
+    // Rounding scaled window coordinates at its right/bottom edge can otherwise
+    // put a real click just outside FLTK's integer hit rectangle.
+    const twist = (e.target as HTMLElement).closest('.m-twist')
+    const rect = twist?.getBoundingClientRect()
+    const [x, y] = toWin(rect ? (rect.left + rect.right) / 2 : e.clientX, rect ? (rect.top + rect.bottom) / 2 : e.clientY)
     sendMirror({ op: 'mouse', win, kind, x, y, b: 1, mods: modsOf(e), clicks })
   }
   return (
@@ -602,10 +607,10 @@ function TreeBody({ w }: { w: MWidget }) {
         <div
           key={it.n}
           className={'m-titem' + (it.sel ? ' sel' : '')}
-          style={{ left: it.x - w.x, top: it.y - w.y, width: Math.max(0, w.w - (it.x - w.x) - 16), height: it.h, opacity: it.act ? 1 : 0.5 }}
+          style={{ left: it.x - w.x, top: it.y - w.y, width: Math.max(0, w.w - (it.x - w.x) - 16), height: it.h, opacity: it.act ? 1 : 0.5, zIndex: it.collapsexy ? 1 : undefined }}
         >
-          {it.kids > 0 && (
-            <span className="m-twist" style={{ left: Math.max(0, it.lx - it.x - 26) }}>
+          {it.kids > 0 && it.collapsexy && (
+            <span className="m-twist" style={{ left: it.collapsexy[0] - it.x, top: it.collapsexy[1] - it.y, width: it.collapsexy[2], height: it.collapsexy[3] }}>
               {it.open ? '−' : '+'}
             </span>
           )}

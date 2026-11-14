@@ -921,7 +921,7 @@ string MenuJson( const Fl_Menu_ *m )
     return JoinArray( items );
 }
 
-void SerializeTree( Obj &o, Fl_Tree *tree )
+void SerializeTree( Obj &o, Fl_Tree *tree, int dx, int dy )
 {
     tree->calc_tree();
     vector< string > items;
@@ -939,16 +939,26 @@ void SerializeTree( Obj &o, Fl_Tree *tree )
         Obj it;
         it.Int( "n", index ).Str( "label", item->label() ? item->label() : "" ).Int( "d", item->depth() )
           .Bool( "open", item->is_open() ).Bool( "sel", item->is_selected() ).Int( "kids", item->children() )
-          .Int( "x", item->x() ).Int( "y", item->y() ).Int( "w", item->w() ).Int( "h", item->h() )
-          .Int( "lx", item->label_x() ).Bool( "act", item->is_active() );
+          .Int( "x", item->x() + dx ).Int( "y", item->y() + dy ).Int( "w", item->w() ).Int( "h", item->h() )
+          .Int( "lx", item->label_x() + dx ).Bool( "act", item->is_active() );
+        // FLTK's collapse rectangle is private. Match Fl_Tree_Item::draw in the
+        // pinned Libraries/fltk-6336959306e0.zip; keep this in sync on upgrades.
+        if ( item->children() && tree->showcollapse() )
+        {
+            const Fl_Tree_Prefs &p = tree->prefs();
+            int cw = p.openicon_w(), ch = p.openicon_h();
+            int cx = item->x() + ( cw + p.connectorwidth() ) / 2 - 3 + dx;
+            int cy = ( ( item->y() + item->h() / 2 ) | 1 ) - ch / 2 + dy;
+            it.Raw( "collapsexy", "[" + std::to_string( cx ) + "," + std::to_string( cy ) + "," + std::to_string( cw ) + "," + std::to_string( ch ) + "]" );
+        }
         TreeIconItem *ti = dynamic_cast< TreeIconItem* >( item );
         if ( ti )
         {
             const int *sx = ti->GetShowIconXy();
             const int *fx = ti->GetSurfIconXy();
             it.Bool( "show", ti->GetShowState() ).Int( "surf", ti->GetSurfState() ).Str( "ref", ti->GetRefID() )
-              .Raw( "showxy", "[" + std::to_string( sx[0] ) + "," + std::to_string( sx[1] ) + "," + std::to_string( sx[2] ) + "," + std::to_string( sx[3] ) + "]" )
-              .Raw( "surfxy", "[" + std::to_string( fx[0] ) + "," + std::to_string( fx[1] ) + "," + std::to_string( fx[2] ) + "," + std::to_string( fx[3] ) + "]" );
+              .Raw( "showxy", "[" + std::to_string( sx[0] + dx ) + "," + std::to_string( sx[1] + dy ) + "," + std::to_string( sx[2] ) + "," + std::to_string( sx[3] ) + "]" )
+              .Raw( "surfxy", "[" + std::to_string( fx[0] + dx ) + "," + std::to_string( fx[1] + dy ) + "," + std::to_string( fx[2] ) + "," + std::to_string( fx[3] ) + "]" );
         }
         items.push_back( it.Done() );
     }
@@ -1065,7 +1075,7 @@ string SerializeWidget( Fl_Widget *w, int win_id, int parent_id, int order, int 
     }
     else if ( k == "tree" )
     {
-        SerializeTree( o, static_cast< Fl_Tree* >( w ) );
+        SerializeTree( o, static_cast< Fl_Tree* >( w ), dx, dy );
     }
     else if ( k == "terminal" )
     {

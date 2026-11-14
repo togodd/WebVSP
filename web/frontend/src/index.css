@@ -384,7 +384,7 @@ input:focus, select:focus, textarea:focus, button:focus-visible {
 .m-titem.sel { background: var(--bg-5); }
 .m-tlabel { position: absolute; top: 0; bottom: 0; display: block; line-height: 15px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .m-twist {
-  position: absolute; top: 50%; width: 11px; height: 11px; margin-top: -5.5px;
+  position: absolute; z-index: 1; box-sizing: border-box;
   display: grid; place-items: center; font-size: 10px; line-height: 1;
   border: 1px solid #6a6a6a; color: var(--fg-1); background: var(--bg-2);
 }
