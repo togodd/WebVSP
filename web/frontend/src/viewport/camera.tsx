@@ -5,6 +5,7 @@ import * as THREE from 'three'
 import { OrbitControls as OrbitControlsImpl } from 'three-stdlib'
 import { t } from '../i18n'
 import type { Layout, ViewName } from '../store'
+import { configureOpenVspMouse } from './openVspMouse'
 
 /**
  * 3D navigation shared by the main view and the VSPAERO results viewer: the camera (perspective
@@ -343,7 +344,7 @@ function RotateWatch({ onRotate }: { onRotate: () => void }) {
  * between perspective and orthographic hands them the new camera instead of making new ones,
  * so a drag goes on across the switch (Blender's auto perspective switches mid-turn).
  */
-function StableOrbitControls() {
+function StableOrbitControls({ openVspMouse }: { openVspMouse: boolean }) {
   const { camera, gl, set, get } = useThree()
   const ctl = useMemo(() => {
     const c = new OrbitControlsImpl(camera, gl.domElement)
@@ -352,6 +353,12 @@ function StableOrbitControls() {
     return c
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [gl])
+  useEffect(() => {
+    if (!openVspMouse) return
+    const down = (event: PointerEvent) => configureOpenVspMouse(ctl, event)
+    gl.domElement.addEventListener('pointerdown', down, true)
+    return () => gl.domElement.removeEventListener('pointerdown', down, true)
+  }, [ctl, gl, openVspMouse])
   // The default controls, as drei's makeDefault would make them.
   useEffect(() => {
     const before = get().controls
@@ -385,9 +392,12 @@ export function Navigation({
   ortho,
   onRotate,
   onAxisView,
+  openVspMouse = false,
   ...rig
 }: RigProps & {
   ortho: boolean
+  /** Use desktop OpenVSP's mouse buttons in the main viewport only. */
+  openVspMouse?: boolean
   onRotate?: () => void
   /** Clicking a ball of the orientation gizmo: that axis view, as the view keys give it (snapped,
    *  orthographic). Without it, drei's own camera animation. */
@@ -395,7 +405,7 @@ export function Navigation({
 }) {
   return (
     <>
-      <StableOrbitControls />
+      <StableOrbitControls openVspMouse={openVspMouse} />
       {onRotate && <RotateWatch onRotate={onRotate} />}
       {ortho ? (
         <OrthographicCamera makeDefault position={[-20, -24, 18]} zoom={20} />

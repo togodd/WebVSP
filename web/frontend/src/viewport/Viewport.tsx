@@ -1,8 +1,8 @@
-import { Html, Line, TransformControls } from '@react-three/drei'
+import { Html, Line } from '@react-three/drei'
 import { Canvas, useFrame, useThree, type ThreeEvent } from '@react-three/fiber'
-import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react'
+import { createContext, useCallback, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import * as THREE from 'three'
-import type { TransformControls as TransformControlsImpl } from 'three-stdlib'
+import { TransformControls as TransformControlsImpl } from 'three-stdlib'
 import { api } from '../api/client'
 import { decodeMesh, gridLineIndices, type SurfaceCopy } from '../api/mesh'
 import { NO_GEOMS, useStore, type Layout, type ViewName } from '../store'
@@ -11,6 +11,7 @@ import { useMirror } from '../mirror/store'
 import type { GlDrawObj } from '../mirror/types'
 import { Navigation, useViewKeys, ViewTools } from './camera'
 import { KeysHelp } from './KeysHelp'
+import { ownGizmo } from './guardGizmoMouse'
 import { previewMatrix, revsOf, TransformAxisLine, TransformDriver, TransformHud, usePreview, useTransform } from './transform'
 
 /** Opacity of the selected geom's bounding box (red) and of the active wing section's box (green). */
@@ -474,6 +475,7 @@ function Scene({
       <color attach="background" args={['#161616']} />
       <hemisphereLight args={['#ffffff', '#3a3a3a', 0.9]} />
       <Navigation
+        openVspMouse
         ortho={ortho}
         request={request}
         onRotate={onRotate}
@@ -751,6 +753,59 @@ function keepArrowsOutward(controls: TransformControlsImpl) {
   }
 }
 
+/** Construct controls only after commit: their constructor connects DOM listeners. */
+function OwnedMoveControls({ object, cancel, onMouseDown, onMouseUp, onObjectChange }: {
+  object: React.RefObject<THREE.Group | null>
+  cancel: () => void
+  onMouseDown: () => void
+  onMouseUp: () => void
+  onObjectChange: () => void
+}) {
+  const { camera, gl, events, scene, invalidate, controls: orbit } = useThree()
+  const callbacks = useRef({ cancel, onMouseDown, onMouseUp, onObjectChange })
+  useLayoutEffect(() => { callbacks.current = { cancel, onMouseDown, onMouseUp, onObjectChange } })
+  const element = (events.connected || gl.domElement) as HTMLElement
+  useLayoutEffect(() => {
+    if (!object.current) return
+    const c = new TransformControlsImpl(camera, element)
+    c.attach(object.current)
+    c.setMode('translate')
+    c.setSpace('world')
+    c.setTranslationSnap(MOVE_SNAP)
+    c.setSize(0.9)
+    keepArrowsOutward(c)
+    const changed = () => invalidate()
+    const down = () => callbacks.current.onMouseDown()
+    const up = () => callbacks.current.onMouseUp()
+    const objectChanged = () => callbacks.current.onObjectChange()
+    const dragChanged = (e: { value?: unknown }) => { if (orbit) (orbit as unknown as { enabled: boolean }).enabled = !e.value }
+    // three-stdlib's declarations omit the TransformControls-specific event map.
+    const emitter = c as unknown as {
+      addEventListener: (name: string, listener: (event: { value?: unknown }) => void) => void
+      removeEventListener: (name: string, listener: (event: { value?: unknown }) => void) => void
+    }
+    emitter.addEventListener('change', changed)
+    emitter.addEventListener('mouseDown', down)
+    emitter.addEventListener('mouseUp', up)
+    emitter.addEventListener('objectChange', objectChanged)
+    emitter.addEventListener('dragging-changed', dragChanged)
+    scene.add(c)
+    const cleanup = ownGizmo(c, element, () => callbacks.current.cancel())
+    invalidate()
+    return () => {
+      cleanup()
+      scene.remove(c)
+      emitter.removeEventListener('change', changed)
+      emitter.removeEventListener('mouseDown', down)
+      emitter.removeEventListener('mouseUp', up)
+      emitter.removeEventListener('objectChange', objectChanged)
+      emitter.removeEventListener('dragging-changed', dragChanged)
+      invalidate()
+    }
+  }, [camera, element, scene, invalidate, object, orbit])
+  return null
+}
+
 /**
  * Blender-style move arrows on the selection, at the middle of the selected geoms' origins:
  * dragging an arrow moves them all along that axis, the arrows snapped to the grid, by setting
@@ -765,7 +820,6 @@ function MoveGizmo() {
   const revs = useStore((s) => ids.map((id) => s.meshRev[id] ?? 0).join(','))
   const [center, setCenter] = useState<[number, number, number] | null>(null)
   const obj = useRef<THREE.Group>(null)
-  const controls = useRef<TransformControlsImpl>(null)
   const dragging = useRef(false)
   const start = useRef<[number, number, number]>(ZERO)
 
@@ -804,21 +858,17 @@ function MoveGizmo() {
     usePreview.setState({ ids, d: delta(), rot: null, revs: revsOf(ids) })
   }
 
-  useEffect(() => {
-    if (controls.current) keepArrowsOutward(controls.current)
-  }, [key, center])
-
   if (!ids.length || !center || transforming) return null
   return (
     <>
       <group ref={obj} position={center} />
-      <TransformControls
-        ref={controls}
-        object={obj as unknown as React.RefObject<THREE.Object3D>}
-        mode="translate"
-        space="world"
-        translationSnap={MOVE_SNAP}
-        size={0.9}
+      <OwnedMoveControls
+        object={obj}
+        cancel={() => {
+          dragging.current = false
+          obj.current?.position.set(...start.current)
+          usePreview.setState({ ids: [] })
+        }}
         onMouseDown={() => {
           gizmoPressedAt = performance.now()
           dragging.current = true

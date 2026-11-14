@@ -94,7 +94,7 @@ export const ZH: Record<string, string> = {
 
   'keys.title': '键盘快捷键',
   'keys.selectShow': '选择与显示',
-  'keys.moveRotate': '移动与旋转',
+  'keys.moveRotate': '移动与旋转几何体',
   'keys.view': '视图',
   'keys.click': '选择一个几何体',
   'keys.shiftClick': '加入选择或从选择中移除',
@@ -122,7 +122,8 @@ export const ZH: Record<string, string> = {
   'keys.fit': '适应模型',
   'keys.c': '居中模型（保持缩放）',
   'keys.drag': '旋转',
-  'keys.rightDrag': '平移',
+  'keys.rightDrag': '平移视图（不移动模型）',
+  'keys.mouseZoom': '缩放视图',
   'keys.wheel': '以光标为中心缩放',
 
   'transform.move': '移动',

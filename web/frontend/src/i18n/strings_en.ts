@@ -94,7 +94,7 @@ export const EN: Record<string, string> = {
 
   'keys.title': 'Keyboard shortcuts',
   'keys.selectShow': 'Select and show',
-  'keys.moveRotate': 'Move and rotate',
+  'keys.moveRotate': 'Move and rotate geometry',
   'keys.view': 'View',
   'keys.click': 'Select a geom',
   'keys.shiftClick': 'Add to or take from the selection',
@@ -122,7 +122,8 @@ export const EN: Record<string, string> = {
   'keys.fit': 'Fit the model',
   'keys.c': 'Center the model (zoom kept)',
   'keys.drag': 'Orbit',
-  'keys.rightDrag': 'Pan',
+  'keys.rightDrag': 'Pan the view (not the model)',
+  'keys.mouseZoom': 'Zoom the view',
   'keys.wheel': 'Zoom to the cursor',
 
   'transform.move': 'Move',
