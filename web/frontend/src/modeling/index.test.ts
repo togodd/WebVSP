@@ -34,7 +34,7 @@ describe('browser protocol declaration', () => {
     } finally { service.close(); request.mockReset() }
   })
 
-  it('derives fresh declarations without changing facade capabilities or enabling writes', async () => {
+  it('derives fresh declarations without changing facade capabilities', async () => {
     const request = vi.mocked(discoverModelingProtocol), guarded = vi.mocked(callGuarded)
     request.mockReset().mockResolvedValueOnce(manifest([...MODELING_PROTOCOL_OPERATIONS, 'future']))
       .mockResolvedValueOnce(manifest([]))
@@ -49,9 +49,9 @@ describe('browser protocol declaration', () => {
       expect(second.find(c => c.name === 'model.read')).toEqual({ name: 'model.read', status: 'not_declared', missingOperations: ['modelDiscovery', 'model', 'bbox', 'guardedEpochV1'] })
       expect(request).toHaveBeenCalledTimes(2)
       expect(service.capabilities()).toEqual(capabilities)
-      await expect(service.write.create({} as never, { sessionId: 'tab', modelEpoch: '42' })).rejects.toMatchObject({ code: 'UNSUPPORTED_OPERATION' })
-      await expect(service.write.move({} as never, { sessionId: 'tab', modelEpoch: '42' })).rejects.toMatchObject({ code: 'UNSUPPORTED_OPERATION' })
-      await expect(service.parameter.set({} as never, { sessionId: 'tab', modelEpoch: '42' })).rejects.toMatchObject({ code: 'UNSUPPORTED_OPERATION' })
+      await expect(service.write.create({} as never, { sessionId: 'tab', modelEpoch: '42' })).rejects.toMatchObject({ code: 'INVALID_ARGUMENT' })
+      await expect(service.write.move({} as never, { sessionId: 'tab', modelEpoch: '42' })).rejects.toMatchObject({ code: 'INVALID_ARGUMENT' })
+      await expect(service.parameter.set({} as never, { sessionId: 'tab', modelEpoch: '42' })).rejects.toMatchObject({ code: 'INVALID_ARGUMENT' })
       expect(guarded).not.toHaveBeenCalled()
     } finally { service.close(); request.mockReset() }
   })

@@ -9,8 +9,8 @@ export type { ModelingProtocolOperation, ModelingProtocolResult } from './protoc
 export type { ProtocolCapability, ProtocolCapabilityStatus } from './protocolCapabilities'
 import { createParameterService } from './parameterService'
 import type { CrossSectionShapeSurface, CrossSectionSurface, EngineParameter, ParameterReadAdapter } from './parameterService'
-import type { CreateGeometryInput, MoveGeometryInput } from './writeService'
-import type { ParameterWriteInput } from './parameterWriteService'
+import { createWriteService, type CreateGeometryInput, type MoveGeometryInput } from './writeService'
+import { createParameterWriteService, type ParameterWriteInput } from './parameterWriteService'
 import { createWingService } from './wingService'
 import { createFuselageService } from './fuselageService'
 
@@ -87,7 +87,17 @@ export function createBrowserModelingService() {
       get: (owner, id, parm) => call<EngineParameter>(owner === 'geometry' ? 'geomParm' : 'xsecParm', id, parm),
     }
     const parameter = createParameterService(adapter, controller.signal)
-    return { read: readScoped, parameter, wing: createWingService({ geometry: readScoped.geometry, parameters: parameter }), fuselage: createFuselageService(readScoped.geometry, parameter), dispose }
+    const write = createWriteService({
+      model: () => call<ModelTree>('model'),
+      geomTypes: () => call<string[]>('geomTypes'),
+      addGeom: (type, parent) => call<{ id: string }>('addGeom', type, parent ?? ''),
+      geomOrigin: (id) => call<[number, number, number]>('origin', id),
+      moveGeoms: (ids, delta) => call<{ ok: boolean }>('move', ids.join(','), delta.join(',')),
+    }, controller.signal)
+    const parameterWrite = createParameterWriteService({
+      set: (owner, ownerId, parameterId, value) => call<{ actual: number }>(owner === 'geometry' ? 'geomSetParm' : 'xsecSetParm', ownerId, parameterId, value),
+    }, controller.signal)
+    return { read: readScoped, parameter, write, parameterWrite, wing: createWingService({ geometry: readScoped.geometry, parameters: parameter }), fuselage: createFuselageService(readScoped.geometry, parameter), dispose }
   }
   async function run<T>(token: ModelIdentity, fn: (scope: ReturnType<typeof scoped>, token: ModelIdentity) => Promise<T>): Promise<T> {
     const t = identity(token), scope = scoped(t)
@@ -118,7 +128,7 @@ export function createBrowserModelingService() {
     },
     capabilities() {
       const result = read.capabilities()
-      return { ...result, features: result.features.map((c) => ['parameter.read', 'wing.read', 'fuselage.read'].includes(c.name) ? { name: c.name, status: 'supported' as const } : ['parameter.write', 'geometry.create', 'geometry.move'].includes(c.name) ? { name: c.name, status: 'unsupported' as const, reason: 'Disabled pending reentrancy safety review' } : c) }
+      return { ...result, features: result.features.map((c) => ['parameter.read', 'wing.read', 'fuselage.read', 'parameter.write', 'geometry.create', 'geometry.move'].includes(c.name) ? { name: c.name, status: 'supported' as const } : c) }
     },
     model: {
       getInfo: (token?: ModelIdentity) => token === undefined ? read.model.getInfo() : run(token, (s, t) => s.read.model.getInfo(t)),
@@ -137,11 +147,11 @@ export function createBrowserModelingService() {
       listCrossSectionParameterIds: (id: string, token: ModelIdentity) => run(token, (s, t) => s.parameter.listCrossSectionParameterIds(id, t)),
       getGeometryParameter: (id: string, parm: string, token: ModelIdentity) => run(token, (s, t) => s.parameter.getGeometryParameter(id, parm, t)),
       getCrossSectionParameter: (id: string, parm: string, token: ModelIdentity) => run(token, (s, t) => s.parameter.getCrossSectionParameter(id, parm, t)),
-      set: async (_input: ParameterWriteInput, token: ModelIdentity): Promise<{ actual: number }> => { identity(token); throw new ModelingError('UNSUPPORTED_OPERATION', 'Parameter writes are disabled pending reentrancy safety review') },
+      set: (input: ParameterWriteInput, token: ModelIdentity) => run(token, (s, t) => s.parameterWrite.set(input, t)),
     },
     write: {
-      create: async (_input: CreateGeometryInput, token: ModelIdentity): Promise<{ geometryId: string }> => { identity(token); throw new ModelingError('UNSUPPORTED_OPERATION', 'Geometry creation is disabled pending reentrancy safety review') },
-      move: async (_input: MoveGeometryInput, token: ModelIdentity): Promise<{ geometryId: string; origin: [number, number, number] }> => { identity(token); throw new ModelingError('UNSUPPORTED_OPERATION', 'Geometry movement is disabled pending reentrancy safety review') },
+      create: (input: CreateGeometryInput, token: ModelIdentity) => run(token, (s, t) => s.write.create(input, t)),
+      move: (input: MoveGeometryInput, token: ModelIdentity) => run(token, (s, t) => s.write.move(input, t)),
     },
     wing: { get: (id: string, token: ModelIdentity) => run(token, (s, t) => s.wing.get(id, t)) },
     fuselage: { get: (id: string, token: ModelIdentity) => run(token, (s, t) => s.fuselage.get(id, t)) },
