@@ -921,9 +921,34 @@ string MenuJson( const Fl_Menu_ *m )
     return JoinArray( items );
 }
 
+// Whether an input is the rename popup of a tree beside it (the popup and the tree are
+// siblings in the screen's group). Only that popup gets the tree's own font in the page.
+static bool IsTreePopupInput( Fl_Widget *w )
+{
+    Fl_Group *group = w->parent();
+    if ( !group ) return false;
+    for ( int i = 0; i < group->children(); ++i )
+    {
+        if ( TreeWithIcons *tree = dynamic_cast< TreeWithIcons* >( group->child( i ) ) )
+        {
+            if ( tree->IsPopupInput( w ) )
+            {
+                return true;
+            }
+        }
+    }
+    return false;
+}
+
 void SerializeTree( Obj &o, Fl_Tree *tree, int dx, int dy )
 {
     tree->calc_tree();
+    // The rename popup is an Fl_Input placed on its item by the tree's draw(); the mirror never
+    // paints, so place it here, where the item layout is current.
+    if ( TreeWithIcons *icons = dynamic_cast< TreeWithIcons* >( tree ) )
+    {
+        icons->PlacePopupInput();
+    }
     vector< string > items;
     int index = 0;
     for ( Fl_Tree_Item *item = tree->first(); item; item = tree->next( item ), index++ )
@@ -1017,8 +1042,12 @@ string SerializeWidget( Fl_Widget *w, int win_id, int parent_id, int order, int 
     else if ( k == "input" || k == "output" )
     {
         Fl_Input_ *in = static_cast< Fl_Input_* >( w );
+        // Keyboard focus, so the page focuses the same field (a popup such as a tree rename
+        // takes focus when it opens). tree_edit marks a rename popup, which the page draws like
+        // the row's label.
         o.Str( "v", in->value() ? in->value() : "" ).Int( "type", in->input_type() ).Bool( "ro", in->readonly() != 0 )
-         .Int( "ts", in->textsize() ).Str( "tcol", ColorHex( in->textcolor() ) );
+         .Int( "ts", in->textsize() ).Str( "tcol", ColorHex( in->textcolor() ) ).Bool( "focus", Fl::focus() == in )
+         .Bool( "tree_edit", IsTreePopupInput( w ) );
     }
     else if ( k == "choice" || k == "menubar" || k == "menubutton" )
     {
@@ -1666,7 +1695,14 @@ void ApplyEvent( const std::map< string, string > &ev )
         Fl_Check_Browser *cb = dynamic_cast< Fl_Check_Browser* >( w );
         if ( cb )
         {
-            cb->checked( GetInt( ev, "line" ), GetInt( ev, "v" ) );
+            const int line = GetInt( ev, "line" );
+            if ( line < 1 || line > cb->nitems() ) return;
+            // Screen callbacks identify the edited set via value(), not the checked line.
+            // Selecting a check-browser item may itself toggle it, so apply the requested
+            // state afterwards and invoke the screen callback exactly once.
+            cb->deselect();
+            cb->select( cb->item_at( line ), 1, 0 );
+            cb->checked( line, GetInt( ev, "v" ) ? 1 : 0 );
             cb->do_callback();
         }
     }

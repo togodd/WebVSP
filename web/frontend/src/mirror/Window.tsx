@@ -56,6 +56,23 @@ export function FloatingWindow({ win, index, origin }: { win: MWindow; index: nu
     return { x: 60 + (index % 6) * 28, y: 40 + (index % 6) * 28 }
   })
   const drag = useRef<{ dx: number; dy: number } | null>(null)
+  const floatRef = useRef<HTMLDivElement>(null)
+  const position = useRef(pos)
+  const dragFrame = useRef<number | null>(null)
+  useEffect(() => () => {
+    if (dragFrame.current !== null) cancelAnimationFrame(dragFrame.current)
+  }, [])
+  const paintPosition = () => {
+    dragFrame.current = null
+    if (floatRef.current) floatRef.current.style.translate = `${position.current.x}px ${position.current.y}px`
+  }
+  const finishDrag = () => {
+    if (!drag.current) return
+    drag.current = null
+    if (dragFrame.current !== null) cancelAnimationFrame(dragFrame.current)
+    paintPosition()
+    setPos(position.current)
+  }
   const [z, setZ] = useState(() => ++topZ)
   const avail = Math.max(200, window.innerHeight - 120)
   const scale = Math.min(1, avail / win.h)
@@ -88,10 +105,12 @@ export function FloatingWindow({ win, index, origin }: { win: MWindow; index: nu
     h = Math.round(Math.min(maxH, Math.max(minH, h)))
     // Dragging the left or top edge keeps the opposite edge where it is.
     if (r.edge.includes('w') || r.edge.includes('n')) {
-      setPos({
+      const next = {
         x: r.edge.includes('w') ? Math.max(0, r.px + (r.w - w) * scale) : r.px,
         y: r.edge.includes('n') ? Math.max(0, r.py + (r.h - h) * scale) : r.py,
-      })
+      }
+      position.current = next
+      setPos(next)
     }
     const now = performance.now()
     if (final || now - r.sent > 50) {
@@ -102,8 +121,9 @@ export function FloatingWindow({ win, index, origin }: { win: MWindow; index: nu
   }
   return (
     <div
+      ref={floatRef}
       className={'m-float' + (win.closing ? ' closing' : '')}
-      style={{ left: pos.x, top: pos.y, zIndex: win.modal ? 1000 + z : z }}
+      style={{ left: 0, top: 0, translate: `${pos.x}px ${pos.y}px`, zIndex: win.modal ? 1000 + z : z }}
       onPointerDownCapture={() => z !== topZ && setZ(++topZ)}
     >
       {win.rs &&
@@ -123,12 +143,16 @@ export function FloatingWindow({ win, index, origin }: { win: MWindow; index: nu
           // Capturing the pointer would steal the click from the close button.
           if ((e.target as HTMLElement).closest('button')) return
           e.currentTarget.setPointerCapture(e.pointerId)
-          drag.current = { dx: e.clientX - pos.x, dy: e.clientY - pos.y }
+          drag.current = { dx: e.clientX - position.current.x, dy: e.clientY - position.current.y }
         }}
         onPointerMove={(e) => {
-          if (drag.current) setPos({ x: Math.max(0, e.clientX - drag.current.dx), y: Math.max(0, e.clientY - drag.current.dy) })
+          if (!drag.current) return
+          position.current = { x: Math.max(0, e.clientX - drag.current.dx), y: Math.max(0, e.clientY - drag.current.dy) }
+          if (dragFrame.current === null) dragFrame.current = requestAnimationFrame(paintPosition)
         }}
-        onPointerUp={() => (drag.current = null)}
+        onPointerUp={finishDrag}
+        onPointerCancel={finishDrag}
+        onLostPointerCapture={finishDrag}
       >
         <span>{displayLabel(win.title || win.screen)}</span>
         {win.screen === 'VSPAERO' && <SolverTimer />}
@@ -294,6 +318,20 @@ export function MirrorMenuBar() {
         walk(n.children, [...path, labelText(n.item.label)])
       })
     walk(tree, [])
+    // Capture Save even inside an editor: input handlers stop bubbling, and the browser's
+    // default Ctrl+S would otherwise save the web page instead of the model.
+    const onSave = (e: KeyboardEvent) => {
+      if (!(e.ctrlKey || e.metaKey) || e.altKey || e.shiftKey || e.key.toLowerCase() !== 's') return
+      e.preventDefault()
+      e.stopPropagation()
+      if (e.repeat || useMirror.getState().dialogs.length) return
+      const hit = flat.find((f) => f.path.length === 1 && f.path[0] === 'File' &&
+        labelText(f.node.item.label) === 'Save...' && !(f.node.item.flags & (MENU.INACTIVE | MENU.SUBMENU)))
+      if (!hit) return
+      // Flush any pending editor value before the menu command reaches the engine.
+      if (document.activeElement instanceof HTMLElement) document.activeElement.blur()
+      activate(bar, hit.node, hit.path)
+    }
     const onKey = (e: KeyboardEvent) => {
       const t = e.target as HTMLElement
       if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.tagName === 'SELECT')) return
@@ -306,8 +344,12 @@ export function MirrorMenuBar() {
         activate(bar, hit.node, hit.path)
       }
     }
+    window.addEventListener('keydown', onSave, true)
     window.addEventListener('keydown', onKey)
-    return () => window.removeEventListener('keydown', onKey)
+    return () => {
+      window.removeEventListener('keydown', onSave, true)
+      window.removeEventListener('keydown', onKey)
+    }
   }, [bar, tree])
 
   useLocale((s) => s.locale)

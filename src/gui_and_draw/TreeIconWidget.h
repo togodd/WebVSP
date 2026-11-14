@@ -233,9 +233,21 @@ class TreeWithIcons : public Fl_Tree
 
         bool GetPopupState();
         const string GetPopupValue();
+        // The tree item the open popup edits: fixed when it opens, not the selection.
+        const string GetPopupItemID() const
+        {
+            return m_PopupItemID;
+        }
 
         void InsertPopupInput( const string & text, const string & tree_item_id );
         void HidePopupInput();
+        /** Place, show or hide the popup without drawing: the mirror only serializes state. */
+        void PlacePopupInput();
+        /** Whether this widget is this tree's rename popup (not just any input beside it). */
+        bool IsPopupInput( const Fl_Widget *w ) const
+        {
+            return m_PopupInput && w == m_PopupInput;
+        }
 
         virtual void GetItemDims( int &X, int &Y, int &W, int &H, const string & tree_item_id );
 

@@ -295,6 +295,35 @@ export function wasmConnect(onEvent: (e: SocketMessage) => void, onStatus: (conn
   }
 }
 
+/** Engine events (model changes and the like), for the page's own bookkeeping. */
+export function onEngineEvent(listener: (event: SocketMessage) => void): () => void {
+  listeners.add(listener)
+  return () => {
+    listeners.delete(listener)
+  }
+}
+
+// Scratch paths in the module's file system for autosave copies; not user files.
+const SNAPSHOT_PATH = '/tmp/webvsp-autosave.vsp3'
+const RESTORE_PATH = '/tmp/webvsp-restore.vsp3'
+
+/**
+ * A copy of the current model for autosave, with the model's own name and unsaved state left
+ * as they are. The bytes are copied out of the module's memory.
+ */
+export async function snapshotModel(): Promise<{ bytes: Uint8Array<ArrayBuffer>; name: string }> {
+  const vsp = await load()
+  const r = (await call('snapshot', SNAPSHOT_PATH)) as { name: string }
+  return { bytes: new Uint8Array(vsp.FS.readFile(SNAPSHOT_PATH)), name: r.name }
+}
+
+/** Replace the model with an autosave copy, giving it back its name; it is marked unsaved. */
+export async function restoreModel(bytes: Uint8Array<ArrayBuffer>, name: string): Promise<void> {
+  const vsp = await load()
+  vsp.FS.writeFile(RESTORE_PATH, bytes)
+  await call('restoreSnapshot', RESTORE_PATH, name)
+}
+
 // ------------------------------------------------------------------ files
 
 /** Folder in the module's file system for files the user opens or saves. */

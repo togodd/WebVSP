@@ -125,6 +125,10 @@ export interface MWidget {
   step?: number
   ss?: number
   ro?: boolean
+  /** An input that has FLTK's keyboard focus: the page focuses it too. */
+  focus?: boolean
+  /** A tree's rename popup: the page draws it like the row's label. */
+  tree_edit?: boolean
   ts?: number
   tcol?: string
   items?: MenuItem[] | TreeItem[]

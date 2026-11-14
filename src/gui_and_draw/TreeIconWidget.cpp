@@ -797,7 +797,8 @@ void TreeWithIcons::InitPopupInput()
     m_PopupInput = new Fl_Input( x, y, w, h );
     m_PopupInput->box( FL_THIN_DOWN_BOX );
     m_PopupInput->textsize( 12 );
-    m_PopupInput->when( FL_WHEN_ENTER_KEY );
+    // Enter commits, and so does losing focus (clicking elsewhere), as in OpenVSP's own popups.
+    m_PopupInput->when( FL_WHEN_ENTER_KEY | FL_WHEN_RELEASE );
     m_PopupInput->callback( StaticTreeCB, this );
 
     m_PopupGroup->add( m_PopupInput );
@@ -810,6 +811,43 @@ void TreeWithIcons::SetPopupState( bool draw_flag )
         m_RecentPopup = true;
     }
     m_PopupDrawFlag = draw_flag;
+    // Place it now, not only when draw() runs: in the mirror the GUI is never painted, and a
+    // stale place or a popup left visible after closing is exactly what the page shows.
+    PlacePopupInput();
+    redraw();
+}
+
+void TreeWithIcons::PlacePopupInput()
+{
+    if ( !m_PopupInput )
+    {
+        return;
+    }
+    if ( !m_PopupDrawFlag )
+    {
+        m_PopupInput->hide();
+        m_PopupInput->deactivate();
+        return;
+    }
+
+    TreeIconItem *item = GetItemByRefId( m_PopupItemID );
+    if ( !item )
+    {
+        // The tree is being rebuilt (a selection change recreates its items) and the popup's
+        // item can't be found for a moment. Keep the box as it is: hiding it here would drop
+        // the text the user is typing, and it is closed by its own callback when done.
+        return;
+    }
+
+    // As Fl_Tree_Item::draw places the label it edits.
+    m_PopupInput->resize( item->label_x(), item->label_y(), item->CroppedLabelW(), item->label_h() );
+    m_PopupInput->activate();
+    m_PopupInput->show();
+    if ( m_RecentPopup )
+    {
+        m_PopupInput->take_focus();
+        m_RecentPopup = false;
+    }
 }
 
 void TreeWithIcons::SetPopupID( const string & tree_item_id )
@@ -985,29 +1023,10 @@ void TreeWithIcons::draw()
     Fl_Tree::draw();
 
     // draw popup
+    PlacePopupInput();
     if ( m_PopupInput && m_PopupDrawFlag )
     {
-        int x, y, w, h;
-
-        GetItemDims( x, y, w, h, m_PopupItemID );
-
-        m_PopupInput->resize( x, y, w, h );
         m_PopupInput->redraw();
-
-        // If popup recently shown/created, then ensure it takes focus, ignore if just scrolling/redrawing
-        if ( m_RecentPopup )
-        {
-            m_PopupInput->activate();
-            m_PopupInput->show();
-            m_PopupInput->take_focus();
-
-            m_RecentPopup = false;
-        }
-    }
-    else if ( m_PopupInput )
-    {
-        m_PopupInput->hide();
-        m_PopupInput->deactivate();
     }
 }
 void TreeWithIcons::MirrorIconEvent( TreeIconItem* item, int icon_type )

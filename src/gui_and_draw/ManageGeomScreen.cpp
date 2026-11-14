@@ -1095,6 +1095,9 @@ void ManageGeomScreen::CallBack( Fl_Widget *w )
 {
     assert( m_ScreenMgr );
 
+    // Capture the open rename popup before hiding it: its own item and text, not the selection.
+    const string popup_id = m_GeomBrowser->GetPopupItemID();
+    const string popup_name = m_GeomBrowser->GetPopupValue();
     m_GeomBrowser->HidePopupInput();
 
     if ( Fl::event_key() == 'x' )
@@ -1108,22 +1111,21 @@ void ManageGeomScreen::CallBack( Fl_Widget *w )
     }
     else if ( w == m_GeomBrowser )
     {
-        // first apply rename via popup input if applicable
-        if ( m_GeomBrowser->GetCBReason() == TREE_CALLBACK_POPUP_ENTER )
+        // first apply rename via popup input if applicable: to the item the popup was opened on,
+        // whatever is selected now (clicking another row selects it before this callback runs)
+        // The popup's own callback (w == popup input) still counts after something else closed
+        // the box first: a click in the 3D view can close it before this text arrives.
+        if ( m_GeomBrowser->GetCBReason() == TREE_CALLBACK_POPUP_ENTER && !popup_id.empty() )
         {
             ParmContainer* pc = nullptr;
-            TreeIconItem* t = nullptr;
 
-            if ( m_SelVec.size() == 1 )
+            if ( popup_id == m_VehiclePtr->GetID() )
             {
-                if ( m_SelVec[0] == m_VehiclePtr->GetID() )
-                {
-                    pc = m_VehiclePtr;
-                }
-                else
-                {
-                    pc = m_VehiclePtr->FindGeom( m_SelVec[0] );
-                }
+                pc = m_VehiclePtr;
+            }
+            else
+            {
+                pc = m_VehiclePtr->FindGeom( popup_id );
             }
 
             // Re-check: the name may have become automatic while the popup was open.
@@ -1133,9 +1135,15 @@ void ManageGeomScreen::CallBack( Fl_Widget *w )
                 pc = nullptr;
             }
 
+            // Nothing to do when the text is unchanged (focus loss after Enter, for example).
+            if ( pc && pc->GetName() == popup_name )
+            {
+                pc = nullptr;
+            }
+
             if ( pc )
             {
-                string pc_name = m_GeomBrowser->GetPopupValue();
+                string pc_name = popup_name;
                 pc->SetName( pc_name );
 
                 // The same reason as the Active field above: a rename has to run the update

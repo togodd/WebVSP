@@ -40,6 +40,8 @@
 //     not every parm in the model. XSecs must be reachable from a current geom's XSec surfaces.
 //     Page-side routes are defined in wasmEngine.ts; this is not a remote API.
 //   newModel, readFile(a=path), writeFile(a=path)   (paths in the in-memory file system)
+//   snapshot(a=path): copy of the model for autosave, keeping its name and unsaved state
+//   restoreSnapshot(a=path, b=name): load an autosave copy as unnamed and mark it unsaved
 //   pick(a=geom id, b="1" to toggle)    select as if picked in the 3D view (shift/ctrl-click)
 //   origin(a=geom id)                   [x,y,z] of the geom's origin
 //   move(a=ids, b="dx,dy,dz")           move geoms by an offset (one undo step)
@@ -2377,6 +2379,49 @@ void RunImpl( const Job &j )
         g_Dirty = false;
         Emit( "{\"type\":\"saved\",\"fileName\":" + Quote( j.a ) + "}" );
         return Result( j.id, "", "{\"path\":" + Quote( j.a ) + "}" );
+    }
+    if ( j.op == "snapshot" )
+    {
+        // Autosave: write a copy of the model to a path. WriteVSPFile renames the model (and its
+        // export file names) to the path, so put the model's own name back afterwards. The unsaved
+        // state is kept, and no "saved" event is sent.
+        const string name = vsp::GetVSPFileName();
+        const bool dirty = g_Dirty;
+        vsp::WriteVSPFile( j.a );
+        string err = TakeErrors();
+        vsp::SetVSP3FileName( name );
+        string restore_err = TakeErrors();
+        g_Dirty = dirty;
+        if ( !err.empty() ) return Result( j.id, err, "" );
+        if ( !restore_err.empty() ) return Result( j.id, restore_err, "" );
+        return Result( j.id, "", "{\"path\":" + Quote( j.a ) + ",\"name\":" + Quote( name ) + "}" );
+    }
+    if ( j.op == "restoreSnapshot" )
+    {
+        // Autosave restore: load the snapshot as an unsaved, unlinked model.
+        vsp::ClearVSPModel();
+        string err = TakeErrors();
+        if ( err.empty() )
+        {
+            vsp::ReadVSPFile( j.a );
+            err = TakeErrors();
+        }
+        if ( err.empty() )
+        {
+            // Browser file handles are not restored with the autosave. Never leave the old
+            // virtual path as the Save target: it would silently write only to memory.
+            vsp::SetVSP3FileName( "Unnamed.vsp3" );
+            err = TakeErrors();
+        }
+        if ( err.empty() )
+        {
+            vsp::Update();
+            err = TakeErrors();
+        }
+        g_Dirty = true;
+        Watch( "Restore", true );
+        if ( !err.empty() ) return Result( j.id, err, "" );
+        return Result( j.id, "", "{\"ok\":true}" );
     }
     if ( j.op == "pick" )
     {

@@ -122,7 +122,7 @@ export function WidgetView({ id, px, py }: { id: number; px: number; py: number 
   const w = useMirror((s) => s.widgets[id])
   if (!w || !w.vis) return null
   const style: CSSProperties = { left: w.x - px, top: w.y - py, width: w.w, height: w.h }
-  const cls = 'm-w m-' + w.k + (w.act ? '' : ' m-inactive')
+  const cls = 'm-w m-' + w.k + (w.tree_edit ? ' m-tree-edit-wrapper' : '') + (w.act ? '' : ' m-inactive')
   return (
     <div className={cls} style={style} title={tipOf(w)} data-id={w.id}>
       <Body w={w} />
@@ -322,29 +322,92 @@ function CheckBody({ w }: { w: MWidget }) {
 }
 
 function InputBody({ w }: { w: MWidget }) {
+  // A rename popup (the engine says which input it is) reads like the row's label and takes the
+  // keyboard as it opens.
+  const inTree = !!w.tree_edit
   const [text, setText] = useState<string | null>(null)
+  // The typed text, read by the commit below: a ref, so a commit sends it exactly once.
+  const pending = useRef<string | null>(null)
   const value = String(w.v ?? '')
   const readOnly = w.k === 'output' || w.ro
-  const commit = () => {
-    if (text !== null && text !== value) sendMirror({ op: 'set', id: w.id, v: text })
+  const ref = useRef<HTMLInputElement>(null)
+  // force: send the text even if unchanged, which is how the engine closes a rename popup
+  // (its callback runs either way). Used when a press elsewhere ends the edit.
+  const commit = (force = false) => {
+    const v = pending.current
+    pending.current = null
     setText(null)
+    if (v !== null && (force || v !== value)) sendMirror({ op: 'set', id: w.id, v })
+    else if (force && inTree) sendMirror({ op: 'set', id: w.id, v: value })
   }
+  const latest = useRef(commit)
+  latest.current = commit
+  // A rename popup takes the keyboard as it opens (FLTK gives it focus too), so typing goes
+  // straight into it. It unmounts while closed, so this runs again on each opening.
+  useEffect(() => {
+    if (inTree && ref.current) {
+      ref.current.focus()
+      ref.current.select()
+    }
+  }, [inTree])
+  // FLTK moved keyboard focus here: follow it.
+  useEffect(() => {
+    if (w.focus && ref.current && document.activeElement !== ref.current) {
+      ref.current.focus()
+      ref.current.select()
+    }
+  }, [w.focus])
+  // Commit before a press elsewhere reaches its widget: OpenVSP commits a rename when the
+  // popup loses focus, and a tree click would otherwise select another item first.
+  useEffect(() => {
+    // A rename box is ended by pressing anywhere else. That press then only ends the edit: letting
+    // it act too (a 3D pick, a button) can reach the engine before the text does and close the
+    // popup first, losing the name.
+    let swallowUntil = 0
+    const swallow = (e: MouseEvent) => {
+      if (performance.now() > swallowUntil) return
+      swallowUntil = 0
+      e.stopImmediatePropagation()
+      e.preventDefault()
+    }
+    const onDown = (e: PointerEvent) => {
+      if (e.target === ref.current) return
+      if (inTree) {
+        latest.current(true)
+        swallowUntil = performance.now() + 700
+      } else if (document.activeElement === ref.current) latest.current()
+    }
+    document.addEventListener('pointerdown', onDown, true)
+    document.addEventListener('click', swallow, true)
+    return () => {
+      document.removeEventListener('pointerdown', onDown, true)
+      document.removeEventListener('click', swallow, true)
+    }
+  }, [inTree])
   return (
     <>
       <input
-        className="m-input"
+        ref={ref}
+        className={'m-input' + (inTree ? ' m-tree-edit' : '')}
         value={text ?? value}
         readOnly={readOnly}
         style={{ fontSize: w.ts || 12 }}
-        onChange={(e) => setText(e.target.value)}
-        onBlur={commit}
+        onChange={(e) => {
+          pending.current = e.target.value
+          setText(e.target.value)
+        }}
+        onBlur={() => commit()}
         onKeyDown={(e) => {
           if (e.key === 'Enter') {
             commit()
             e.currentTarget.blur()
           }
           if (e.key === 'Escape') {
+            // Cancel: send the value OpenVSP already has, so its popup closes without a change,
+            // and the blur that follows must not send the typed text.
+            pending.current = null
             setText(null)
+            sendMirror({ op: 'set', id: w.id, v: value })
             e.currentTarget.blur()
           }
           e.stopPropagation()
@@ -537,13 +600,14 @@ function BrowserBody({ w }: { w: MWidget }) {
             <div
               key={i}
               className={'m-bline' + (line.s ? ' sel' : '')}
-              onClick={(e) => !check && sendMirror({ op: 'browser', id: w.id, line: i + 1, clicks: 1, mods: modsOf(e) })}
+              onClick={(e) => check
+                ? sendMirror({ op: 'check', id: w.id, line: i + 1, v: line.c ? 0 : 1 })
+                : sendMirror({ op: 'browser', id: w.id, line: i + 1, clicks: 1, mods: modsOf(e) })}
               onDoubleClick={(e) => !check && sendMirror({ op: 'browser', id: w.id, line: i + 1, clicks: 2, mods: modsOf(e) })}
             >
               {check && (
                 <span
                   className={'m-checkbox' + (line.c ? ' on' : '')}
-                  onClick={() => sendMirror({ op: 'check', id: w.id, line: i + 1, v: line.c ? 0 : 1 })}
                 />
               )}
               {cells.map((c, ci) => {

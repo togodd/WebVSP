@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { connectEvents } from './api/client'
+import { startAutosave } from './api/autosave'
 import type { ServerEvent } from './api/types'
 import { useBlenderKeys } from './mirror/blenderKeys'
 import { DeleteConfirm } from './mirror/DeleteConfirm'
@@ -79,6 +80,7 @@ export default function App() {
       // Every pane frames the model it starts with, from its own direction.
       useStore.getState().refitAll()
     })
+    startAutosave()
     const conn = connectEvents(
       (msg) => {
         const m = useMirror.getState()

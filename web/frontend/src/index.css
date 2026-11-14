@@ -327,6 +327,11 @@ input:focus, select:focus, textarea:focus, button:focus-visible {
   font-family: var(--mono);
 }
 .m-input[readonly] { background: var(--bg-2); color: var(--fg-1); }
+/* A tree's rename popup: same face as the row's label it replaces (its wrapper carries
+   .m-input too, so inherit would pick the field font). */
+.m-input.m-tree-edit { font-family: var(--font); font-size: inherit; }
+/* Parent rows have a stacking level for their expand controls; put the whole popup above them. */
+.m-w.m-tree-edit-wrapper { z-index: 2; }
 
 .m-select { position: absolute; inset: 0; width: 100%; height: 100%; padding: 0 2px; border-radius: 2px; }
 
