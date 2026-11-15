@@ -4,6 +4,7 @@ import nativeUtility from './python/sync_native_utility.py?raw'
 import smoke from './python/sync_smoke.py?raw'
 import modelingSmoke from './python/sync_modeling_smoke.py?raw'
 import facade from './python/openvsp.py?raw'
+import syncGenerated from './python/_sync_generated.py?raw'
 
 const scope = self as unknown as DedicatedWorkerGlobalScope
 const MAX_BYTES = 64 * 1024
@@ -35,6 +36,7 @@ scope.onmessage = (event: MessageEvent<{ assets: string; mode: 'read' | 'modelin
     pyodide.FS.mkdirTree('/sync-probe')
     pyodide.FS.writeFile('/sync-probe/sync_native_utility.py', nativeUtility)
     pyodide.FS.writeFile('/sync-probe/openvsp.py', facade)
+    pyodide.FS.writeFile('/sync-probe/_sync_generated.py', syncGenerated)
     pyodide.runPython("import sys; sys.path.insert(0, '/sync-probe')")
     const result = pyodide.runPython(event.data.mode === 'modeling' ? modelingSmoke : smoke) as string
     scope.postMessage({ type: 'done', value: result })

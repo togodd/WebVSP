@@ -33,8 +33,13 @@ class FacadeTest(unittest.TestCase):
         vsp.GetParmVal('g', 'X_Rel_Location', 'XForm')
         vsp.SetParmVal('g', 'X_Rel_Location', 'XForm', 2.0)
         vsp.Update()
-        self.assertEqual([r[0] for r in requests], ['add_geom', 'find_geom', 'parm_value', 'set_parm', 'update'])
-        self.assertEqual(requests[-1][1], {'update_managers': True})
+        self.assertEqual(requests, [
+            ('add_geom', {'type': 'WING', 'parent': ''}),
+            ('find_geom', {'name': 'WingGeom', 'index': 0}),
+            ('parm_value', {'geom': 'g', 'name': 'X_Rel_Location', 'group': 'XForm'}),
+            ('set_parm', {'geom': 'g', 'name': 'X_Rel_Location', 'group': 'XForm', 'value': 2.0}),
+            ('update', {'update_managers': True}),
+        ])
         self.assertIs(vsp.get_instance(None), vsp)
         with self.assertRaises(ValueError): vsp.get_instance('other')
 

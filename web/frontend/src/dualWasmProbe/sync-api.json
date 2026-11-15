@@ -1,0 +1,50 @@
+{
+  "version": 1,
+  "apis": [
+    {
+      "name": "AddGeom",
+      "native": "extern std::string AddGeom( const std::string & type, const std::string & parent = std::string() );",
+      "operation": "add_geom",
+      "arguments": [{"name":"type","wire":"type","type":"string"},{"name":"parent","wire":"parent","type":"string","default":""}],
+      "returns": "string", "write": true, "epoch": "guarded_write", "status": "experimental",
+      "scope": "Only root WING; immediately updates and selects it.",
+      "errors": "OpenVSPError; dispatched write may have unknown outcome.", "tests": ["host_mapping", "browser_modeling"]
+    },
+    {
+      "name": "FindGeom",
+      "native": "extern std::string FindGeom( const std::string & name, int index );",
+      "operation": "find_geom",
+      "arguments": [{"name":"name","wire":"name","type":"string"},{"name":"index","wire":"index","type":"integer"}],
+      "returns": "string", "write": false, "epoch": "model_check", "status": "experimental",
+      "scope": "Only index 0; empty string when not found.",
+      "errors": "OpenVSPError rather than native error manager.", "tests": ["host_mapping", "browser_read"]
+    },
+    {
+      "name": "GetParmVal",
+      "native": "extern double GetParmVal( const std::string & geom_id, const std::string & name, const std::string & group );",
+      "operation": "parm_value",
+      "arguments": [{"name":"geom_id","wire":"geom","type":"string"},{"name":"name","wire":"name","type":"string"},{"name":"group","wire":"group","type":"string"}],
+      "returns": "number", "write": false, "epoch": "guarded_read", "status": "experimental",
+      "scope": "WingGeom reference values and wing XForm/X_Rel_Location; no parm ID overload.",
+      "errors": "OpenVSPError rather than native error manager.", "tests": ["host_mapping", "browser_read", "browser_modeling"]
+    },
+    {
+      "name": "SetParmVal",
+      "native": "extern double SetParmVal( const std::string & geom_id, const std::string & name, const std::string & group, double val );",
+      "operation": "set_parm",
+      "arguments": [{"name":"geom_id","wire":"geom","type":"string"},{"name":"name","wire":"name","type":"string"},{"name":"group","wire":"group","type":"string"},{"name":"value","wire":"value","type":"number"}],
+      "returns": "number", "write": true, "epoch": "guarded_write", "status": "experimental",
+      "scope": "Wing XForm/X_Rel_Location only; validates and updates immediately; no parm ID overload.",
+      "errors": "OpenVSPError carries not_written, different or unknown outcome.", "tests": ["host_mapping", "browser_modeling"]
+    },
+    {
+      "name": "Update",
+      "native": "extern void Update( bool update_managers = true );",
+      "operation": "update",
+      "arguments": [{"name":"update_managers","wire":"update_managers","type":"boolean","default":true}],
+      "returns": "null", "write": true, "epoch": "guarded_write", "status": "experimental",
+      "scope": "Only Update(True); earlier setters already update.",
+      "errors": "OpenVSPError; dispatched write may have unknown outcome.", "tests": ["host_mapping", "browser_modeling"]
+    }
+  ]
+}

@@ -1,4 +1,5 @@
 import { callGuarded, syncProbeFileExperiment, wasmRequest, WasmEngineError } from '../api/wasmEngine'
+import { SYNC_API } from './syncApi.generated'
 
 type Geom = { id: string; name: string; type: string }
 type Model = { geoms: Geom[]; modelEpoch: string; modelEpochValid: boolean }
@@ -38,6 +39,17 @@ async function run(mode: 'read' | 'modeling'): Promise<unknown> {
       return result
     }
     async function dispatch(op: string, args: Record<string, unknown>): Promise<unknown> {
+      const spec = SYNC_API.find((entry) => entry.operation === op)
+      if (spec) {
+        const valid = Object.keys(args).length === spec.arguments.length && spec.arguments.every((arg) => {
+          const value = args[arg.wire]
+          if (arg.type === 'string') return typeof value === 'string'
+          if (arg.type === 'boolean') return typeof value === 'boolean'
+          if (arg.type === 'integer') return typeof value === 'number' && Number.isSafeInteger(value)
+          return typeof value === 'number' && Number.isFinite(value)
+        })
+        if (!valid) throw new WasmEngineError(400, 'Invalid synchronous API arguments', 'not_written')
+      }
       if (op === 'timeout_real_test') {
         await new Promise((resolve) => setTimeout(resolve, 150))
         return 'late'
@@ -155,7 +167,7 @@ async function run(mode: 'read' | 'modeling'): Promise<unknown> {
             response = { ok: true, value: await dispatch(msg.op ?? '', args) }
           } finally { active = false }
         } catch (error) {
-          const write = ['add_geom', 'set_parm', 'update'].includes(msg.op ?? '')
+          const write = SYNC_API.some((entry) => entry.operation === msg.op && entry.write)
           const details = error instanceof WasmEngineError ? { outcome: error.outcome ?? (write ? (currentWriteIssued ? 'unknown' : 'not_written') : undefined), actual: error.actual, code: error.code } : { outcome: write ? (currentWriteIssued ? 'unknown' : 'not_written') : undefined }
           response = { ok: false, error: { message: error instanceof Error ? error.message : String(error), ...details } }
         }
