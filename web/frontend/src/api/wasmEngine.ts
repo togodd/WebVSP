@@ -177,7 +177,7 @@ export interface EngineModelEpoch {
 }
 
 /** Deliberately limited to operations that do not pump the GUI or replace the model. */
-export const GUARDED_OPS = ['model', 'geomTypes', 'bbox', 'origin', 'move', 'addGeom', 'geomXSecs', 'fuselageXSecShapes', 'wingXSecShapes', 'geomParmIDs', 'xsecParmIDs', 'geomParm', 'xsecParm', 'fuselageLength', 'geomSetParm', 'xsecSetParm'] as const
+export const GUARDED_OPS = ['model', 'geomTypes', 'bbox', 'origin', 'move', 'addGeom', 'geomXSecs', 'fuselageXSecShapes', 'wingXSecShapes', 'geomParmIDs', 'xsecParmIDs', 'geomParm', 'xsecParm', 'fuselageLength', 'geomSetParm', 'xsecSetParm', 'guardedUpdate'] as const
 export type GuardedOp = (typeof GUARDED_OPS)[number]
 
 /** Submit against the engine's model identity, checked atomically on its owning thread. */

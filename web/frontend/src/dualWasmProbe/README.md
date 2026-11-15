@@ -6,11 +6,26 @@ The page's OpenVSP WASM remains the sole model owner. The Pyodide worker is term
 
 ## Separate synchronous bridge experiment
 
-With `?dualWasmProbe=1`, create a wing first and run `await window.__runSyncWasmProbe()` in the console. This fixed diagnostic does not modify geometry. It terminates its Pyodide worker on completion or failure. The page and its existing OpenVSP engine must be cross-origin isolated. The original utility function is copied verbatim into `python/sync_native_utility.py` (its imports are not the original module imports); `python3 scripts/test-sync-native.py` checks source drift. A tiny synthetic `openvsp` facade implements only `get_instance(None)`, `FindGeom(name, 0)` and `GetParmVal` for the three wing values. This is not the real package or a generic native binding; invalid parameters and multi-instance requests have different errors. Name lookup is exercised only for a unique name.
+With `?dualWasmProbe=1`, create a wing first and run `await window.__runSyncWasmProbe()` in the console. This fixed diagnostic does not modify geometry. It terminates its Pyodide worker on completion or failure. The page and its existing OpenVSP engine must be cross-origin isolated. The original utility function is copied verbatim into `python/sync_native_utility.py` (its imports are not the original module imports); `python3 scripts/test-sync-native.py` checks source drift. A restricted synchronous `openvsp.py` facade is imported by both diagnostics, not the real package or a generic native binding. Invalid parameters and multi-instance requests have different errors. Name lookup is exercised only for a unique name.
 
 A fresh 64 KiB SharedArrayBuffer per request carries JSON results; the Python worker waits synchronously for at most 60 seconds, while the page asynchronously dispatches to the existing engine. A separate fixed timeout test uses 20 ms and checks subsequent requests are not contaminated by a late reply. An outer 120-second timer terminates the worker; neither timeout cancels an already-dispatched engine job. The first parameter read scans guarded metadata sequentially; subsequent reads in the same probe cache IDs only, revalidate metadata and read fresh values. This is not an atomic snapshot; same-model structural changes can invalidate the cache.
 
 The file test explicitly sends a fixed Python string to the page, writes a random scratch file in OpenVSP's Emscripten FS, has the OpenVSP engine thread read and replace that file using C stdio, then reads it back to Python and deletes the scratch file after the engine job finishes. This demonstrates a transfer through the engine FS, **not** shared Python `open()`, a mounted filesystem, arbitrary paths, persistence, or native file API compatibility. The fixed scratch operation may finish after worker termination; it is not a general filesystem API. No user model is changed and no user files are accessed. `scripts/sync-wasm-smoke.mjs` tests this in Chromium, including an independent parameter read.
+
+## Synchronous modeling diagnostic and compatibility
+
+With `?dualWasmProbe=1`, `await window.__runSyncModelingProbe()` runs a fixed script in a new worker. **Each run adds and selects a root wing and changes its X position by 2 in the current model. Use a disposable model.** It does not accept arbitrary Python. `scripts/sync-modeling-smoke.mjs` tests the script, independent origin readback, GUI display, and a real in-flight timeout simulation; `python3 scripts/test-sync-facade.py` tests signatures, dispatch and errors.
+
+| Facade API | Experimental scope and divergence |
+| --- | --- |
+| `AddGeom(type, parent='')` | Only `WING` with empty parent. Engine updates immediately and diagnostic selects the new geom; unlike native creation, selection and update are additional effects. |
+| `FindGeom(name, index)` | Only index `0`, exact name in model order; absent name returns empty string. |
+| `GetParmVal(geom_id, name, group)` | Only three wing reference values and top-level `XForm/X_Rel_Location`; no parm-ID overload. |
+| `SetParmVal(geom_id, name, group, value)` | Only top-level wing `XForm/X_Rel_Location`. Uses the guarded validated `SetParmValUpdate` path, **not** native deferred `SetParmVal`; rejects out-of-range and inactive values rather than matching native clamp/error behavior. |
+| `Update(update_managers=True)` | Only `True`, an actual guarded engine `vsp::Update(true)` call. Earlier AddGeom and SetParmVal already update, so ordering and side effects are not native-equivalent. |
+| `get_instance(None)` | Only the current model; no multi-instance support. |
+
+Failures become `OpenVSPError` with `outcome` (`not_written`, `unknown`, or `different`) where known, not the native error-manager contract. A `not_written` error applies only to that individual call, **not** previous successful writes. Selection happens after creation; its failure does not undo creation. Timeouts cannot cancel submitted engine work; the facade reports write outcomes as unknown and the session refuses subsequent calls after an actual timeout. No automatic retry, rollback or same-model concurrency isolation is provided. The scratch-file roundtrip is the same fixed explicit experiment described above, not real model persistence or a general file bridge. `openvsp.py` is bundled only in these fixed worker diagnostics, not installed as a public package. The host test also checks native-style signatures and maps bridge timeout errors to `unknown` for writes.
 
 ## Python subset and compatibility
 

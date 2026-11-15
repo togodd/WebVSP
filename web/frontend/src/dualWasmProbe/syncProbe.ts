@@ -1,17 +1,24 @@
-import { callGuarded, syncProbeFileExperiment, wasmRequest } from '../api/wasmEngine'
+import { callGuarded, syncProbeFileExperiment, wasmRequest, WasmEngineError } from '../api/wasmEngine'
 
 type Geom = { id: string; name: string; type: string }
 type Model = { geoms: Geom[]; modelEpoch: string; modelEpochValid: boolean }
 const MAX_BYTES = 64 * 1024
 
-/** Fixed opt-in experiment. It never creates or modifies a geometry. */
-export async function runSyncProbe(): Promise<unknown> {
+/** Fixed, read-only opt-in diagnostic. */
+export function runSyncProbe(): Promise<unknown> { return run('read') }
+/** Fixed diagnostic that creates and modifies one root wing. */
+export function runSyncModelingProbe(): Promise<unknown> { return run('modeling') }
+
+async function run(mode: 'read' | 'modeling'): Promise<unknown> {
   if (!crossOriginIsolated || typeof SharedArrayBuffer === 'undefined') throw new Error('Cross-origin isolation and SharedArrayBuffer are required')
   const worker = new Worker(new URL('./syncWorker.ts', import.meta.url), { type: 'module' })
   const assets = new URL(`${import.meta.env.BASE_URL}pyodide/`, window.location.href).href
   return new Promise((resolve, reject) => {
     let finished = false
     let active = false
+    let poisoned = false
+    let dispatchedWrite = false
+    let currentWriteIssued = false
     let epoch: string | undefined
     const parameterIds = new Map<string, Map<string, string>>()
     const finish = (error?: Error, value?: unknown) => {
@@ -22,7 +29,7 @@ export async function runSyncProbe(): Promise<unknown> {
       if (error) reject(error)
       else resolve(value)
     }
-    const timer = setTimeout(() => finish(new Error('Synchronous probe timed out; an already dispatched file operation may have completed')), 120_000)
+    const timer = setTimeout(() => finish(new Error(dispatchedWrite ? 'Synchronous probe timed out after a write was dispatched; its outcome may be unknown. Do not retry automatically.' : 'Synchronous probe timed out before a model write was dispatched.')), 120_000)
     async function model(): Promise<Model> {
       const result = await wasmRequest('GET', '/model') as Model
       if (!result.modelEpochValid || !result.modelEpoch) throw new Error('Model identity unavailable')
@@ -31,6 +38,10 @@ export async function runSyncProbe(): Promise<unknown> {
       return result
     }
     async function dispatch(op: string, args: Record<string, unknown>): Promise<unknown> {
+      if (op === 'timeout_real_test') {
+        await new Promise((resolve) => setTimeout(resolve, 150))
+        return 'late'
+      }
       if (op === 'ping_slow') {
         await new Promise((resolve) => setTimeout(resolve, 150))
         return 'ok'
@@ -45,8 +56,32 @@ export async function runSyncProbe(): Promise<unknown> {
         if (typeof args.name !== 'string' || args.index !== 0) throw new Error('Only FindGeom(name, 0) is supported')
         return (await model()).geoms.find((g) => g.name === args.name)?.id ?? ''
       }
-      if (op === 'parm_value') {
-        if (typeof args.geom !== 'string' || !args.geom || args.group !== 'WingGeom' || typeof args.name !== 'string' || !['TotalArea', 'TotalSpan', 'TotalChord'].includes(args.name)) throw new Error('Unsupported parameter query')
+      if (op === 'add_geom') {
+        if (mode !== 'modeling' || args.type !== 'WING' || args.parent !== '') throw new WasmEngineError(400, 'Only a root WING is supported', 'not_written')
+        await model()
+        if (finished || poisoned) throw new WasmEngineError(400, 'Probe stopped', 'not_written')
+        dispatchedWrite = true
+        currentWriteIssued = true
+        const result = await callGuarded<{ id: string }>('addGeom', 'WING', '', 0, epoch!)
+        // Selection is a separate UI operation; never label its failure as a failed creation.
+        try {
+          if (finished || poisoned) throw new Error('Probe stopped after creation')
+          await wasmRequest('POST', '/pick', { id: result.id })
+        }
+        catch { throw new WasmEngineError(500, `Wing ${result.id} was created, but selection refresh failed`, 'unknown') }
+        return result.id
+      }
+      if (op === 'update') {
+        if (mode !== 'modeling' || args.update_managers !== true) throw new WasmEngineError(400, 'Only Update(True) is supported', 'not_written')
+        await model()
+        if (finished || poisoned) throw new WasmEngineError(400, 'Probe stopped', 'not_written')
+        dispatchedWrite = true
+        currentWriteIssued = true
+        return callGuarded('guardedUpdate', '', '', 0, epoch!)
+      }
+      if (op === 'parm_value' || op === 'set_parm') {
+        const allowed = (args.group === 'WingGeom' && typeof args.name === 'string' && ['TotalArea', 'TotalSpan', 'TotalChord'].includes(args.name)) || (args.group === 'XForm' && args.name === 'X_Rel_Location')
+        if (typeof args.geom !== 'string' || !args.geom || !allowed || (op === 'set_parm' && (mode !== 'modeling' || args.group !== 'XForm' || typeof args.value !== 'number' || !Number.isFinite(args.value)))) throw new WasmEngineError(400, 'Unsupported parameter query or write', 'not_written')
         const current = await model()
         if (!current.geoms.some((g) => g.id === args.geom && g.type === 'Wing')) throw new Error('Wing not found in current model')
         let matches = parameterIds.get(args.geom)
@@ -55,20 +90,28 @@ export async function runSyncProbe(): Promise<unknown> {
           if (new Set(ids).size !== ids.length) throw new Error('Duplicate parameter ID')
           matches = new Map<string, string>()
           for (const id of ids) {
-            if (finished) throw new Error('Probe stopped')
+            if (finished || poisoned) throw new Error('Probe stopped')
             const p: { name: string; group: string; container: string } = await callGuarded('geomParm', args.geom, id, 0, epoch!)
-            if (p.group === 'WingGeom' && p.container === args.geom && ['TotalArea', 'TotalSpan', 'TotalChord'].includes(p.name)) {
-              if (matches.has(p.name)) throw new Error('Ambiguous parameter')
-              matches.set(p.name, id)
+            if (p.container === args.geom && ((p.group === 'WingGeom' && ['TotalArea', 'TotalSpan', 'TotalChord'].includes(p.name)) || (p.group === 'XForm' && p.name === 'X_Rel_Location'))) {
+              const key = `${p.group}/${p.name}`
+              if (matches.has(key)) throw new Error('Ambiguous parameter')
+              matches.set(key, id)
             }
           }
-          if (matches.size !== 3) throw new Error('Reference parameter not found')
+          if (matches.size !== 4) throw new Error('Required parameter not found')
           parameterIds.set(args.geom, matches)
         }
-        const parmId = matches.get(args.name)
+        const parmId = matches.get(`${args.group}/${args.name}`)
         if (!parmId) throw new Error('Parameter not found')
         const p: { name: string; group: string; container: string; value: number | null } = await callGuarded('geomParm', args.geom, parmId, 0, epoch!)
         if (p.name !== args.name || p.group !== args.group || p.container !== args.geom || typeof p.value !== 'number' || !Number.isFinite(p.value)) throw new Error('Parameter changed or is invalid')
+        if (op === 'set_parm') {
+          if (finished || poisoned) throw new WasmEngineError(400, 'Probe stopped', 'not_written')
+          dispatchedWrite = true
+          currentWriteIssued = true
+          const result = await callGuarded<{ actual: number }>('geomSetParm', args.geom, parmId, args.value as number, epoch!)
+          return result.actual
+        }
         return p.value
       }
       if (op === 'file_roundtrip') {
@@ -86,6 +129,7 @@ export async function runSyncProbe(): Promise<unknown> {
         return
       }
       if (msg.type === 'failed') return finish(new Error(msg.error ?? 'Sync worker failed'))
+      if (msg.type === 'abandon') { poisoned = true; return }
       if (msg.type !== 'request' || !(msg.buffer instanceof SharedArrayBuffer) || msg.buffer.byteLength !== 8 + MAX_BYTES) return finish(new Error('Invalid sync request'))
       const buffer = msg.buffer
       if (msg.op === 'timeout_test') {
@@ -102,14 +146,19 @@ export async function runSyncProbe(): Promise<unknown> {
       void (async () => {
         let response: unknown
         try {
-          if (active) throw new Error('A previous request is still in flight; do not retry dispatched operations')
+          if (active || poisoned) throw new WasmEngineError(400, 'A previous request is unresolved or timed out; do not retry dispatched operations', 'not_written')
           active = true
+          currentWriteIssued = false
           try {
             const args = JSON.parse(msg.args ?? '{}') as Record<string, unknown>
             if (!args || typeof args !== 'object' || Array.isArray(args)) throw new Error('Invalid arguments')
             response = { ok: true, value: await dispatch(msg.op ?? '', args) }
           } finally { active = false }
-        } catch (error) { response = { ok: false, error: error instanceof Error ? error.message : String(error) } }
+        } catch (error) {
+          const write = ['add_geom', 'set_parm', 'update'].includes(msg.op ?? '')
+          const details = error instanceof WasmEngineError ? { outcome: error.outcome ?? (write ? (currentWriteIssued ? 'unknown' : 'not_written') : undefined), actual: error.actual, code: error.code } : { outcome: write ? (currentWriteIssued ? 'unknown' : 'not_written') : undefined }
+          response = { ok: false, error: { message: error instanceof Error ? error.message : String(error), ...details } }
+        }
         if (finished) return
         let bytes = new TextEncoder().encode(JSON.stringify(response))
         if (bytes.length > MAX_BYTES) bytes = new TextEncoder().encode(JSON.stringify({ ok: false, error: 'Response exceeds buffer limit' }))
@@ -120,6 +169,6 @@ export async function runSyncProbe(): Promise<unknown> {
         Atomics.notify(control, 0)
       })()
     }
-    worker.postMessage({ assets })
+    worker.postMessage({ assets, mode })
   })
 }

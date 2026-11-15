@@ -1,24 +1,8 @@
 import json
-import sys
-import types
+import openvsp as vsp
 from sync_bridge import request
 
-
-def call(op, **args):
-    result = json.loads(request(op, json.dumps(args)))
-    if not result['ok']:
-        raise RuntimeError(result['error'])
-    return result['value']
-
-vsp = types.ModuleType('openvsp')
-def get_instance(instance):
-    if instance is not None:
-        raise ValueError('Multiple OpenVSP instances are not supported')
-    return vsp
-vsp.get_instance = get_instance
-vsp.FindGeom = lambda name, index: call('find_geom', name=name, index=index)
-vsp.GetParmVal = lambda geom, name, group: call('parm_value', geom=geom, name=name, group=group)
-sys.modules['openvsp'] = vsp
+call = vsp._call
 from sync_native_utility import get_wing_reference_quantities
 
 wing = call('setup')

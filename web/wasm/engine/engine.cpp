@@ -39,6 +39,7 @@
 //     Scope is precisely GetGeomParmIDs / GetXSecParmIDs (including their nested containers),
 //     not every parm in the model. XSecs must be reachable from a current geom's XSec surfaces.
 //     Page-side routes are defined in wasmEngine.ts; this is not a remote API.
+//   guardedUpdate                        explicit Update(true), epoch-guarded and write-preflighted
 //   syncProbeFile(a=random scratch path) fixed diagnostic: read and replace a bounded sentinel
 //   newModel, readFile(a=path), writeFile(a=path)   (paths in the in-memory file system)
 //   snapshot(a=path): copy of the model for autosave, keeping its name and unsaved state
@@ -1732,12 +1733,12 @@ bool GuardedOpAllowed( const string &op )
     return op == "model" || op == "geomTypes" || op == "bbox" || op == "origin" || op == "move" ||
            op == "addGeom" || op == "geomXSecs" || op == "fuselageXSecShapes" || op == "wingXSecShapes" || op == "geomParmIDs" ||
            op == "xsecParmIDs" || op == "geomParm" || op == "xsecParm" ||
-           op == "fuselageLength" || op == "geomSetParm" || op == "xsecSetParm";
+           op == "fuselageLength" || op == "geomSetParm" || op == "xsecSetParm" || op == "guardedUpdate";
 }
 
 bool GuardedWrite( const string &op )
 {
-    return op == "move" || op == "addGeom" || op == "geomSetParm" || op == "xsecSetParm";
+    return op == "move" || op == "addGeom" || op == "geomSetParm" || op == "xsecSetParm" || op == "guardedUpdate";
 }
 
 // Fail closed for future or malformed type IDs rather than treating the enum range
@@ -2183,6 +2184,17 @@ void RunImpl( const Job &j )
             g_Binary[j.id] = std::move( b );
         }
         return Result( j.id, "", "", true );
+    }
+    if ( j.op == "guardedUpdate" )
+    {
+        // This operation is intentionally unavailable without the epoch and script guards.
+        if ( !j.guarded ) return Result( j.id, "guardedUpdate requires a model guard", "" );
+        if ( !BeginGuardedWrite() ) return;
+        vsp::Update( true );
+        DrainedErrors errors = TakeWriteErrors();
+        Watch( "Update", true );
+        if ( errors.had_errors ) return ParmWriteFailure( j.id, errors.message, "unknown", "null" );
+        return Result( j.id, "", "null" );
     }
     if ( j.op == "addGeom" )
     {
