@@ -25,3 +25,4 @@ dist-ssr
 
 # WebAssembly engine module, built by web/wasm/build_wasm.ps1
 public/wasm/
+public/pyodide/

@@ -8,6 +8,13 @@ import { installBrowserReadApi } from './modeling/browserReadApi'
 
 installBrowserReadApi()
 
+// Explicitly opted-in diagnostic: fixed script only, with no product UI or arbitrary code input.
+if (new URLSearchParams(window.location.search).get('dualWasmProbe') === '1') {
+  void import('./dualWasmProbe/probe').then(({ runDualWasmProbe }) => {
+    ;(window as unknown as Record<string, unknown>).__runDualWasmProbe = runDualWasmProbe
+  })
+}
+
 /**
  * OpenVSP runs on its own thread in this tab, which needs a cross-origin isolated page. Where the server doesn't send the headers (e.g. GitHub Pages), a service worker adds
  * them (public/coi-sw.js); the page reloads once it is in control.
