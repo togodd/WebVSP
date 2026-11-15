@@ -24,29 +24,7 @@ async def _call(operation, **arguments):
     return response['value']
 
 
-async def FindGeoms():
-    """Return IDs in the current model, analogous to native FindGeoms()."""
-    return await _call('find_geoms')
-
-
-async def GetGeomName(geom_id):
-    """Return a current geometry name."""
-    return await _call('geom_name', geom_id=geom_id)
-
-
-async def GetGeomTypeName(geom_id):
-    """Return a current geometry type name."""
-    return await _call('geom_type', geom_id=geom_id)
-
-
-async def AddGeom(geom_type, parent=''):
-    """Add a geometry; this subset currently accepts only a root WING."""
-    return await _call('add_geom', geom_type=geom_type, parent=parent)
-
-
-async def GetGeomParmIDs(geom_id):
-    """Return the IDs linkable to a geometry, including nested containers."""
-    return await _call('parm_ids', geom_id=geom_id)
+from ._generated import *  # noqa: F403 — reviewed generated public API
 
 
 async def GetGeomParm(geom_id, parm_id):

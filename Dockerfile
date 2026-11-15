@@ -38,6 +38,8 @@ WORKDIR /app
 COPY web/frontend/package.json web/frontend/package-lock.json ./
 RUN --mount=type=cache,target=/root/.npm npm ci
 COPY web/frontend/ ./
+COPY --from=engine /src/src/geom_api/VSP_Geom_API.h /src/src/geom_api/APIDefines.h /src/src/geom_api/vsp_common.i /api-source/
+ENV VSP_API_DIR=/api-source
 COPY --from=engine /src/web/frontend/public/wasm/ public/wasm/
 RUN npm run build
 

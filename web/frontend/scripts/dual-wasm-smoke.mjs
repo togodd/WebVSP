@@ -21,6 +21,7 @@ try {
   if (result.beforeCount !== 0 || result.afterCount !== 1 || !model.geoms.some((geom) => geom.id === result.wingId && geom.type === 'Wing')) throw new Error('Python and page model do not match')
   if (result.errorOutcome !== 'not_written' || !result.error || !result.unsupportedError.includes('Unsupported probe operation')) throw new Error('Bridge errors were not propagated')
   if (result.parameterName !== 'X_Rel_Location' || result.parameterGroup !== 'XForm' || result.requestedValue !== result.readback || result.actualValue !== result.readback || result.oldValue === result.readback) throw new Error('Parameter write/readback mismatch')
+  if (result.bindingSignature !== "(type, parent='')" || result.parmType !== 0 || result.parmDoubleType !== result.parmType) throw new Error('Generated signature or enum mismatch')
   const parameter = await page.evaluate(({ geom, parm }) => window.__webvspEngine.request('GET', `/geoms/${encodeURIComponent(geom)}/parms/${encodeURIComponent(parm)}`), { geom: result.wingId, parm: result.parameterId })
   if (parameter.value !== result.readback || parameter.container !== result.wingId) throw new Error('Page engine parameter does not match Python')
   const origin = await page.evaluate((geom) => window.__webvspEngine.request('GET', `/geoms/${encodeURIComponent(geom)}/origin`), result.wingId)

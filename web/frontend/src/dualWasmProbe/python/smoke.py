@@ -1,10 +1,16 @@
 import json
 import sys
+import inspect
 import openvsp_wasm as vsp
 from webvsp_probe_bridge import request
 
+assert str(inspect.signature(vsp.AddGeom)) == "(type, parent='')"
+assert all(inspect.iscoroutinefunction(getattr(vsp, name)) for name in
+           ('AddGeom', 'FindGeoms', 'GetGeomName', 'GetGeomTypeName', 'GetGeomParmIDs'))
+assert [vsp.PARM_DOUBLE_TYPE, vsp.PARM_INT_TYPE, vsp.PARM_BOOL_TYPE, vsp.PARM_FRACTION_TYPE,
+        vsp.PARM_LIMITED_INT_TYPE, vsp.PARM_NOTEQ_TYPE, vsp.PARM_POWER_INT_TYPE] == list(range(7))
 before = await vsp.FindGeoms()
-wing_id = await vsp.AddGeom('WING')
+wing_id = await vsp.AddGeom(type='WING')
 after = await vsp.FindGeoms()
 assert wing_id in after and len(after) == len(before) + 1
 assert await vsp.GetGeomName(wing_id) == 'WingGeom'
@@ -16,6 +22,7 @@ parameters = [await vsp.GetGeomParm(wing_id, pid) for pid in parm_ids]
 matches = [p for p in parameters if p['name'] == 'X_Rel_Location' and p['group'] == 'XForm' and p['container'] == wing_id]
 assert len(matches) == 1, 'Expected one top-level XForm/X_Rel_Location parameter'
 parm = matches[0]
+assert parm['type'] == vsp.PARM_DOUBLE_TYPE
 old_value = await vsp.GetGeomParmVal(wing_id, parm['id'])
 requested = old_value + 2.0
 actual = await vsp.SetGeomParmVal(wing_id, parm['id'], requested)
@@ -38,4 +45,6 @@ json.dumps({'python': sys.version.split()[0], 'beforeCount': len(before), 'wingI
             'afterCount': len(after), 'parameterCount': len(parm_ids), 'parameterId': parm['id'],
             'parameterName': parm['name'], 'parameterGroup': parm['group'], 'oldValue': old_value,
             'requestedValue': requested, 'actualValue': actual, 'readback': readback,
-            'error': error, 'errorOutcome': 'not_written', 'unsupportedError': unsupported['error']['message']})
+            'error': error, 'errorOutcome': 'not_written', 'unsupportedError': unsupported['error']['message'],
+            'bindingSignature': str(inspect.signature(vsp.AddGeom)), 'parmType': parm['type'],
+            'parmDoubleType': vsp.PARM_DOUBLE_TYPE})
