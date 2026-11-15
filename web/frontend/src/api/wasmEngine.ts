@@ -44,6 +44,7 @@ interface VspModule {
     analyzePath(path: string): { exists: boolean }
     readdir(path: string): string[]
     isFile(mode: number): boolean
+    unlink(path: string): void
   }
 }
 
@@ -300,6 +301,20 @@ export function onEngineEvent(listener: (event: SocketMessage) => void): () => v
   listeners.add(listener)
   return () => {
     listeners.delete(listener)
+  }
+}
+
+/** Fixed scratch-file experiment, not a general file API. Never accesses user or linked files. */
+export async function syncProbeFileExperiment(input: string): Promise<string> {
+  if (input !== 'python-to-openvsp\n') throw new Error('Unexpected diagnostic input')
+  const vsp = await load()
+  const path = `/tmp/webvsp-sync-probe-${crypto.randomUUID().replaceAll('-', '')}.txt`
+  try {
+    vsp.FS.writeFile(path, new TextEncoder().encode(input))
+    await call('syncProbeFile', path)
+    return new TextDecoder('utf-8', { fatal: true }).decode(vsp.FS.readFile(path))
+  } finally {
+    if (vsp.FS.analyzePath(path).exists) vsp.FS.unlink(path)
   }
 }
 

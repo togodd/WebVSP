@@ -13,6 +13,9 @@ if (new URLSearchParams(window.location.search).get('dualWasmProbe') === '1') {
   void import('./dualWasmProbe/probe').then(({ runDualWasmProbe }) => {
     ;(window as unknown as Record<string, unknown>).__runDualWasmProbe = runDualWasmProbe
   })
+  void import('./dualWasmProbe/syncProbe').then(({ runSyncProbe }) => {
+    ;(window as unknown as Record<string, unknown>).__runSyncWasmProbe = runSyncProbe
+  })
 }
 
 /**

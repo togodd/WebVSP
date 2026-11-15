@@ -39,6 +39,7 @@
 //     Scope is precisely GetGeomParmIDs / GetXSecParmIDs (including their nested containers),
 //     not every parm in the model. XSecs must be reachable from a current geom's XSec surfaces.
 //     Page-side routes are defined in wasmEngine.ts; this is not a remote API.
+//   syncProbeFile(a=random scratch path) fixed diagnostic: read and replace a bounded sentinel
 //   newModel, readFile(a=path), writeFile(a=path)   (paths in the in-memory file system)
 //   snapshot(a=path): copy of the model for autosave, keeping its name and unsaved state
 //   restoreSnapshot(a=path, b=name): load an autosave copy as unnamed and mark it unsaved
@@ -2342,6 +2343,30 @@ void RunImpl( const Job &j )
         Watch( "New", true );
         g_Dirty = false;
         return Result( j.id, "", "{\"ok\":true}" );
+    }
+    if ( j.op == "syncProbeFile" )
+    {
+        // Fixed diagnostic only: never accept a user path or touch a linked/model file.
+        const string prefix = "/tmp/webvsp-sync-probe-";
+        const string suffix = ".txt";
+        if ( j.a.size() != prefix.size() + 32 + suffix.size() || j.a.compare( 0, prefix.size(), prefix ) ||
+             j.a.compare( j.a.size() - suffix.size(), suffix.size(), suffix ) ||
+             !std::all_of( j.a.begin() + prefix.size(), j.a.end() - suffix.size(), []( char c ) { return ( c >= '0' && c <= '9' ) || ( c >= 'a' && c <= 'f' ); } ) )
+            return Result( j.id, "Invalid diagnostic scratch path", "" );
+        FILE *in = fopen( j.a.c_str(), "rb" );
+        if ( !in ) return Result( j.id, "Diagnostic scratch file not found", "" );
+        char buf[128];
+        size_t count = fread( buf, 1, sizeof( buf ), in );
+        const bool read_failed = ferror( in ) || !feof( in );
+        fclose( in );
+        if ( read_failed || string( buf, count ) != "python-to-openvsp\n" ) return Result( j.id, "Diagnostic input mismatch", "" );
+        FILE *out = fopen( j.a.c_str(), "wb" );
+        if ( !out ) return Result( j.id, "Diagnostic output open failed", "" );
+        const string response = "openvsp-to-python\n";
+        bool ok = fwrite( response.data(), 1, response.size(), out ) == response.size();
+        if ( fclose( out ) != 0 ) ok = false;
+        if ( !ok ) return Result( j.id, "Diagnostic output write failed", "" );
+        return Result( j.id, "", "{\"matched\":true}" );
     }
     if ( j.op == "readFile" )
     {

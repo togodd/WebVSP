@@ -1,0 +1,36 @@
+/// <reference lib="webworker" />
+import type { PyodideInterface } from 'pyodide'
+import nativeUtility from './python/sync_native_utility.py?raw'
+import smoke from './python/sync_smoke.py?raw'
+
+const scope = self as unknown as DedicatedWorkerGlobalScope
+const MAX_BYTES = 64 * 1024
+let nextId = 0
+
+function request(op: string, args: string): string {
+  const buffer = new SharedArrayBuffer(8 + MAX_BYTES)
+  const control = new Int32Array(buffer, 0, 2)
+  scope.postMessage({ type: 'request', id: ++nextId, op, args, buffer })
+  const state = Atomics.wait(control, 0, 0, op === 'timeout_test' ? 20 : 60_000)
+  if (state === 'timed-out' && Atomics.load(control, 0) === 0) throw new Error('Synchronous probe request timed out; do not retry a dispatched write')
+  if (Atomics.load(control, 0) !== 1) throw new Error('Invalid synchronous probe response')
+  const size = Atomics.load(control, 1)
+  if (size < 0 || size > MAX_BYTES) throw new Error('Invalid response size')
+  // TextDecoder rejects shared-backed views in Chromium; copy into an ordinary buffer.
+  return new TextDecoder('utf-8', { fatal: true }).decode(Uint8Array.from(new Uint8Array(buffer, 8, size)))
+}
+
+scope.onmessage = (event: MessageEvent<{ assets: string }>) => {
+  void (async () => {
+    const base = event.data.assets
+    const url = new URL('pyodide.mjs', base).href
+    const { loadPyodide } = await import(/* @vite-ignore */ url) as { loadPyodide: (options: { indexURL: string }) => Promise<PyodideInterface> }
+    const pyodide = await loadPyodide({ indexURL: base })
+    pyodide.registerJsModule('sync_bridge', { request })
+    pyodide.FS.mkdirTree('/sync-probe')
+    pyodide.FS.writeFile('/sync-probe/sync_native_utility.py', nativeUtility)
+    pyodide.runPython("import sys; sys.path.insert(0, '/sync-probe')")
+    const result = pyodide.runPython(smoke) as string
+    scope.postMessage({ type: 'done', value: result })
+  })().catch((error: unknown) => scope.postMessage({ type: 'failed', error: error instanceof Error ? error.message : String(error) }))
+}
