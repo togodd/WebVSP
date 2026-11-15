@@ -27,6 +27,16 @@ async def _call(operation, **arguments):
 from ._generated import *  # noqa: F403 — reviewed generated public API
 
 
+async def FindGeom(name, index):
+    """Find a geometry by name in model order, or return an empty ID."""
+    return await _call('find_geom', name=name, index=index)
+
+
+async def GetGeomNamedParmValues(geom_id, names, group):
+    """Read unique top-level WingGeom reference values (WebVSP extension)."""
+    return await _call('wing_reference_parms', geom_id=geom_id, names=names, group=group)
+
+
 async def GetGeomParm(geom_id, parm_id):
     """Return scoped parameter metadata as a dictionary (WebVSP extension)."""
     return await _call('parm', geom_id=geom_id, parm_id=parm_id)
@@ -40,3 +50,6 @@ async def GetGeomParmVal(geom_id, parm_id):
 async def SetGeomParmVal(geom_id, parm_id, value):
     """Validate, set, update and read back a scoped parameter (WebVSP extension)."""
     return await _call('set_parm', geom_id=geom_id, parm_id=parm_id, value=value)
+
+
+from .utilities import get_wing_reference_quantities

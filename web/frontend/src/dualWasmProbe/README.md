@@ -10,6 +10,14 @@ These functions are async, require `await`, and are not a drop-in replacement fo
 
 The package is bundled into the diagnostic worker's in-memory filesystem; it is not installed globally, published to PyPI, or exposed as an interactive console. Native overloads, generic geometry types, unrestricted OpenVSP API, multiple-model semantics, NumPy utilities, VSPAERO, and solver results are not implemented.
 
+## Migrated wing reference utility
+
+`await get_wing_reference_quantities(wing_name=None, wing_id=None, vsp_instance=None)` is adapted from the native `src/python_api/packages/openvsp/openvsp/utilities.py`. It returns `(TotalArea, TotalSpan, TotalChord)` in that order; ID takes precedence over name, and name selects the first exact match in model order. Only `vsp_instance=None` is supported. Unlike the native utility's current TODO, this adapter rejects non-wing geometries. Missing or ambiguous top-level parameters raise `OpenVSPError`, rather than native error-manager fallback behavior. Values are read sequentially under a model-identity guard, not an atomic snapshot; avoid concurrent edits. The bridge currently scans linkable parameter metadata for each call, so queries can be slow. The diagnostic checks by name only for an initially empty model, avoiding assumptions when names are duplicated.
+
+### Reuse assessment (one function, not the whole API)
+
+Counting nonblank, noncomment executable source lines inside the original function, excluding signature and docstring, gives **12 original lines**. After stripping indentation, 7 lines appear unchanged in the adapted function in the same order (**7/12 = 58.3%**). The five other original lines comprise one instance resolution, one synchronous name lookup, and three synchronous parameter reads; these required adaptation. The adapted function has 15 executable lines, including explicit unsupported-instance handling and a batched bridge interface. This simple lexical measure excludes license, documentation, generated bindings, worker transport, guarded lookups, tests and validation; it is not a measure of project-wide reuse or total effort. The control flow, input precedence, parameter names and return ordering were preserved, but compatibility differences above are real.
+
 ## Generating the reviewed subset
 
 `scripts/generate-python-bindings.mjs` uses a deliberately explicit mapping of five bridge-supported operations. It checks their exact C++ declarations in `VSP_Geom_API.h`, checks that SWIG includes the API and enum headers, and checks the complete simple `PARM_TYPE` enumerator sequence in `APIDefines.h`. It generates `_generated.py` with async wrappers and integer constants. This is a narrow declaration check, not a C++ parser or a guarantee of SWIG/native behavioral compatibility. `PARM_TYPE` describes parameter types; it does not imply every type can be written by the bridge.
@@ -24,4 +32,4 @@ To verify against a running deployment with an installed Playwright Chromium:
 CHROMIUM_PATH=/path/to/chrome node scripts/dual-wasm-smoke.mjs
 ```
 
-Set `WEBVSP_URL` for a different deployment URL. The smoke test checks Python results, matching geometry ID and parameter readback, geometry origin, visible geometry tree, exception propagation, and absence of external network requests.
+Set `WEBVSP_URL` for a different deployment URL. The smoke test checks Python results, matching geometry ID and parameter readback, geometry origin, visible geometry tree, wing reference values against independent page-engine reads, exception propagation, and absence of external network requests. Run `python3 scripts/test-wing-reference.py` for high-level API contract and error tests.

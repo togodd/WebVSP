@@ -2,6 +2,7 @@
 import type { PyodideInterface } from 'pyodide'
 import packageSource from './python/openvsp_wasm/__init__.py?raw'
 import generatedSource from './python/openvsp_wasm/_generated.py?raw'
+import utilitiesSource from './python/openvsp_wasm/utilities.py?raw'
 import smokeSource from './python/smoke.py?raw'
 
 const scope = self as unknown as DedicatedWorkerGlobalScope
@@ -39,6 +40,7 @@ async function run(base: string) {
   pyodide.FS.mkdirTree('/probe/openvsp_wasm')
   pyodide.FS.writeFile('/probe/openvsp_wasm/__init__.py', packageSource)
   pyodide.FS.writeFile('/probe/openvsp_wasm/_generated.py', generatedSource)
+  pyodide.FS.writeFile('/probe/openvsp_wasm/utilities.py', utilitiesSource)
   pyodide.runPython("import sys; sys.path.insert(0, '/probe')")
   const result = await pyodide.runPythonAsync(smokeSource)
   scope.postMessage({ type: 'done', value: result })

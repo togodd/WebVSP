@@ -16,6 +16,9 @@ export interface ProbeResult {
   actualValue: number
   readback: number
   unsupportedError: string
+  wingReference: [number, number, number]
+  wingReferenceParmIds: Record<string, string>
+  nameCheckPerformed: boolean
 }
 
 type Geom = { id: string; name: string; type: string }
@@ -49,6 +52,10 @@ export function runDualWasmProbe(): Promise<ProbeResult> {
       const args = JSON.parse(raw ?? '{}') as Record<string, unknown>
       if (!args || typeof args !== 'object' || Array.isArray(args)) throw new Error('Invalid arguments')
       if (op === 'find_geoms') return (await model()).geoms.map((geom) => geom.id)
+      if (op === 'find_geom') {
+        if (typeof args.name !== 'string' || !Number.isSafeInteger(args.index) || (args.index as number) < 0) throw new Error('Invalid geometry name or index')
+        return (await model()).geoms.filter((geom) => geom.name === args.name)[args.index as number]?.id ?? ''
+      }
       if (op === 'geom_name' || op === 'geom_type') {
         const geom = (await model()).geoms.find((item) => item.id === id(args.geom_id))
         if (!geom) throw new Error('Geometry not found')
@@ -62,6 +69,26 @@ export function runDualWasmProbe(): Promise<ProbeResult> {
         // Refresh the mirrored browser through its usual selection path.
         await wasmRequest('POST', '/pick', { id: result.id })
         return result.id
+      }
+      if (op === 'wing_reference_parms') {
+        const geomId = id(args.geom_id)
+        const expected = ['TotalSpan', 'TotalArea', 'TotalChord']
+        if (args.group !== 'WingGeom' || !Array.isArray(args.names) || JSON.stringify(args.names) !== JSON.stringify(expected)) throw new Error('Unsupported parameter query')
+        const geom = (await model()).geoms.find((item) => item.id === geomId)
+        if (!geom || geom.type !== 'Wing') throw new Error('Wing not found in current model')
+        const ids = await callGuarded<string[]>('geomParmIDs', geomId, '', 0, epoch)
+        if (new Set(ids).size !== ids.length) throw new Error('Duplicate geometry parameter ID')
+        const found = new Map<string, number>()
+        for (const parmId of ids) {
+          if (finished) throw new Error('Probe stopped')
+          const parm = await callGuarded<{ id: string; name: string; group: string; container: string; value: number | null }>('geomParm', geomId, parmId, 0, epoch)
+          if (parm.container === geomId && parm.group === 'WingGeom' && expected.includes(parm.name)) {
+            if (found.has(parm.name) || typeof parm.value !== 'number' || !Number.isFinite(parm.value)) throw new Error('Invalid or ambiguous wing reference parameter')
+            found.set(parm.name, parm.value)
+          }
+        }
+        if (found.size !== expected.length) throw new Error('Wing reference parameter missing')
+        return Object.fromEntries(found)
       }
       if (op === 'parm_ids') return callGuarded('geomParmIDs', id(args.geom_id), '', 0, epoch)
       if (op === 'parm') return callGuarded('geomParm', id(args.geom_id), id(args.parm_id), 0, epoch)

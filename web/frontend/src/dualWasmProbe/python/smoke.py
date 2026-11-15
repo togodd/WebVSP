@@ -23,6 +23,27 @@ matches = [p for p in parameters if p['name'] == 'X_Rel_Location' and p['group']
 assert len(matches) == 1, 'Expected one top-level XForm/X_Rel_Location parameter'
 parm = matches[0]
 assert parm['type'] == vsp.PARM_DOUBLE_TYPE
+reference_ids = {}
+for name in ('TotalArea', 'TotalSpan', 'TotalChord'):
+    reference_matches = [p for p in parameters if p['name'] == name and p['group'] == 'WingGeom' and p['container'] == wing_id]
+    assert len(reference_matches) == 1
+    reference_ids[name] = reference_matches[0]['id']
+reference_by_id = await vsp.get_wing_reference_quantities(wing_id=wing_id)
+reference_by_name = await vsp.get_wing_reference_quantities(wing_name='WingGeom') if len(before) == 0 else reference_by_id
+assert reference_by_id == reference_by_name
+assert reference_by_id == tuple(next(p['value'] for p in parameters if p['id'] == reference_ids[name]) for name in ('TotalArea', 'TotalSpan', 'TotalChord'))
+try:
+    await vsp.get_wing_reference_quantities()
+except ValueError:
+    pass
+else:
+    raise AssertionError('Missing wing argument was accepted')
+try:
+    await vsp.get_wing_reference_quantities(wing_name='__missing_probe_wing__')
+except ValueError:
+    pass
+else:
+    raise AssertionError('Unknown wing name was accepted')
 old_value = await vsp.GetGeomParmVal(wing_id, parm['id'])
 requested = old_value + 2.0
 actual = await vsp.SetGeomParmVal(wing_id, parm['id'], requested)
@@ -47,4 +68,5 @@ json.dumps({'python': sys.version.split()[0], 'beforeCount': len(before), 'wingI
             'requestedValue': requested, 'actualValue': actual, 'readback': readback,
             'error': error, 'errorOutcome': 'not_written', 'unsupportedError': unsupported['error']['message'],
             'bindingSignature': str(inspect.signature(vsp.AddGeom)), 'parmType': parm['type'],
-            'parmDoubleType': vsp.PARM_DOUBLE_TYPE})
+            'parmDoubleType': vsp.PARM_DOUBLE_TYPE, 'wingReference': reference_by_id,
+            'wingReferenceParmIds': reference_ids, 'nameCheckPerformed': len(before) == 0})
