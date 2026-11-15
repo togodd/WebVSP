@@ -12,6 +12,10 @@ A fresh 64 KiB SharedArrayBuffer per request carries JSON results; the Python wo
 
 The file test explicitly sends a fixed Python string to the page, writes a random scratch file in OpenVSP's Emscripten FS, has the OpenVSP engine thread read and replace that file using C stdio, then reads it back to Python and deletes the scratch file after the engine job finishes. This demonstrates a transfer through the engine FS, **not** shared Python `open()`, a mounted filesystem, arbitrary paths, persistence, or native file API compatibility. The fixed scratch operation may finish after worker termination; it is not a general filesystem API. No user model is changed and no user files are accessed. `scripts/sync-wasm-smoke.mjs` tests this in Chromium, including an independent parameter read.
 
+## Broader native API analysis
+
+See [PYTHON_API_ROADMAP.md](PYTHON_API_ROADMAP.md) for the native binding and package-workflow analysis, limitations, safety findings and phased implementation plan; [NATIVE_API_INVENTORY.md](NATIVE_API_INVENTORY.md) is the regenerable textual declaration and package-use inventory. These are analysis artifacts, not an authorization list or proof of Python compatibility.
+
 ## Reviewed synchronous API inventory
 
 `sync-api.json` is the reviewable source for the existing synchronous API wrappers, their wire arguments and basic types, write classification, epoch expectations, native overload, scope, errors and test coverage. `node scripts/generate-sync-api.mjs` verifies each exact reviewed overload in `VSP_Geom_API.h` and the SWIG header inclusion, then produces the Python wrapper, TypeScript metadata and `SYNC_API.md` inventory. `--check` verifies all three outputs without changing them; dev and production builds run it. Set `VSP_API_DIR` to use an alternate directory containing the header and SWIG file. The check verifies exact selected declarations, not all overloads or behavioral equivalence; any native default, scope or mapping change still requires human review.

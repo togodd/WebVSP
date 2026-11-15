@@ -173,5 +173,5 @@ Module counts indicate syntactic occurrences in distinct scanned modules, not ca
 
 ## Runtime evidence and limitations
 
-See [PYTHON_PACKAGE_SAMPLING.md](PYTHON_PACKAGE_SAMPLING.md) for actual executed cases and test setup. A module tier is not proof of browser compatibility. The sampled units module is loaded directly; the OpenVSP reference function is extracted and verified against its original, not imported from the whole native package.
+See [PYTHON_PACKAGE_SAMPLING.md](PYTHON_PACKAGE_SAMPLING.md) for actual executed cases and test setup. A module tier is not proof of browser compatibility. The original OpenVSP utility module is loaded under an alternate name with the restricted facade and an explicit SET_ALL import shim, not as the native package.
 
