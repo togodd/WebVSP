@@ -12,4 +12,14 @@ def function(source):
     return ast.get_source_segment(source, node)
 
 assert function(original) == function(copy), 'Native function has drifted'
-print('Native utility function matches exactly')
+for src, dst in [
+    ('openvsp/openvsp/utilities.py', 'openvsp_utilities.py'),
+    ('utilities/utilities/__init__.py', 'utilities/__init__.py'),
+    ('utilities/utilities/files.py', 'utilities/files.py'),
+    ('utilities/utilities/units.py', 'utilities/units.py'),
+    ('utilities/utilities/transformations.py', 'utilities/transformations.py'),
+]:
+    source = root / 'src/python_api/packages' / src
+    bundled = root / 'web/frontend/src/dualWasmProbe/python/native' / dst
+    assert source.read_bytes() == bundled.read_bytes(), f'Native module drift: {src}'
+print('Native utility function and bundled modules match exactly')

@@ -5,6 +5,11 @@ import smoke from './python/sync_smoke.py?raw'
 import modelingSmoke from './python/sync_modeling_smoke.py?raw'
 import facade from './python/openvsp.py?raw'
 import syncGenerated from './python/_sync_generated.py?raw'
+import nativeOpenVspUtilities from './python/native/openvsp_utilities.py?raw'
+import nativeUtilitiesInit from './python/native/utilities/__init__.py?raw'
+import nativeUtilitiesFiles from './python/native/utilities/files.py?raw'
+import nativeUtilitiesUnits from './python/native/utilities/units.py?raw'
+import nativeUtilitiesTransformations from './python/native/utilities/transformations.py?raw'
 
 const scope = self as unknown as DedicatedWorkerGlobalScope
 const MAX_BYTES = 64 * 1024
@@ -37,6 +42,15 @@ scope.onmessage = (event: MessageEvent<{ assets: string; mode: 'read' | 'modelin
     pyodide.FS.writeFile('/sync-probe/sync_native_utility.py', nativeUtility)
     pyodide.FS.writeFile('/sync-probe/openvsp.py', facade)
     pyodide.FS.writeFile('/sync-probe/_sync_generated.py', syncGenerated)
+    if (event.data.mode === 'read') {
+      await pyodide.loadPackage(['numpy', 'six'], { checkIntegrity: true })
+      pyodide.FS.mkdirTree('/sync-probe/utilities')
+      pyodide.FS.writeFile('/sync-probe/native_openvsp_utilities.py', nativeOpenVspUtilities)
+      pyodide.FS.writeFile('/sync-probe/utilities/__init__.py', nativeUtilitiesInit)
+      pyodide.FS.writeFile('/sync-probe/utilities/files.py', nativeUtilitiesFiles)
+      pyodide.FS.writeFile('/sync-probe/utilities/units.py', nativeUtilitiesUnits)
+      pyodide.FS.writeFile('/sync-probe/utilities/transformations.py', nativeUtilitiesTransformations)
+    }
     pyodide.runPython("import sys; sys.path.insert(0, '/sync-probe')")
     const result = pyodide.runPython(event.data.mode === 'modeling' ? modelingSmoke : smoke) as string
     scope.postMessage({ type: 'done', value: result })

@@ -23,7 +23,7 @@ Run command:
 CHROMIUM_PATH=/home/togo/.cache/ms-playwright/chromium-1208/chrome-linux64/chrome node scripts/sample-python-packages.mjs
 ```
 
-The run completed with no external browser requests and Python `3.14.2` in Pyodide:
+This baseline run completed with no external browser requests and Python `3.14.2` in Pyodide:
 
 | Case | Status | Evidence |
 | --- | --- | --- |
@@ -36,14 +36,16 @@ The run completed with no external browser requests and Python `3.14.2` in Pyodi
 
 ## Existing shared-model OpenVSP function sample
 
-The separate `sync-wasm-smoke.mjs` run on the same deployed app passed with zero external requests. It executed the unchanged `get_wing_reference_quantities` function, whose source is checked against `openvsp/openvsp/utilities.py` by `test-sync-native.py`. With an existing wing, calls by ID and by name both returned `[45, 18, 2.5]`, equal to independent engine parameter reads. This is function extraction with a custom restricted facade, **not** a successful import of the full original module or native package. It samples one OpenVSP-using function and one model/parameter combination.
+A later `sync-wasm-smoke.mjs` run loaded the byte-for-byte original `openvsp/openvsp/utilities.py` as `native_openvsp_utilities` with the real original `utilities` package files, NumPy 2.4.6 and six 1.17.0. Build checks compare all bundled source bytes with the original files. The fixed worker injects `SET_ALL=0` into the restricted `openvsp` facade before import, matching the native enum; the facade is a module, not the native package, so this is **not** `import openvsp.utilities` or native package initialization. The test confirms the module resolves `vsp_module` to the facade and `RunManager` to the genuine utilities package, executes NumPy and creates an identity `TransMatrix` from the unchanged original transformations module.
+
+For an existing wing the imported original function returned `[45, 18, 2.5]` both by ID and by name, matching independent engine reads; the test blocks external requests. It also confirms the diagnostic rejects missing and tampered NumPy wheel responses. It exercises one function and one model/parameter combination, not all functions in the imported module.
 
 ## Interpretation
 
-- A small, dependency-free subset of package code is directly reusable: the conversion functions in `units.py` execute unchanged.
-- Importability is a separate gate from function portability. The whole `transformations.py` module is blocked before its functions run because NumPy is not available in the current worker package setup.
-- The OpenVSP utility module cannot be treated as reusable merely because the extracted `get_wing_reference_quantities` function passed earlier. Its module-level dependency graph includes `utilities.RunManager`, plotting/numeric helpers, and many OpenVSP APIs.
-- `files.py` demonstrates that a standard-looking helper can be blocked by a non-stdlib dependency (`six`) before use.
+- The unchanged `units.py`, `transformations.py`, `utilities/files.py`, and `openvsp/utilities.py` sources can now import in the fixed worker when the exact staged NumPy and six wheels are loaded.
+- The original wing reference helper's control flow and API calls were executed against the page's shared model, with independent readback agreement.
+- Importability is a separate gate from function portability: loading a module does not prove its export, results, analysis, plotting, file, or process paths are compatible.
+- The import required an explicit `SET_ALL=0` shim because the restricted facade does not yet expose the full native constants surface. This is evidence of a controlled compatibility seam, not native package equivalence.
 - Process-running code is not portable to the browser's Pyodide environment. Existing OpenVSP process integration is a separate page-mediated worker mechanism, not Python `subprocess` reuse.
 
 ## Not yet tested
