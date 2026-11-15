@@ -28,14 +28,27 @@ class FacadeTest(unittest.TestCase):
     def test_signatures_and_mapping(self):
         self.assertEqual(str(inspect.signature(vsp.AddGeom)), "(type, parent='')")
         self.assertEqual(str(inspect.signature(vsp.Update)), '(update_managers=True)')
+        self.assertEqual(str(inspect.signature(vsp.FindGeoms)), '()')
+        self.assertEqual(str(inspect.signature(vsp.SetGeomName)), '(geom_id, name)')
+        self.assertEqual(str(inspect.signature(vsp.DeleteGeom)), '(geom_id)')
         vsp.AddGeom(type='WING')
         vsp.FindGeom('WingGeom', 0)
+        vsp.FindGeoms()
+        vsp.GetGeomName('g')
+        vsp.GetGeomTypeName('g')
+        vsp.SetGeomName('g', 'MyWing')
+        vsp.DeleteGeom('g')
         vsp.GetParmVal('g', 'X_Rel_Location', 'XForm')
         vsp.SetParmVal('g', 'X_Rel_Location', 'XForm', 2.0)
         vsp.Update()
         self.assertEqual(requests, [
             ('add_geom', {'type': 'WING', 'parent': ''}),
             ('find_geom', {'name': 'WingGeom', 'index': 0}),
+            ('find_geoms', {}),
+            ('geom_name', {'geom_id': 'g'}),
+            ('geom_type', {'geom_id': 'g'}),
+            ('set_geom_name', {'geom_id': 'g', 'name': 'MyWing'}),
+            ('delete_geom', {'geom_id': 'g'}),
             ('parm_value', {'geom': 'g', 'name': 'X_Rel_Location', 'group': 'XForm'}),
             ('set_parm', {'geom': 'g', 'name': 'X_Rel_Location', 'group': 'XForm', 'value': 2.0}),
             ('update', {'update_managers': True}),

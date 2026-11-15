@@ -28,4 +28,5 @@ def get_instance(vsp_instance):
     return sys.modules[__name__]
 
 
-from _sync_generated import AddGeom, FindGeom, GetParmVal, SetParmVal, Update, _WRITE_OPERATIONS
+from _sync_generated import (AddGeom, FindGeom, FindGeoms, GetGeomName, GetGeomTypeName,
+                             SetGeomName, DeleteGeom, GetParmVal, SetParmVal, Update, _WRITE_OPERATIONS)

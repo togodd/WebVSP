@@ -4,7 +4,12 @@
 | API | Operation | Result | Write | Guard | Scope | Errors | Tests |
 | --- | --- | --- | --- | --- | --- | --- | --- |
 | `AddGeom` | `add_geom` | string | yes | guarded_write | Only root WING; immediately updates and selects it. | OpenVSPError; dispatched write may have unknown outcome. | host_mapping, browser_modeling |
-| `FindGeom` | `find_geom` | string | no | model_check | Only index 0; empty string when not found. | OpenVSPError rather than native error manager. | host_mapping, browser_read |
+| `FindGeoms` | `find_geoms` | string_array | no | model_check | Returns current model geometry IDs in model order. | OpenVSPError rather than native error manager. | host_mapping, browser_core |
+| `GetGeomName` | `geom_name` | string | no | model_check | Current model geometry only. | OpenVSPError rather than native error manager. | host_mapping, browser_core |
+| `GetGeomTypeName` | `geom_type` | string | no | model_check | Current model geometry only. | OpenVSPError rather than native error manager. | host_mapping, browser_core |
+| `SetGeomName` | `set_geom_name` | null | yes | guarded_write | Current model geometries only; non-automatic names, non-empty names up to 256 bytes; verifies readback. | OpenVSPError carries not_written, different or unknown outcome. | host_mapping, browser_core |
+| `DeleteGeom` | `delete_geom` | null | yes | guarded_write | Current model geometry only; leaves clone placeholders and updates the model; deletion can affect descendants. | OpenVSPError; dispatched deletion may have unknown outcome. | host_mapping, browser_core |
+| `FindGeom` | `find_geom` | string | no | model_check | Nonnegative index in model order; empty string when absent or negative. | OpenVSPError rather than native error manager. | host_mapping, browser_read |
 | `GetParmVal` | `parm_value` | number | no | guarded_read | WingGeom reference values and wing XForm/X_Rel_Location; no parm ID overload. | OpenVSPError rather than native error manager. | host_mapping, browser_read, browser_modeling |
 | `SetParmVal` | `set_parm` | number | yes | guarded_write | Wing XForm/X_Rel_Location only; validates and updates immediately; no parm ID overload. | OpenVSPError carries not_written, different or unknown outcome. | host_mapping, browser_modeling |
 | `Update` | `update` | null | yes | guarded_write | Only Update(True); earlier setters already update. | OpenVSPError; dispatched write may have unknown outcome. | host_mapping, browser_modeling |

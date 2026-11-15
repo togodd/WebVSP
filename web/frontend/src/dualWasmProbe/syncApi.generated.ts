@@ -18,6 +18,70 @@ export const SYNC_API = [
     "epoch": "guarded_write"
   },
   {
+    "name": "FindGeoms",
+    "operation": "find_geoms",
+    "arguments": [],
+    "returns": "string_array",
+    "write": false,
+    "epoch": "model_check"
+  },
+  {
+    "name": "GetGeomName",
+    "operation": "geom_name",
+    "arguments": [
+      {
+        "wire": "geom_id",
+        "type": "string"
+      }
+    ],
+    "returns": "string",
+    "write": false,
+    "epoch": "model_check"
+  },
+  {
+    "name": "GetGeomTypeName",
+    "operation": "geom_type",
+    "arguments": [
+      {
+        "wire": "geom_id",
+        "type": "string"
+      }
+    ],
+    "returns": "string",
+    "write": false,
+    "epoch": "model_check"
+  },
+  {
+    "name": "SetGeomName",
+    "operation": "set_geom_name",
+    "arguments": [
+      {
+        "wire": "geom_id",
+        "type": "string"
+      },
+      {
+        "wire": "name",
+        "type": "string"
+      }
+    ],
+    "returns": "null",
+    "write": true,
+    "epoch": "guarded_write"
+  },
+  {
+    "name": "DeleteGeom",
+    "operation": "delete_geom",
+    "arguments": [
+      {
+        "wire": "geom_id",
+        "type": "string"
+      }
+    ],
+    "returns": "null",
+    "write": true,
+    "epoch": "guarded_write"
+  },
+  {
     "name": "FindGeom",
     "operation": "find_geom",
     "arguments": [

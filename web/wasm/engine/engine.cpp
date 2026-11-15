@@ -25,6 +25,7 @@
 //   mesh(a=geom id)                     binary "VSPM" mesh (format: web/frontend/src/api/mesh.ts)
 //   addGeom(a=type, b=parent)           {"id":...}
 //   deleteGeoms(a=comma-separated ids)
+//   guardedSetGeomName(a=geom id, b=name), guardedDeleteGeom(a=geom id)
 //   setParm(a=parm id, value)           legacy unscoped write
 //   geomSetParm(a=geom id, b=parm id, value), xsecSetParm(a=xsec id, b=parm id, value)
 //     Single scoped write, not a transaction. Success value: {actual}; failure: error,
@@ -1733,12 +1734,14 @@ bool GuardedOpAllowed( const string &op )
     return op == "model" || op == "geomTypes" || op == "bbox" || op == "origin" || op == "move" ||
            op == "addGeom" || op == "geomXSecs" || op == "fuselageXSecShapes" || op == "wingXSecShapes" || op == "geomParmIDs" ||
            op == "xsecParmIDs" || op == "geomParm" || op == "xsecParm" ||
-           op == "fuselageLength" || op == "geomSetParm" || op == "xsecSetParm" || op == "guardedUpdate";
+           op == "fuselageLength" || op == "geomSetParm" || op == "xsecSetParm" || op == "guardedUpdate" ||
+           op == "guardedSetGeomName" || op == "guardedDeleteGeom";
 }
 
 bool GuardedWrite( const string &op )
 {
-    return op == "move" || op == "addGeom" || op == "geomSetParm" || op == "xsecSetParm" || op == "guardedUpdate";
+    return op == "move" || op == "addGeom" || op == "geomSetParm" || op == "xsecSetParm" || op == "guardedUpdate" ||
+           op == "guardedSetGeomName" || op == "guardedDeleteGeom";
 }
 
 // Fail closed for future or malformed type IDs rather than treating the enum range
@@ -2195,6 +2198,42 @@ void RunImpl( const Job &j )
         Watch( "Update", true );
         if ( errors.had_errors ) return ParmWriteFailure( j.id, errors.message, "unknown", "null" );
         return Result( j.id, "", "null" );
+    }
+    if ( j.op == "guardedSetGeomName" )
+    {
+        if ( !j.guarded ) return Result( j.id, "guardedSetGeomName requires a model guard", "" );
+        string err;
+        if ( !CurrentModelGeom( j.a, err, nullptr, true ) ) return ParmWriteFailure( j.id, err, "not_written", "null" );
+        Geom *geom = VehicleMgr.GetVehicle()->FindGeom( j.a );
+        if ( !geom || geom->NameIsAutomatic() ) return ParmWriteFailure( j.id, "Geometry cannot be renamed", "not_written", "null" );
+        if ( j.b.empty() || j.b.size() > 256 ) return ParmWriteFailure( j.id, "Geometry name must be 1 to 256 bytes", "not_written", "null" );
+        if ( !BeginGuardedWrite() ) return;
+        vsp::SetGeomName( j.a, j.b );
+        DrainedErrors set_errors = TakeWriteErrors();
+        string actual = vsp::GetGeomName( j.a );
+        DrainedErrors verify_errors = TakeWriteErrors();
+        Watch( "Rename geometry", true );
+        if ( set_errors.had_errors || verify_errors.had_errors )
+            return ParmWriteFailure( j.id, set_errors.had_errors ? set_errors.message : verify_errors.message, "unknown", "null" );
+        if ( actual != j.b ) return ParmWriteFailure( j.id, "Readback differs from requested geometry name", "different", "null" );
+        return Result( j.id, "", "null" );
+    }
+    if ( j.op == "guardedDeleteGeom" )
+    {
+        if ( !j.guarded ) return Result( j.id, "guardedDeleteGeom requires a model guard", "" );
+        string err;
+        if ( !CurrentModelGeom( j.a, err, nullptr, true ) ) return ParmWriteFailure( j.id, err, "not_written", "null" );
+        if ( !BeginGuardedWrite() ) return;
+        vsp::DeleteGeom( j.a, vsp::CLONE_DELETE_LEAVE_EMPTY );
+        vsp::Update();
+        DrainedErrors errors = TakeWriteErrors();
+        Watch( "Delete geometry", true );
+        if ( errors.had_errors ) return ParmWriteFailure( j.id, errors.message, "unknown", "null" );
+        vector< string > remaining = vsp::FindGeoms();
+        DrainedErrors read_errors = TakeWriteErrors();
+        if ( read_errors.had_errors ) return ParmWriteFailure( j.id, read_errors.message, "unknown", "null" );
+        if ( std::find( remaining.begin(), remaining.end(), j.a ) != remaining.end() ) return ParmWriteFailure( j.id, "Geometry remains after delete", "unknown", "null" );
+        return Result( j.id, "", "{\"deleted\":true}" );
     }
     if ( j.op == "addGeom" )
     {

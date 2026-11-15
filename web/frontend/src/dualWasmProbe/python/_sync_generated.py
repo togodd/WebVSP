@@ -6,6 +6,26 @@ def AddGeom(type, parent=""):
     return _call('add_geom', type=type, parent=parent)
 
 
+def FindGeoms():
+    return _call('find_geoms')
+
+
+def GetGeomName(geom_id):
+    return _call('geom_name', geom_id=geom_id)
+
+
+def GetGeomTypeName(geom_id):
+    return _call('geom_type', geom_id=geom_id)
+
+
+def SetGeomName(geom_id, name):
+    return _call('set_geom_name', geom_id=geom_id, name=name)
+
+
+def DeleteGeom(geom_id):
+    return _call('delete_geom', geom_id=geom_id)
+
+
 def FindGeom(name, index):
     return _call('find_geom', name=name, index=index)
 
@@ -22,4 +42,4 @@ def Update(update_managers=True):
     return _call('update', update_managers=update_managers)
 
 
-_WRITE_OPERATIONS = frozenset(["add_geom","set_parm","update"])
+_WRITE_OPERATIONS = frozenset(["add_geom","set_geom_name","delete_geom","set_parm","update"])

@@ -1,5 +1,5 @@
 {
-  "version": 1,
+  "version": 2,
   "apis": [
     {
       "name": "AddGeom",
@@ -11,12 +11,57 @@
       "errors": "OpenVSPError; dispatched write may have unknown outcome.", "tests": ["host_mapping", "browser_modeling"]
     },
     {
+      "name": "FindGeoms",
+      "native": "extern std::vector<std::string> FindGeoms();",
+      "operation": "find_geoms",
+      "arguments": [],
+      "returns": "string_array", "write": false, "epoch": "model_check", "status": "experimental",
+      "scope": "Returns current model geometry IDs in model order.",
+      "errors": "OpenVSPError rather than native error manager.", "tests": ["host_mapping", "browser_core"]
+    },
+    {
+      "name": "GetGeomName",
+      "native": "extern std::string GetGeomName( const std::string & geom_id );",
+      "operation": "geom_name",
+      "arguments": [{"name":"geom_id","wire":"geom_id","type":"string"}],
+      "returns": "string", "write": false, "epoch": "model_check", "status": "experimental",
+      "scope": "Current model geometry only.",
+      "errors": "OpenVSPError rather than native error manager.", "tests": ["host_mapping", "browser_core"]
+    },
+    {
+      "name": "GetGeomTypeName",
+      "native": "extern std::string GetGeomTypeName( const std::string & geom_id );",
+      "operation": "geom_type",
+      "arguments": [{"name":"geom_id","wire":"geom_id","type":"string"}],
+      "returns": "string", "write": false, "epoch": "model_check", "status": "experimental",
+      "scope": "Current model geometry only.",
+      "errors": "OpenVSPError rather than native error manager.", "tests": ["host_mapping", "browser_core"]
+    },
+    {
+      "name": "SetGeomName",
+      "native": "extern void SetGeomName( const std::string & geom_id, const std::string & name );",
+      "operation": "set_geom_name",
+      "arguments": [{"name":"geom_id","wire":"geom_id","type":"string"},{"name":"name","wire":"name","type":"string"}],
+      "returns": "null", "write": true, "epoch": "guarded_write", "status": "experimental",
+      "scope": "Current model geometries only; non-automatic names, non-empty names up to 256 bytes; verifies readback.",
+      "errors": "OpenVSPError carries not_written, different or unknown outcome.", "tests": ["host_mapping", "browser_core"]
+    },
+    {
+      "name": "DeleteGeom",
+      "native": "extern void DeleteGeom( const std::string & geom_id, int clone_delete = CLONE_DELETE_LEAVE_EMPTY );",
+      "operation": "delete_geom",
+      "arguments": [{"name":"geom_id","wire":"geom_id","type":"string"}],
+      "returns": "null", "write": true, "epoch": "guarded_write", "status": "experimental",
+      "scope": "Current model geometry only; leaves clone placeholders and updates the model; deletion can affect descendants.",
+      "errors": "OpenVSPError; dispatched deletion may have unknown outcome.", "tests": ["host_mapping", "browser_core"]
+    },
+    {
       "name": "FindGeom",
       "native": "extern std::string FindGeom( const std::string & name, int index );",
       "operation": "find_geom",
       "arguments": [{"name":"name","wire":"name","type":"string"},{"name":"index","wire":"index","type":"integer"}],
       "returns": "string", "write": false, "epoch": "model_check", "status": "experimental",
-      "scope": "Only index 0; empty string when not found.",
+      "scope": "Nonnegative index in model order; empty string when absent or negative.",
       "errors": "OpenVSPError rather than native error manager.", "tests": ["host_mapping", "browser_read"]
     },
     {

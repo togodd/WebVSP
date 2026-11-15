@@ -64,9 +64,36 @@ async function run(mode: 'read' | 'modeling'): Promise<unknown> {
         if (!wing) throw new Error('Add a wing in WebVSP before running this read-only probe')
         return { id: wing.id, name: wing.name, nameUnique: current.geoms.filter((g) => g.name === wing.name).length === 1 }
       }
+      if (op === 'find_geoms') return (await model()).geoms.map((g) => g.id)
+      if (op === 'geom_name' || op === 'geom_type') {
+        if (typeof args.geom_id !== 'string' || !args.geom_id) throw new WasmEngineError(400, 'Geometry ID is required', 'not_written')
+        const geom = (await model()).geoms.find((g) => g.id === args.geom_id)
+        if (!geom) throw new WasmEngineError(404, 'Geometry not found', 'not_written')
+        return op === 'geom_name' ? geom.name : geom.type
+      }
       if (op === 'find_geom') {
-        if (typeof args.name !== 'string' || args.index !== 0) throw new Error('Only FindGeom(name, 0) is supported')
-        return (await model()).geoms.find((g) => g.name === args.name)?.id ?? ''
+        if (typeof args.name !== 'string' || typeof args.index !== 'number' || !Number.isSafeInteger(args.index)) throw new Error('Invalid geometry name or index')
+        return (await model()).geoms.filter((g) => g.name === args.name)[args.index]?.id ?? ''
+      }
+      if (op === 'set_geom_name') {
+        if (mode !== 'modeling' || typeof args.geom_id !== 'string' || typeof args.name !== 'string' || !args.name || args.name.length > 256) throw new WasmEngineError(400, 'Only non-empty geometry names up to 256 characters are supported', 'not_written')
+        const current = await model()
+        const geom = current.geoms.find((g) => g.id === args.geom_id)
+        if (!geom) throw new WasmEngineError(404, 'Geometry not found', 'not_written')
+        if (finished || poisoned) throw new WasmEngineError(400, 'Probe stopped', 'not_written')
+        dispatchedWrite = true
+        currentWriteIssued = true
+        await callGuarded('guardedSetGeomName', args.geom_id, args.name, 0, epoch!)
+        return null
+      }
+      if (op === 'delete_geom') {
+        if (mode !== 'modeling' || typeof args.geom_id !== 'string' || !args.geom_id) throw new WasmEngineError(400, 'A geometry ID is required', 'not_written')
+        if (!(await model()).geoms.some((g) => g.id === args.geom_id)) throw new WasmEngineError(404, 'Geometry not found', 'not_written')
+        if (finished || poisoned) throw new WasmEngineError(400, 'Probe stopped', 'not_written')
+        dispatchedWrite = true
+        currentWriteIssued = true
+        await callGuarded('guardedDeleteGeom', args.geom_id, '', 0, epoch!)
+        return null
       }
       if (op === 'add_geom') {
         if (mode !== 'modeling' || args.type !== 'WING' || args.parent !== '') throw new WasmEngineError(400, 'Only a root WING is supported', 'not_written')
