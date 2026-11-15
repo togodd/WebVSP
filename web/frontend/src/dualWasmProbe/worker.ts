@@ -1,15 +1,17 @@
 /// <reference lib="webworker" />
 import type { PyodideInterface } from 'pyodide'
+import packageSource from './python/openvsp_wasm/__init__.py?raw'
+import smokeSource from './python/smoke.py?raw'
 
 const scope = self as unknown as DedicatedWorkerGlobalScope
 const pending = new Map<number, { resolve: (value: string) => void; reject: (error: Error) => void }>()
 let nextId = 0
 
-function request(op: string): Promise<string> {
+function request(op: string, args: string): Promise<string> {
   const id = ++nextId
   return new Promise((resolve, reject) => {
     pending.set(id, { resolve, reject })
-    scope.postMessage({ type: 'request', id, op })
+    scope.postMessage({ type: 'request', id, op, args })
   })
 }
 
@@ -33,24 +35,10 @@ async function run(base: string) {
   const { loadPyodide } = await import(/* @vite-ignore */ url) as { loadPyodide: (options: { indexURL: string }) => Promise<PyodideInterface> }
   const pyodide = await loadPyodide({ indexURL: base })
   pyodide.registerJsModule('webvsp_probe_bridge', { request })
-  const result = await pyodide.runPythonAsync(`
-import json
-import sys
-from webvsp_probe_bridge import request
-
-# Fixed proof-of-concept only: no caller-provided code or arbitrary API access.
-before = json.loads(await request('model'))
-wing_id = await request('create_wing')
-after = json.loads(await request('model'))
-assert any(g['id'] == wing_id and g['type'] == 'Wing' for g in after['geoms'])
-try:
-    await request('unsupported')
-except Exception as exc:
-    error = str(exc)
-else:
-    raise AssertionError('Unsupported operation did not fail')
-json.dumps({'python': sys.version.split()[0], 'beforeCount': len(before['geoms']), 'wingId': wing_id, 'afterCount': len(after['geoms']), 'error': error})
-`)
+  pyodide.FS.mkdirTree('/probe/openvsp_wasm')
+  pyodide.FS.writeFile('/probe/openvsp_wasm/__init__.py', packageSource)
+  pyodide.runPython("import sys; sys.path.insert(0, '/probe')")
+  const result = await pyodide.runPythonAsync(smokeSource)
   scope.postMessage({ type: 'done', value: result })
 }
 
