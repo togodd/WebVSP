@@ -13,6 +13,12 @@ import sys
 
 from sync_bridge import request
 
+
+# A parse-scoped cache avoids stale ResultsMgr data across console commands or
+# GUI edits. Entries never outlive the synchronous parse that populated them.
+_RESULT_PARSE_CACHE = None
+
+
 SET_ALL = 0
 INT_DATA, DOUBLE_DATA, STRING_DATA, VEC3D_DATA, INT_MATRIX_DATA, DOUBLE_MATRIX_DATA = 1, 2, 3, 4, 5, 6
 
@@ -233,12 +239,30 @@ def GetAllResultsIDs():
     return _call('live_results_ids')
 
 
+def _meta(result_id):
+    if _RESULT_PARSE_CACHE is None:
+        return None
+    return _RESULT_PARSE_CACHE.setdefault(result_id, {'names': None, 'name': None, 'types': {}, 'values': {}})
+
+
 def GetAllDataNames(result_id):
-    return _call('live_result_names', result_id=result_id)
+    cached = _meta(result_id)
+    if cached is not None and cached['names'] is not None:
+        return cached['names']
+    value = _call('live_result_names', result_id=result_id)
+    if cached is not None:
+        cached['names'] = value
+    return value
 
 
 def GetResultsName(result_id):
-    return _call('live_result_name', result_id=result_id)
+    cached = _meta(result_id)
+    if cached is not None and cached['name'] is not None:
+        return cached['name']
+    value = _call('live_result_name', result_id=result_id)
+    if cached is not None:
+        cached['name'] = value
+    return value
 
 
 def GetNumData(result_id, data_name):
@@ -246,7 +270,13 @@ def GetNumData(result_id, data_name):
 
 
 def GetResultsType(result_id, data_name):
-    return _call('live_result_type', result_id=result_id, name=data_name)
+    cached = _meta(result_id)
+    if cached is not None and data_name in cached['types']:
+        return cached['types'][data_name]
+    value = _call('live_result_type', result_id=result_id, name=data_name)
+    if cached is not None:
+        cached['types'][data_name] = value
+    return value
 
 
 def GetResultShape(result_id, data_name, index=0):
@@ -259,6 +289,10 @@ CHUNK = 100000
 
 def _values(result_id, data_name, index, kind):
     """Reads one field, in chunks when it is large enough to exceed one message."""
+    cached = _meta(result_id)
+    cache_key = (data_name, int(index), kind)
+    if cached is not None and cache_key in cached['values']:
+        return cached['values'][cache_key]
     out = []
     offset = 0
     while True:
@@ -269,6 +303,8 @@ def _values(result_id, data_name, index, kind):
         part = response.get('value') or []
         out.extend(part)
         if len(part) < CHUNK:
+            if cached is not None:
+                cached['values'][cache_key] = out
             return out
         offset += len(part)
 
@@ -290,9 +326,17 @@ def GetDoubleMatResults(result_id, data_name, index=0):
 
 
 def parse_results_object(res_id, vsp_instance=None):
-    """Desktop openvsp.utilities.parse_results_object, bound to this live module."""
+    """Desktop parser, with an operation-scoped cache that cannot go stale later."""
     import openvsp_utilities
-    return openvsp_utilities.parse_results_object(res_id, sys.modules[__name__])
+    global _RESULT_PARSE_CACHE
+    previous = _RESULT_PARSE_CACHE
+    if previous is None:
+        _RESULT_PARSE_CACHE = {}
+    try:
+        return openvsp_utilities.parse_results_object(res_id, sys.modules[__name__])
+    finally:
+        if previous is None:
+            _RESULT_PARSE_CACHE = None
 
 
 class _Vec3d:
