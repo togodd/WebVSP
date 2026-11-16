@@ -100,7 +100,7 @@ def Update(update_managers=True):
 # files) into this directory of the engine's file system.
 WORKSPACE_ROOT = '/work'
 
-SET_NONE = -1
+SET_NONE, SET_ALL, SET_SHOWN, SET_NOT_SHOWN = -1, 0, 1, 2
 
 # Keep in step with APIDefines.h. EXPORT_STEP is unavailable in this build.
 EXPORT_FELISA, EXPORT_XSEC, EXPORT_STL, EXPORT_AWAVE, EXPORT_NASCART = 0, 1, 2, 3, 4

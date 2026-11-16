@@ -101,7 +101,7 @@ WebVSP 自己编写的 Python 文件在 `python/` 顶层：`openvsp_live.py`（�
 | `GetNumSets`、`GetSetName`、`GetSetFlag` | ✅ | |
 | `GetSetIndex`、`GetGeomSet`、`GetGeomSetAtIndex` | ✅ | 按名/序号读集合成员；`GetSetIndex` 不存在返回 -1 |
 | `GetSetNames`、`SetSetName`、`SetSetFlag` | 🟨 | 已桥接，未单独测试 |
-| `SetAnalysisInputDefaults`、`SetIntAnalysisInput`、`ExecAnalysis` | ✅ | 白名单 `DegenGeom`/`SurfacePatches`/`MassProp`；int 输入按分析声明的类型校验 |
+| `SetAnalysisInputDefaults`、`SetIntAnalysisInput`、`ExecAnalysis` | ✅ | 白名单 `DegenGeom`/`SurfacePatches`/`MassProp`/`CompGeom`；int 输入按分析声明的类型校验 |
 | `ListAnalysis`、`GetAnalysisInputNames`、`GetAnalysisInputType` | ✅ | 用于脚本发现可用分析与输入（`GetAnalysisInputType` 未知输入返回 -1） |
 | `SetDoubleAnalysisInput`、`SetStringAnalysisInput` 及其它分析 | ❌ | 未桥接 |
 | `GetAllResultsIDs`、`GetAllResultsNames`、`GetAllDataNames`、`GetResultsName`、`GetResultsType` | ✅ | |
@@ -187,6 +187,31 @@ vsp.SetParmValUpdate(w, 'TotalSpan', 'WingGeom', 16.0)  # 按几何/名/组
 - `SetParmValUpdate` 会触发模型更新，而 `SetParmVal`/`SetParmValByID` 不会；它也不做 limits/active 预检，
   与桌面语义一致。
 - 参数读取是逐次引擎调用，不是原子快照；修改一个参数后，别的参数的 active/limits 可能随之变化。
+
+### 分析扩展（CompGeom）
+
+`CompGeom` 已加入白名单，并在运行时强制关闭 TXT/CSV 输出与 mode：
+
+```python
+vsp.SetAnalysisInputDefaults('CompGeom')
+vsp.SetIntAnalysisInput('CompGeom', 'Set', [vsp.SET_ALL])
+root = vsp.ExecAnalysis('CompGeom')     # 结果名 'Comp_Geom'
+vsp.GetDoubleResults(root, 'Total_Wet_Area')
+vsp.GetDoubleResults(root, 'Total_Wet_Vol')
+```
+
+- 尊重 `Set`、`DegenSet`、`HalfMeshFlag`、`SubSurfFlag`；`WriteTXTFlag`/`WriteCSVFlag`/`UseModeFlag` 强制为 0，
+  因此不会写 `comp_geom.txt`/`.csv`。
+- **原生副作用（与桌面一致）**：CompGeom 会向模型新增一个 `Mesh` 几何、把其它几何全部隐藏，并改变活动几何。
+  需要恢复时自行清理：
+
+  ```python
+  mesh = [g for g in vsp.FindGeoms() if vsp.GetGeomTypeName(g) == 'Mesh']
+  for g in mesh: vsp.DeleteGeom(g)              # 只删本次新增的 Mesh
+  vsp.SetSetFlag(wing_id, vsp.SET_SHOWN, True)  # 恢复显示
+  ```
+
+- 大模型上 CompGeom 可能较慢（布尔/求交），仍受同步桥 60 秒与无取消约束。
 
 ### 分析扩展（MassProp）
 
@@ -299,8 +324,8 @@ vsp.DeleteAllResults()                      # 清空
   `VSPAEROSinglePoint` 还会启动求解器（页面 worker，异步，`ExecAnalysis` 立即返回）；`ParasiteDrag`
   需要 string + 多个 double 输入，并且会写 CSV、改导出路径；大模型上的时长也可能超过同步桥 60 秒上限。
   真要支持需按分析逐项定义：允许的输入类型与名字、文件输出策略（禁写或重定向到 MEMFS 并清理）、超时/
-  取消、结果清理，以及桌面对照测试。下一步成本分级：`CompGeom` 中等（需禁写 TXT/CSV 并确认网格输出），
-  `ParasiteDrag` 较高（double/string 输入 + CSV/导出路径），VSPAERO/CFD/FEA 与同步桥语义冲突、不建议在控制台做。
+  取消、结果清理，以及桌面对照测试。下一步成本分级：`ParasiteDrag` 较高（需要 double/string 输入、CSV/导出路径处理，且会改导出文件名），
+  VSPAERO/CFD/FEA 与同步桥语义冲突、不建议在控制台做。
 
 ### 未实现原因分类
 
@@ -328,7 +353,7 @@ vsp.DeleteAllResults()                      # 清空
 | 文件 API 路径/参数 | `python3 scripts/test-live-files.py` |
 | 上游模块数值 | `python3 scripts/test-native-atmosphere.py`、`test-native-uberlogging.py`、`test-native-wt-util.py` |
 | 源码一致性 | `node scripts/check-native-modules.mjs` |
-| 真实浏览器（先构建并启动预览） | `console-smoke.mjs`、`live-analysis-smoke.mjs`、`scipy-console-browser-check.mjs`、`delete-clone-browser-check.mjs`、`live-binary-browser-check.mjs`、`file-io-browser-check.mjs`、`results-browser-check.mjs`、`params-browser-check.mjs`、`geometry-browser-check.mjs`、`analysis-browser-check.mjs` |
+| 真实浏览器（先构建并启动预览） | `console-smoke.mjs`、`live-analysis-smoke.mjs`、`scipy-console-browser-check.mjs`、`delete-clone-browser-check.mjs`、`live-binary-browser-check.mjs`、`file-io-browser-check.mjs`、`results-browser-check.mjs`、`params-browser-check.mjs`、`geometry-browser-check.mjs`、`analysis-browser-check.mjs`、`compgeom-browser-check.mjs` |
 
 浏览器脚本需要 `CHROMIUM_PATH` 与 `WEBVSP_URL`（默认 `http://127.0.0.1:4173/`）。`?dualWasmProbe=1`
 只注册测试入口 `__runPython`；产品入口是顶栏 **Python Console** 按钮。

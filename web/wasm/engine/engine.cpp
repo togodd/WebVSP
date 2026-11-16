@@ -2714,8 +2714,8 @@ void RunImpl( const Job &j )
     }
     if ( j.op == "liveAnalysisDefaults" || j.op == "liveAnalysisSetInt" || j.op == "liveAnalysisRun" )
     {
-        const bool degen = j.a == "DegenGeom", patches = j.a == "SurfacePatches", mass = j.a == "MassProp";
-        if ( !degen && !patches && !mass ) return Result( j.id, "Unknown analysis", "" );
+        const bool degen = j.a == "DegenGeom", patches = j.a == "SurfacePatches", mass = j.a == "MassProp", comp = j.a == "CompGeom";
+        if ( !degen && !patches && !mass && !comp ) return Result( j.id, "Unknown analysis", "" );
         auto &errors = vsp::ErrorMgrSingleton::getInstance();
         if ( j.op == "liveAnalysisDefaults" )
         {
@@ -2742,6 +2742,13 @@ void RunImpl( const Job &j )
         if ( mass )
         {
             // Honour the caller's Set; never use modes (ModeID is a string input).
+            setIntIfPresent( "UseModeFlag", 0 );
+        }
+        else if ( comp )
+        {
+            // Honour Set/DegenSet/HalfMesh/SubSurf; never write TXT/CSV or use modes.
+            setIntIfPresent( "WriteTXTFlag", 0 );
+            setIntIfPresent( "WriteCSVFlag", 0 );
             setIntIfPresent( "UseModeFlag", 0 );
         }
         else
