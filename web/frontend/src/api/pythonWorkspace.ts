@@ -140,7 +140,7 @@ export async function addWorkspaceFiles(): Promise<void> {
       await linkEngineFile(path, item.handle, item.name)
       written += 1
     }
-    set({ files: useWorkspace.getState().files + written, busy: false, message: '' })
+    set({ files: useWorkspace.getState().files + written, busy: false, message: `已暂存 ${written} 个文件；用 vsp.ReadVSPFile('文件名') 载入模型` })
   } catch (error) {
     set({ busy: false, message: `添加文件失败：${message(error)}` })
   }
