@@ -29,10 +29,22 @@ web\wasm\serve.ps1 -Open   # builds the page, serves http://localhost:4173/
 | `-Stage libs` | Third-party libraries only. |
 | `-Stage fltk` | FLTK only (with the headless platform). |
 | `-Stage vsp` | OpenVSP only: what you need after changing C++ in `src/`. |
-| `-Targets vsp_wasm,vspaero,vsploads` | Which programs to build (default all three). `vsp_wasm` is OpenVSP itself. |
+| `-Targets vsp_wasm,vsp_p1_analysis,vspaero,vsploads` | Which programs to build (default all four). `vsp_wasm` is the page engine; `vsp_p1_analysis` is the disposable fixed-model P1 diagnostic. |
 
 The first full build takes a while; later ones are incremental. The output
-(`vsp.js/.wasm`, `vspaero.js/.wasm`, `vsploads.js/.wasm`) is gitignored.
+(`vsp.js/.wasm`, `vsp_p1_analysis.js/.wasm`, `vspaero.js/.wasm`, `vsploads.js/.wasm`) is gitignored.
+
+With an initialized Emscripten environment and an existing VSP build tree, the P1
+serializer's test-only, non-installed target can be built and run separately:
+
+```sh
+cmake --build build/vsp-wasm --target p1_snapshot_test p1_filesystem_test
+node build/vsp-wasm/wasm_engine/p1_snapshot_test.js
+node web/frontend/scripts/p1-native-smoke.mjs build/vsp-wasm/wasm_engine/p1_filesystem_test.js
+```
+
+This white-box test includes the production serializer implementation directly; it is not
+part of the default or distributed WebAssembly programs.
 
 During development, `cd web\frontend; npm run dev` serves the page with hot reload at
 http://localhost:5173/ using the same output. Hard-refresh after rebuilding the engine.

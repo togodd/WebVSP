@@ -6,6 +6,10 @@ const frontend = fileURLToPath(new URL('../', import.meta.url))
 const source = process.env.VSP_PYTHON_PACKAGES_DIR ?? resolve(frontend, '../../src/python_api/packages')
 for (const [original, bundled] of [
   ['openvsp/openvsp/utilities.py', 'openvsp_utilities.py'],
+  ['openvsp/openvsp/degen_geom_parse.py', 'degen_geom_parse.py'],
+  ['openvsp/openvsp/surface_patches.py', 'surface_patches.py'],
+  ['degen_geom/degen_geom/__init__.py', 'degen_geom/__init__.py'],
+  ['degen_geom/degen_geom/degen_geom.py', 'degen_geom/degen_geom.py'],
   ['utilities/utilities/__init__.py', 'utilities/__init__.py'],
   ['utilities/utilities/files.py', 'utilities/files.py'],
   ['utilities/utilities/units.py', 'utilities/units.py'],

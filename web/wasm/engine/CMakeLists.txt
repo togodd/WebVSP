@@ -33,6 +33,34 @@ FOREACH( prog vspaero vsploads )
     ENDIF()
 ENDFOREACH()
 
+# Disposable, isolated analysis process. Never link this entry point into vsp_wasm.
+ADD_EXECUTABLE( vsp_p1_analysis p1_analysis.cpp )
+SET_TARGET_PROPERTIES( vsp_p1_analysis PROPERTIES SUFFIX .js )
+TARGET_INCLUDE_DIRECTORIES( vsp_p1_analysis PRIVATE ${VSP_WASM_INCLUDES} )
+TARGET_LINK_LIBRARIES( vsp_p1_analysis Eigen3::Eigen ${VSP_LIBRARIES_API_FIRST} )
+TARGET_LINK_OPTIONS( vsp_p1_analysis PRIVATE
+    -sMODULARIZE=1 -sEXPORT_ES6=1 -sEXPORT_NAME=createP1Analysis
+    -sENVIRONMENT=worker,node -sINVOKE_RUN=0 -sEXIT_RUNTIME=1
+    -sINITIAL_MEMORY=256MB -sALLOW_MEMORY_GROWTH=1 -sMAXIMUM_MEMORY=1GB -sSTACK_SIZE=8MB
+    -sEXPORTED_RUNTIME_METHODS=callMain )
+
+# Explicitly built white-box test; never included in the default build or installed.
+ADD_EXECUTABLE( p1_snapshot_test EXCLUDE_FROM_ALL p1_snapshot_test.cpp )
+TARGET_INCLUDE_DIRECTORIES( p1_snapshot_test PRIVATE ${VSP_WASM_INCLUDES} )
+TARGET_LINK_LIBRARIES( p1_snapshot_test Eigen3::Eigen ${VSP_LIBRARIES_API_FIRST} )
+TARGET_LINK_OPTIONS( p1_snapshot_test PRIVATE -sENVIRONMENT=node -sALLOW_MEMORY_GROWTH=1 -sSTACK_SIZE=8MB )
+
+# Test-only build of the same entry point with FS inspection exposed to Node.
+ADD_EXECUTABLE( p1_filesystem_test EXCLUDE_FROM_ALL p1_analysis.cpp )
+SET_TARGET_PROPERTIES( p1_filesystem_test PROPERTIES SUFFIX .js )
+TARGET_INCLUDE_DIRECTORIES( p1_filesystem_test PRIVATE ${VSP_WASM_INCLUDES} )
+TARGET_LINK_LIBRARIES( p1_filesystem_test Eigen3::Eigen ${VSP_LIBRARIES_API_FIRST} )
+TARGET_LINK_OPTIONS( p1_filesystem_test PRIVATE
+    -sMODULARIZE=1 -sEXPORT_ES6=1 -sEXPORT_NAME=createP1Analysis
+    -sENVIRONMENT=node -sINVOKE_RUN=0 -sEXIT_RUNTIME=1
+    -sINITIAL_MEMORY=256MB -sALLOW_MEMORY_GROWTH=1 -sMAXIMUM_MEMORY=1GB -sSTACK_SIZE=8MB
+    -sEXPORTED_RUNTIME_METHODS=FS,callMain )
+
 # The engine module the web UI loads (vsp.js + vsp.wasm), an ES module exporting a factory:
 #   const vsp = await createVspModule(); vsp.call(...); vsp.take(); vsp.FS.writeFile(...)
 # OpenVSP runs main() on its own thread (PROXY_TO_PTHREAD); the page calls in from the

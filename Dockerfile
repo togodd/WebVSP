@@ -30,6 +30,7 @@ COPY TestXSec.fxs LICENSE README.md CHANGELOG.md vspIcon.png ./
 RUN --mount=type=cache,target=/root/.cache/ccache \
     /bin/bash -c 'source /emsdk/emsdk_env.sh && pwsh -NoProfile -File web/wasm/build_wasm.ps1 -Stage vsp'
 RUN test -s web/frontend/public/wasm/vsp.wasm \
+    && test -s web/frontend/public/wasm/vsp_p1_analysis.wasm \
     && test -s web/frontend/public/wasm/vspaero.wasm \
     && test -s web/frontend/public/wasm/vsploads.wasm
 
@@ -39,7 +40,8 @@ COPY web/frontend/package.json web/frontend/package-lock.json ./
 RUN --mount=type=cache,target=/root/.npm npm ci
 COPY web/frontend/ ./
 COPY --from=engine /src/src/geom_api/VSP_Geom_API.h /src/src/geom_api/APIDefines.h /src/src/geom_api/vsp_common.i /api-source/
-COPY --from=engine /src/src/python_api/packages/openvsp/openvsp/utilities.py /python-source/openvsp/openvsp/utilities.py
+COPY --from=engine /src/src/python_api/packages/openvsp/openvsp/ /python-source/openvsp/openvsp/
+COPY --from=engine /src/src/python_api/packages/degen_geom/degen_geom/ /python-source/degen_geom/degen_geom/
 COPY --from=engine /src/src/python_api/packages/utilities/utilities/ /python-source/utilities/utilities/
 ENV VSP_API_DIR=/api-source VSP_PYTHON_PACKAGES_DIR=/python-source
 COPY --from=engine /src/web/frontend/public/wasm/ public/wasm/

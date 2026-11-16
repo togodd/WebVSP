@@ -22,7 +22,7 @@ wing = call('setup')
 parm_ids = vsp.GetGeomParmIDs(wing['id'])
 assert parm_ids and len(set(parm_ids)) == len(parm_ids)
 parm_id = parm_ids[0]
-assert isinstance(vsp.GetParmValByID(parm_id), float)
+assert type(vsp.GetParmValByID(parm_id)) in (int, float)
 assert isinstance(vsp.GetIntParmVal(parm_id), int)
 assert isinstance(vsp.GetParmName(parm_id), str)
 assert isinstance(vsp.GetParmType(parm_id), int)

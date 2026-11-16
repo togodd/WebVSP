@@ -19,7 +19,7 @@ param(
     [string]$BuildDir = "$PSScriptRoot/../../build/libs-wasm",
     [string]$VspBuildDir = "$PSScriptRoot/../../build/vsp-wasm",
     # Targets of the OpenVSP build: the engine module the page loads, and VSPAERO's programs.
-    [string[]]$Targets = @('vsp_wasm', 'vspaero', 'vsploads'),
+    [string[]]$Targets = @('vsp_wasm', 'vsp_p1_analysis', 'vspaero', 'vsploads'),
     # Where the page serves the engine from.
     [string]$PublicDir = "$PSScriptRoot/../frontend/public/wasm"
 )
@@ -88,7 +88,7 @@ if ($Stage -in 'vsp', 'all') {
     if ($LASTEXITCODE -ne 0) { throw 'OpenVSP: build failed' }
     New-Item -ItemType Directory -Force $PublicDir | Out-Null
     # The engine module, and VSPAERO's programs (run by the page in workers, see src/util/WebProcess.h).
-    $outputs = @{ vsp_wasm = @('wasm_engine', 'vsp'); vspaero = @('vsp_aero/Solver', 'vspaero'); vsploads = @('vsp_aero/Adb2Load', 'vsploads') }
+    $outputs = @{ vsp_wasm = @('wasm_engine', 'vsp'); vsp_p1_analysis = @('wasm_engine', 'vsp_p1_analysis'); vspaero = @('vsp_aero/Solver', 'vspaero'); vsploads = @('vsp_aero/Adb2Load', 'vsploads') }
     foreach ($t in $Targets) {
         if (-not $outputs.ContainsKey($t)) { continue }
         $dir, $name = $outputs[$t]
