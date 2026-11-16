@@ -189,6 +189,9 @@ async function run(mode: 'script' | 'console', script?: string): Promise<unknown
           if (typeof args.value !== 'number' || !Number.isFinite(args.value)) throw new WasmEngineError(400, 'Invalid parameter value', 'not_written')
           return live('liveParmSet', text('geom_id'), text('key'), args.value as number)
         }
+        if (op === 'live_list_analysis') return live('liveListAnalysis')
+        if (op === 'live_analysis_input_names') return live('liveAnalysisInputNames', text('analysis'))
+        if (op === 'live_analysis_input_type') return live('liveAnalysisInputType', text('analysis'), text('name'))
         if (op === 'live_analysis_defaults') return live('liveAnalysisDefaults', text('analysis'))
         if (op === 'live_analysis_set_int') {
           if (typeof args.value !== 'number' || !Number.isSafeInteger(args.value)) throw new WasmEngineError(400, 'Invalid analysis input', 'not_written')
@@ -225,6 +228,13 @@ async function run(mode: 'script' | 'console', script?: string): Promise<unknown
         if (op === 'live_num_sets') return live('liveNumSets')
         if (op === 'live_set_name') return live('liveSetName', '', '', Number(args.index))
         if (op === 'live_set_set_name') return live('liveSetSetName', '', text('name'), Number(args.index))
+        if (op === 'live_set_index') return live('liveSetIndex', text('name'))
+        if (op === 'live_geom_set') return live('liveGeomSet', text('name'))
+        if (op === 'live_geom_set_at_index') {
+          const index = args.index
+          if (typeof index !== 'number' || !Number.isSafeInteger(index) || index < 0) throw new WasmEngineError(400, 'Invalid set index', 'not_written')
+          return live('liveGeomSetAtIndex', '', '', index)
+        }
         if (op === 'live_get_set_flag') return live('liveGetSetFlag', text('geom_id'), '', Number(args.set_index))
         if (op === 'live_set_set_flag') return live('liveSetSetFlag', text('geom_id'), args.flag ? '1' : '0', Number(args.set_index))
         if (op === 'live_result_names') return live('liveResultNames', text('result_id'))

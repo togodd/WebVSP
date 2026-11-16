@@ -2700,10 +2700,22 @@ void RunImpl( const Job &j )
     // ---- Native-like in-process analysis and results access ------------------
     // Unlike the P1 diagnostic these run on the page's own model: a crash takes
     // the session with it, and analysis results stay in the page's ResultsMgr.
+    if ( j.op == "liveListAnalysis" )
+        return Result( j.id, "", LiveStringArray( vsp::ListAnalysis() ) );
+    if ( j.op == "liveAnalysisInputNames" )
+    {
+        if ( j.a.empty() ) return Result( j.id, "Invalid analysis name", "" );
+        return Result( j.id, "", LiveStringArray( vsp::GetAnalysisInputNames( j.a ) ) );
+    }
+    if ( j.op == "liveAnalysisInputType" )
+    {
+        if ( j.a.empty() || j.b.empty() ) return Result( j.id, "Invalid analysis input", "" );
+        return Result( j.id, "", std::to_string( vsp::GetAnalysisInputType( j.a, j.b ) ) );
+    }
     if ( j.op == "liveAnalysisDefaults" || j.op == "liveAnalysisSetInt" || j.op == "liveAnalysisRun" )
     {
-        const bool degen = j.a == "DegenGeom", patches = j.a == "SurfacePatches";
-        if ( !degen && !patches ) return Result( j.id, "Unknown analysis", "" );
+        const bool degen = j.a == "DegenGeom", patches = j.a == "SurfacePatches", mass = j.a == "MassProp";
+        if ( !degen && !patches && !mass ) return Result( j.id, "Unknown analysis", "" );
         auto &errors = vsp::ErrorMgrSingleton::getInstance();
         if ( j.op == "liveAnalysisDefaults" )
         {
@@ -2713,19 +2725,32 @@ void RunImpl( const Job &j )
         }
         if ( j.op == "liveAnalysisSetInt" )
         {
-            if ( j.b != "Set" && j.b != "WriteCSVFlag" && j.b != "WriteMFileFlag" && j.b != "UseModeFlag" )
+            // Accept any integer input this analysis actually declares. The type
+            // check replaces a name whitelist, so new whitelisted analyses work
+            // without changing the bridge.
+            if ( vsp::GetAnalysisInputType( j.a, j.b ) != vsp::INT_DATA )
                 return Result( j.id, "Unsupported analysis input", "" );
             vsp::SetIntAnalysisInput( j.a, j.b, { static_cast< int >( j.value ) }, 0 );
             if ( errors.GetNumTotalErrors() ) return Result( j.id, errors.PopLastError().GetErrorString(), "" );
             return Result( j.id, "", "null" );
         }
-        // Always the whole model, never file output, never mode application.
-        vsp::SetIntAnalysisInput( j.a, "Set", { vsp::SET_ALL }, 0 );
-        if ( degen )
+        auto setIntIfPresent = [&]( const char *name, int value )
         {
-            vsp::SetIntAnalysisInput( j.a, "WriteCSVFlag", { 0 }, 0 );
-            vsp::SetIntAnalysisInput( j.a, "WriteMFileFlag", { 0 }, 0 );
-            vsp::SetIntAnalysisInput( j.a, "UseModeFlag", { 0 }, 0 );
+            if ( vsp::GetAnalysisInputType( j.a, name ) == vsp::INT_DATA )
+                vsp::SetIntAnalysisInput( j.a, name, { value }, 0 );
+        };
+        if ( mass )
+        {
+            // Honour the caller's Set; never use modes (ModeID is a string input).
+            setIntIfPresent( "UseModeFlag", 0 );
+        }
+        else
+        {
+            // The helpers always run on the whole model, never write files, never use modes.
+            setIntIfPresent( "Set", vsp::SET_ALL );
+            if ( degen ) setIntIfPresent( "WriteCSVFlag", 0 );
+            if ( degen ) setIntIfPresent( "WriteMFileFlag", 0 );
+            setIntIfPresent( "UseModeFlag", 0 );
         }
         if ( errors.GetNumTotalErrors() ) return Result( j.id, errors.PopLastError().GetErrorString(), "" );
         const string root = vsp::ExecAnalysis( j.a );
@@ -3079,6 +3104,22 @@ void RunImpl( const Job &j )
     {
         vsp::SetSetName( static_cast< int >( j.value ), j.b );
         return Result( j.id, "", "null" );
+    }
+    if ( j.op == "liveSetIndex" )
+    {
+        if ( j.a.empty() ) return Result( j.id, "Invalid set name", "" );
+        return Result( j.id, "", std::to_string( vsp::GetSetIndex( j.a ) ) );
+    }
+    if ( j.op == "liveGeomSet" )
+    {
+        if ( j.a.empty() ) return Result( j.id, "Invalid set name", "" );
+        return Result( j.id, "", LiveStringArray( vsp::GetGeomSet( j.a ) ) );
+    }
+    if ( j.op == "liveGeomSetAtIndex" )
+    {
+        if ( !std::isfinite( j.value ) || j.value < 0 || std::floor( j.value ) != j.value )
+            return Result( j.id, "Invalid set index", "" );
+        return Result( j.id, "", LiveStringArray( vsp::GetGeomSetAtIndex( static_cast< int >( j.value ) ) ) );
     }
     if ( j.op == "liveGetSetFlag" )
         return Result( j.id, "", vsp::GetSetFlag( j.a, static_cast< int >( j.value ) ) ? "true" : "false" );

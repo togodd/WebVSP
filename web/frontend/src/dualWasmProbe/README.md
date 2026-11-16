@@ -99,8 +99,10 @@ WebVSP 自己编写的 Python 文件在 `python/` 顶层：`openvsp_live.py`（�
 | `GetNumSubSurf`、`GetSubSurf`、`DeleteSubSurf` | 🟨 | 已桥接，未单独测试 |
 | `GetSubSurfIDVec`、`AddSubSurf` | ✅ | |
 | `GetNumSets`、`GetSetName`、`GetSetFlag` | ✅ | |
+| `GetSetIndex`、`GetGeomSet`、`GetGeomSetAtIndex` | ✅ | 按名/序号读集合成员；`GetSetIndex` 不存在返回 -1 |
 | `GetSetNames`、`SetSetName`、`SetSetFlag` | 🟨 | 已桥接，未单独测试 |
-| `SetAnalysisInputDefaults`、`SetIntAnalysisInput`、`ExecAnalysis` | ✅ | 仅 `DegenGeom`/`SurfacePatches`，且强制全模型、不写文件、不应用 mode |
+| `SetAnalysisInputDefaults`、`SetIntAnalysisInput`、`ExecAnalysis` | ✅ | 白名单 `DegenGeom`/`SurfacePatches`/`MassProp`；int 输入按分析声明的类型校验 |
+| `ListAnalysis`、`GetAnalysisInputNames`、`GetAnalysisInputType` | ✅ | 用于脚本发现可用分析与输入（`GetAnalysisInputType` 未知输入返回 -1） |
 | `SetDoubleAnalysisInput`、`SetStringAnalysisInput` 及其它分析 | ❌ | 未桥接 |
 | `GetAllResultsIDs`、`GetAllResultsNames`、`GetAllDataNames`、`GetResultsName`、`GetResultsType` | ✅ | |
 | `FindResultsID(name, index=0)`、`FindLatestResultsID(name)`、`GetNumResults(name)` | ✅ | 不存在时返回 `''`/`0`，不抛异常 |
@@ -185,6 +187,31 @@ vsp.SetParmValUpdate(w, 'TotalSpan', 'WingGeom', 16.0)  # 按几何/名/组
 - `SetParmValUpdate` 会触发模型更新，而 `SetParmVal`/`SetParmValByID` 不会；它也不做 limits/active 预检，
   与桌面语义一致。
 - 参数读取是逐次引擎调用，不是原子快照；修改一个参数后，别的参数的 active/limits 可能随之变化。
+
+### 分析扩展（MassProp）
+
+分析白名单从写死的两个名字扩展为 `DegenGeom`、`SurfacePatches`、`MassProp`：
+
+```python
+vsp.ListAnalysis()                     # 引擎知道的全部分析名
+vsp.GetAnalysisInputNames('MassProp')  # ['DegenSet', 'MassSliceDir', 'ModeID', ...]
+vsp.GetAnalysisInputType('MassProp', 'Set')   # 1 = INT_DATA；未知输入 -1
+vsp.GetSetIndex('All'), vsp.GetGeomSet('All')
+
+vsp.SetAnalysisInputDefaults('MassProp')
+vsp.SetIntAnalysisInput('MassProp', 'Set', [vsp.SET_ALL])
+vsp.SetIntAnalysisInput('MassProp', 'NumMassSlices', [10])
+root = vsp.ExecAnalysis('MassProp')    # 结果名 'Mass_Properties'
+vsp.GetDoubleResults(root, 'Total_Mass')
+vsp.GetVec3dResults(root, 'Total_CG')
+```
+
+- `SetIntAnalysisInput` 现在按分析**声明的输入类型**校验（`INT_DATA`），不再写死四个名字；未知输入仍报
+  `Unsupported analysis input`。
+- `MassProp` **尊重调用方的 `Set`**（可做按集合的质量特性）；`UseModeFlag` 强制为 0，因此字符串输入
+  `ModeID`（mode 模式）暂不支持。
+- `DegenGeom`/`SurfacePatches` 保持原策略：强制全模型、不写文件、不应用 mode。
+- 质量特性在细分片数大时可能较慢，仍受同步桥 60 秒上限约束。
 
 ### 几何层级与改名
 
@@ -272,8 +299,8 @@ vsp.DeleteAllResults()                      # 清空
   `VSPAEROSinglePoint` 还会启动求解器（页面 worker，异步，`ExecAnalysis` 立即返回）；`ParasiteDrag`
   需要 string + 多个 double 输入，并且会写 CSV、改导出路径；大模型上的时长也可能超过同步桥 60 秒上限。
   真要支持需按分析逐项定义：允许的输入类型与名字、文件输出策略（禁写或重定向到 MEMFS 并清理）、超时/
-  取消、结果清理，以及桌面对照测试。成本分级：`MassProp`（全 int、无文件）最低，`CompGeom` 中等，
-  `ParasiteDrag` 较高，VSPAERO/CFD/FEA 与同步桥语义冲突、不建议在控制台做。
+  取消、结果清理，以及桌面对照测试。下一步成本分级：`CompGeom` 中等（需禁写 TXT/CSV 并确认网格输出），
+  `ParasiteDrag` 较高（double/string 输入 + CSV/导出路径），VSPAERO/CFD/FEA 与同步桥语义冲突、不建议在控制台做。
 
 ### 未实现原因分类
 
@@ -297,10 +324,11 @@ vsp.DeleteAllResults()                      # 清空
 | 结果管理 | `python3 scripts/test-live-results.py` |
 | 参数元数据 | `python3 scripts/test-live-params.py` |
 | 几何层级/改名 | `python3 scripts/test-live-geometry.py` |
+| 分析发现 | `python3 scripts/test-live-analysis.py` |
 | 文件 API 路径/参数 | `python3 scripts/test-live-files.py` |
 | 上游模块数值 | `python3 scripts/test-native-atmosphere.py`、`test-native-uberlogging.py`、`test-native-wt-util.py` |
 | 源码一致性 | `node scripts/check-native-modules.mjs` |
-| 真实浏览器（先构建并启动预览） | `console-smoke.mjs`、`live-analysis-smoke.mjs`、`scipy-console-browser-check.mjs`、`delete-clone-browser-check.mjs`、`live-binary-browser-check.mjs`、`file-io-browser-check.mjs`、`results-browser-check.mjs`、`params-browser-check.mjs`、`geometry-browser-check.mjs` |
+| 真实浏览器（先构建并启动预览） | `console-smoke.mjs`、`live-analysis-smoke.mjs`、`scipy-console-browser-check.mjs`、`delete-clone-browser-check.mjs`、`live-binary-browser-check.mjs`、`file-io-browser-check.mjs`、`results-browser-check.mjs`、`params-browser-check.mjs`、`geometry-browser-check.mjs`、`analysis-browser-check.mjs` |
 
 浏览器脚本需要 `CHROMIUM_PATH` 与 `WEBVSP_URL`（默认 `http://127.0.0.1:4173/`）。`?dualWasmProbe=1`
 只注册测试入口 `__runPython`；产品入口是顶栏 **Python Console** 按钮。

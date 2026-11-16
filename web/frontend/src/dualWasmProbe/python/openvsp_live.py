@@ -420,6 +420,27 @@ def SetSetName(index, name):
     return _call('live_set_set_name', index=index, name=name)
 
 
+def GetSetIndex(name):
+    """Index of a named set, or -1 when it does not exist."""
+    if not isinstance(name, str) or not name:
+        raise ValueError('A set name is required')
+    return _call('live_set_index', name=name)
+
+
+def GetGeomSet(name):
+    """Geometry IDs in a named set."""
+    if not isinstance(name, str) or not name:
+        raise ValueError('A set name is required')
+    return _call('live_geom_set', name=name)
+
+
+def GetGeomSetAtIndex(index):
+    """Geometry IDs in the set at this index."""
+    if type(index) is not int or index < 0:
+        raise ValueError('Set index must be a non-negative integer')
+    return _call('live_geom_set_at_index', index=index)
+
+
 def GetSetFlag(geom_id, set_index):
     return _call('live_get_set_flag', geom_id=geom_id, set_index=set_index)
 
@@ -455,6 +476,26 @@ def _parm_id(geom_id, name, group):
 
 
 # ---------------------------------------------------------------- analyses
+
+def ListAnalysis():
+    """Names of every analysis the engine knows (not all are callable here)."""
+    return _call('live_list_analysis')
+
+
+def GetAnalysisInputNames(analysis):
+    if not isinstance(analysis, str) or not analysis:
+        raise ValueError('An analysis name is required')
+    return _call('live_analysis_input_names', analysis=analysis)
+
+
+def GetAnalysisInputType(analysis, name):
+    """RES_DATA_TYPE of an analysis input (-1 when unknown)."""
+    if not isinstance(analysis, str) or not analysis:
+        raise ValueError('An analysis name is required')
+    if not isinstance(name, str) or not name:
+        raise ValueError('An analysis input name is required')
+    return _call('live_analysis_input_type', analysis=analysis, name=name)
+
 
 def SetAnalysisInputDefaults(analysis):
     return _call('live_analysis_defaults', analysis=analysis)
