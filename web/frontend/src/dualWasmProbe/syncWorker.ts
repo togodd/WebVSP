@@ -22,6 +22,10 @@ const MAX_BYTES = 64 * 1024
 const RESULTS_BYTES = 8 * 1024 * 1024
 const RESPONSE_HEADER_BYTES = 8
 let nextId = 0
+// Only completed requests return their buffer to the pool. A timed-out request
+// permanently loses ownership, so a delayed page response cannot corrupt a
+// later request even though the buffer itself remains alive in the page.
+const responseBuffers = new Map<number, SharedArrayBuffer>()
 
 type BridgeStats = {
   calls: number
@@ -54,10 +58,11 @@ function getBridgeStats(reset = false): BridgeStats {
 
 function request(op: string, args: string): string | Uint8Array {
   const capacity = op.startsWith('live_result') || op.startsWith('results_') ? RESULTS_BYTES : MAX_BYTES
-  // A fresh buffer per request: a delayed reply to an earlier request can never
-  // land in the one this request is waiting on.
-  const buffer = new SharedArrayBuffer(RESPONSE_HEADER_BYTES + capacity)
+  const buffer = responseBuffers.get(capacity) ?? new SharedArrayBuffer(RESPONSE_HEADER_BYTES + capacity)
+  responseBuffers.delete(capacity) // This request owns it until a valid response arrives.
   const control = new Int32Array(buffer, 0, 2)
+  Atomics.store(control, 0, 0)
+  Atomics.store(control, 1, 0)
   scope.postMessage({ type: 'request', id: ++nextId, op, args, buffer, capacity })
   const started = performance.now()
   const state = Atomics.wait(control, 0, 0, op === 'timeout_test' || op === 'timeout_real_test' ? 20 : 60_000)
@@ -78,6 +83,7 @@ function request(op: string, args: string): string | Uint8Array {
   bridgeStats.responseBytes += size
   stat.bytes += size
   const copy = Uint8Array.from(new Uint8Array(buffer, RESPONSE_HEADER_BYTES, size))
+  responseBuffers.set(capacity, buffer)
   if (signedSize < 0) return copy
   // TextDecoder rejects shared-backed views in Chromium; copy into an ordinary buffer.
   return new TextDecoder('utf-8', { fatal: true }).decode(copy)
