@@ -23,11 +23,14 @@ try {
     return window.__webvspEngine.testCall('liveBinaryTestFixture')
   })
   assert.ok(typeof id === 'string' && id.length, 'fixture operation must return a result ID')
+  const stringId = await page.evaluate(() => window.__webvspEngine.testCall('liveBinaryStringTestFixture'))
+  assert.ok(typeof stringId === 'string' && stringId.length)
   const code = `
 import json, math
 import openvsp as vsp
 live = vsp
 root = ${JSON.stringify(id)}
+string_root = ${JSON.stringify(stringId)}
 requests = []
 original_request = live.request
 def recording(op, raw):
@@ -55,6 +58,13 @@ try:
     assert vsp.GetIntResults(root, 'ints') == [-2147483648, 0, 2147483647]
     p = vsp.GetVec3dResults(root, 'points')[0]
     assert math.isnan(p.x()) and p.y() == math.inf and p.z() == -math.inf
+    start = len(requests)
+    strings = vsp.GetStringResults(string_root, 'strings')
+    assert strings == ['', 'a' * 4095 + '€' + 'b' * (8 * 1024 * 1024), '😀', 'tail']
+    assert vsp.GetStringResults(string_root, 'empty_strings') == []
+    chunks = [args for op, args in requests[start:] if op == 'live_result_binary_field']
+    assert any(c['row'] == 1 and c['offset'] == 4096 for c in chunks)
+    assert vsp.GetIntResults(string_root, 'strings') == []
     # The aggregate VRO1 path must be exercised, not its per-field fallback.
     start = len(requests)
     obj = vsp.parse_results_object(root)

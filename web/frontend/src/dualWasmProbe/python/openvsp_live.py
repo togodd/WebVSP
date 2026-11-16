@@ -26,17 +26,43 @@ INT_DATA, DOUBLE_DATA, STRING_DATA, VEC3D_DATA, INT_MATRIX_DATA, DOUBLE_MATRIX_D
 
 
 class OpenVSPError(RuntimeError):
-    pass
+    def __init__(self, message, outcome=None, actual=None, code=None):
+        super().__init__(message)
+        self.outcome, self.actual, self.code = outcome, actual, code
+
+
+# Keep in step with LIVE_WRITES in syncProbe.ts.
+_LIVE_WRITES = frozenset({
+    'live_add_geom', 'live_delete_geom', 'live_update', 'live_parm_set', 'live_parm_set_by_id',
+    'live_analysis_defaults', 'live_analysis_set_int', 'live_analysis_run', 'live_insert_xsec',
+    'live_delete_xsec', 'live_change_xsec_shape', 'live_add_sub_surf', 'live_delete_sub_surf',
+    'live_set_set_name', 'live_set_set_flag',
+})
 
 
 def _call(operation, **arguments):
-    response = json.loads(request(operation, json.dumps(arguments, allow_nan=False)))
+    write = operation in _LIVE_WRITES
+    try:
+        payload = json.dumps(arguments, allow_nan=False)
+    except (TypeError, ValueError) as exc:
+        raise OpenVSPError(str(exc), 'not_written' if write else None, code='INVALID_ARGUMENT') from exc
+    try:
+        response = json.loads(request(operation, payload))
+    except Exception as exc:
+        raise OpenVSPError(str(exc), 'unknown' if write else None, code='TRANSPORT') from exc
     if not isinstance(response, dict) or not isinstance(response.get('ok'), bool):
-        raise OpenVSPError('Invalid synchronous response envelope')
+        raise OpenVSPError('Invalid synchronous response envelope', 'unknown' if write else None, code='INVALID_RESPONSE')
     if not response['ok']:
-        error = response.get('error') or {}
-        raise OpenVSPError(error.get('message') or 'OpenVSP call failed')
-    return response.get('value')
+        error = response.get('error')
+        if not isinstance(error, dict) or not isinstance(error.get('message'), str):
+            raise OpenVSPError('Invalid synchronous error envelope', 'unknown' if write else None, code='INVALID_RESPONSE')
+        outcome = error.get('outcome')
+        if outcome not in ('not_written', 'unknown', 'different'):
+            outcome = 'unknown' if write else None
+        raise OpenVSPError(error['message'], outcome, error.get('actual'), error.get('code'))
+    if 'value' not in response:
+        raise OpenVSPError('Successful synchronous response has no value', 'unknown' if write else None, code='INVALID_RESPONSE')
+    return response['value']
 
 
 def get_instance(instance=None):
@@ -337,6 +363,7 @@ def GetBinaryResults(result_id, data_name, index=0):
 
 def _binary_results(result_id, data_name, index, wanted_kind):
     result, row, offset, expected_kind, expected_rows, row_length = [], 0, 0, None, None, None
+    string_bytes = bytearray()
     while True:
         raw = request('live_result_binary_field', json.dumps({'result_id': result_id, 'name': data_name, 'index': index, 'row': row, 'offset': offset}, allow_nan=False))
         if isinstance(raw, str):
@@ -350,8 +377,6 @@ def _binary_results(result_id, data_name, index, wanted_kind):
             raise OpenVSPError('Unsupported binary result type')
         if wanted_kind is not None and kind != wanted_kind and expected_kind is None:
             return []
-        if kind == STRING_DATA:
-            raise OpenVSPError('Unsupported binary result type')
         if expected_kind is None:
             expected_kind, expected_rows = kind, rows
             if kind in (INT_DATA, DOUBLE_DATA) and rows != 1:
@@ -364,17 +389,28 @@ def _binary_results(result_id, data_name, index, wanted_kind):
             raise OpenVSPError('Invalid empty binary result')
         if kind == VEC3D_DATA and row < rows and length != 3:
             raise OpenVSPError('Invalid vector result shape')
-        size, fmt = (4, 'i') if kind in (INT_DATA, INT_MATRIX_DATA) else (8, 'd')
+        size, fmt = (1, None) if kind == STRING_DATA else ((4, 'i') if kind in (INT_DATA, INT_MATRIX_DATA) else (8, 'd'))
         if offset > length or count != min(4096, length - offset) or len(data) != 28 + count * size:
             raise OpenVSPError('Invalid binary result chunk length')
+        if kind == STRING_DATA and offset + count > length:
+            raise OpenVSPError('Invalid string byte range')
         if row == rows:
             return []
-        if offset == 0:
-            result.append([])
-        result[-1].extend(struct.unpack_from('<%d%s' % (count, fmt), data, 28))
+        if kind == STRING_DATA:
+            string_bytes.extend(data[28:])
+        else:
+            if offset == 0:
+                result.append([])
+            result[-1].extend(struct.unpack_from('<%d%s' % (count, fmt), data, 28))
         offset += count
         row_length = length
         if offset == length:
+            if kind == STRING_DATA:
+                try:
+                    result.append(string_bytes.decode('utf-8'))
+                except UnicodeDecodeError as exc:
+                    raise OpenVSPError('Invalid UTF-8 in binary result') from exc
+                string_bytes = bytearray()
             row += 1
             offset, row_length = 0, None
             if row == rows:
@@ -398,7 +434,7 @@ def GetDoubleResults(result_id, data_name, index=0):
 
 
 def GetStringResults(result_id, data_name, index=0):
-    return _values(result_id, data_name, index, STRING_DATA)
+    return _numeric_values(result_id, data_name, index, STRING_DATA)
 
 
 def GetDoubleMatResults(result_id, data_name, index=0):

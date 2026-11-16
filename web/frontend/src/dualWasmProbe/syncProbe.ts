@@ -6,6 +6,15 @@ type Model = { geoms: Geom[]; modelEpoch: string; modelEpochValid: boolean }
 const MAX_BYTES = 64 * 1024
 const RESPONSE_HEADER_BYTES = 8
 
+// Keep in step with openvsp_live.py: these calls can mutate model, analysis or results state.
+const LIVE_WRITES = new Set([
+  'live_add_geom', 'live_delete_geom', 'live_update', 'live_parm_set', 'live_parm_set_by_id',
+  'live_analysis_defaults', 'live_analysis_set_int', 'live_analysis_run', 'live_insert_xsec',
+  'live_delete_xsec', 'live_change_xsec_shape', 'live_add_sub_surf', 'live_delete_sub_surf',
+  'live_set_set_name', 'live_set_set_flag',
+])
+const isWrite = (op: string) => LIVE_WRITES.has(op) || SYNC_API.some((entry) => entry.operation === op && entry.write)
+
 function responseTooLarge(write: boolean, issued: boolean, capacity: number): string {
   return JSON.stringify({ ok: false, error: { message: `Synchronous response exceeds ${capacity}-byte limit`, code: 'RESPONSE_TOO_LARGE', ...(write ? { outcome: issued ? 'unknown' : 'not_written' } : {}) } })
 }
@@ -216,7 +225,14 @@ async function run(mode: 'read' | 'modeling' | 'script' | 'console', script?: st
         return callGuarded(engineOp, args.parm_id, '', 0, epoch!)
       }
       if ((mode === 'script' || mode === 'console') && op.startsWith('live_')) {
-        const live = (engineOp: string, a = '', b = '', value = 0) => syncProbeEngineCall(engineOp, a, b, value)
+        const live = (engineOp: string, a = '', b = '', value = 0) => {
+          if (isWrite(op)) {
+            if (finished || poisoned) throw new WasmEngineError(400, 'Probe stopped', 'not_written')
+            dispatchedWrite = true
+            currentWriteIssued = true
+          }
+          return syncProbeEngineCall(engineOp, a, b, value)
+        }
         const text = (key: string) => {
           const v = args[key]
           if (typeof v !== 'string' || !v) throw new WasmEngineError(400, `Invalid ${key}`, 'not_written')
@@ -302,10 +318,7 @@ async function run(mode: 'read' | 'modeling' | 'script' | 'console', script?: st
           return live('liveParmSetById', text('parm_id'), '', args.value as number)
         }
         if (op === 'live_result_shape') return live('liveResultShape', text('result_id'), text('name'), Number(args.index ?? 0))
-        if (op === 'live_result_values') {
-          if (typeof args.index !== 'number' || !Number.isSafeInteger(args.index) || args.index < 0) throw new WasmEngineError(400, 'Invalid result index', 'not_written')
-          return live('liveResultValues', text('result_id'), text('name'), args.index as number)
-        }
+
         throw new Error('Unsupported live operation')
       }
       if (op === 'results_fixture_open') return syncProbeEngineCall('results_fixture_open')
@@ -382,12 +395,12 @@ async function run(mode: 'read' | 'modeling' | 'script' | 'console', script?: st
             response = { ok: true, value }
           } finally { active = false }
         } catch (error) {
-          const write = SYNC_API.some((entry) => entry.operation === msg.op && entry.write)
+          const write = isWrite(msg.op ?? '')
           const details = error instanceof WasmEngineError ? { outcome: error.outcome ?? (write ? (currentWriteIssued ? 'unknown' : 'not_written') : undefined), actual: error.actual, code: error.code } : { outcome: write ? (currentWriteIssued ? 'unknown' : 'not_written') : undefined }
           response = { ok: false, error: { message: error instanceof Error ? error.message : String(error), ...details } }
         }
         if (finished) return
-        const write = SYNC_API.some((entry) => entry.operation === (msg.op ?? '') && entry.write)
+        const write = isWrite(msg.op ?? '')
         const control = new Int32Array(buffer, 0, 2)
         let bytes: Uint8Array
         try {

@@ -1233,7 +1233,8 @@ vector< uint8_t > LiveBinaryObject( Results *result )
 }
 
 // VRB2: type, row count, row index, row length, offset, count, then
-// at most 4096 native little-endian values. Empty matrices use row == rows.
+// at most 4096 native little-endian values (or UTF-8 bytes for strings).
+// Empty matrices and string vectors use row == rows.
 // Reading directly from NameValData avoids an unbounded intermediate copy.
 vector< uint8_t > LiveBinaryField( const NameValData *data, size_t row, size_t offset )
 {
@@ -1244,7 +1245,8 @@ vector< uint8_t > LiveBinaryField( const NameValData *data, size_t row, size_t o
     else if ( type == vsp::INT_MATRIX_DATA ) rows = data->GetIntMatData().size();
     else if ( type == vsp::DOUBLE_MATRIX_DATA ) rows = data->GetDoubleMatData().size();
     else if ( type == vsp::VEC3D_DATA ) rows = data->GetVec3dData().size();
-    else if ( type != vsp::STRING_DATA ) return {};
+    else if ( type == vsp::STRING_DATA ) rows = data->GetStringData().size();
+    else return {};
     if ( rows > UINT32_MAX || row > rows || ( row == rows && ( rows != 0 || offset != 0 ) ) ) return {};
     if ( row < rows )
     {
@@ -1252,6 +1254,7 @@ vector< uint8_t > LiveBinaryField( const NameValData *data, size_t row, size_t o
         else if ( type == vsp::DOUBLE_DATA ) length = data->GetDoubleData().size();
         else if ( type == vsp::INT_MATRIX_DATA ) length = data->GetIntMatData()[row].size();
         else if ( type == vsp::DOUBLE_MATRIX_DATA ) length = data->GetDoubleMatData()[row].size();
+        else if ( type == vsp::STRING_DATA ) length = data->GetStringData()[row].size();
         else length = 3;
     }
     if ( length > UINT32_MAX || offset > length ) return {};
@@ -1272,6 +1275,12 @@ vector< uint8_t > LiveBinaryField( const NameValData *data, size_t row, size_t o
         else if ( type == vsp::DOUBLE_DATA ) append( data->GetDoubleData() );
         else if ( type == vsp::INT_MATRIX_DATA ) append( data->GetIntMatData()[row] );
         else if ( type == vsp::DOUBLE_MATRIX_DATA ) append( data->GetDoubleMatData()[row] );
+        else if ( type == vsp::STRING_DATA )
+        {
+            const string &value = data->GetStringData()[row];
+            const size_t bytes = std::min( size_t( 4096 ), value.size() - offset );
+            out.insert( out.end(), value.begin() + offset, value.begin() + offset + bytes );
+        }
         else { const auto &p = data->GetVec3dData()[row]; const vector< double > xyz = { p.x(), p.y(), p.z() }; append( xyz ); }
     }
     return out;
@@ -2740,6 +2749,15 @@ void RunImpl( const Job &j )
     }
 #ifdef WEBVSP_LIVE_BINARY_TEST
     // Fixed, test-only data in the real ResultsMgr; no caller-controlled values.
+    if ( j.op == "liveBinaryStringTestFixture" )
+    {
+        Results *result = ResultsMgrSingleton::getInstance().CreateResults( "LiveBinaryStrings", "test only" );
+        if ( !result ) return Result( j.id, "Could not create fixture", "" );
+        const string big = string( 4095, 'a' ) + "\xE2\x82\xAC" + string( 8 * 1024 * 1024, 'b' );
+        result->Add( new NameValData( "strings", vector< string >{ "", big, "\xF0\x9F\x98\x80", "tail" }, "test" ) );
+        result->Add( new NameValData( "empty_strings", vector< string >{}, "test" ) );
+        return Result( j.id, "", Quote( result->GetID() ) );
+    }
     if ( j.op == "liveBinaryTestFixture" )
     {
         Results *result = ResultsMgrSingleton::getInstance().CreateResults( "LiveBinaryFixture", "test only" );
