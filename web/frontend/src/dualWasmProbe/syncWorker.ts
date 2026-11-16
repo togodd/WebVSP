@@ -4,6 +4,11 @@ import nativeUtility from './python/sync_native_utility.py?raw'
 import smoke from './python/sync_smoke.py?raw'
 import modelingSmoke from './python/sync_modeling_smoke.py?raw'
 import facade from './python/openvsp.py?raw'
+import liveFacade from './python/openvsp_live.py?raw'
+import nativeDegenParser from './python/native/degen_geom_parse.py?raw'
+import nativePatches from './python/native/surface_patches.py?raw'
+import degenInit from './python/native/degen_geom/__init__.py?raw'
+import degenModule from './python/native/degen_geom/degen_geom.py?raw'
 import syncGenerated from './python/_sync_generated.py?raw'
 import nativeOpenVspUtilities from './python/native/openvsp_utilities.py?raw'
 import nativeUtilitiesInit from './python/native/utilities/__init__.py?raw'
@@ -13,13 +18,18 @@ import nativeUtilitiesTransformations from './python/native/utilities/transforma
 
 const scope = self as unknown as DedicatedWorkerGlobalScope
 const MAX_BYTES = 64 * 1024
+// Result reads can be large: one patch matrix or a full DegenGeom list.
+const RESULTS_BYTES = 8 * 1024 * 1024
 const RESPONSE_HEADER_BYTES = 8
 let nextId = 0
 
 function request(op: string, args: string): string {
-  const buffer = new SharedArrayBuffer(RESPONSE_HEADER_BYTES + MAX_BYTES)
+  const capacity = op.startsWith('live_result') || op.startsWith('results_') ? RESULTS_BYTES : MAX_BYTES
+  // A fresh buffer per request: a delayed reply to an earlier request can never
+  // land in the one this request is waiting on.
+  const buffer = new SharedArrayBuffer(RESPONSE_HEADER_BYTES + capacity)
   const control = new Int32Array(buffer, 0, 2)
-  scope.postMessage({ type: 'request', id: ++nextId, op, args, buffer })
+  scope.postMessage({ type: 'request', id: ++nextId, op, args, buffer, capacity })
   const state = Atomics.wait(control, 0, 0, op === 'timeout_test' || op === 'timeout_real_test' ? 20 : 60_000)
   if (state === 'timed-out' && Atomics.load(control, 0) === 0) {
     if (op !== 'timeout_test') scope.postMessage({ type: 'abandon' })
@@ -27,12 +37,12 @@ function request(op: string, args: string): string {
   }
   if (Atomics.load(control, 0) !== 1) throw new Error('Invalid synchronous probe response')
   const size = Atomics.load(control, 1)
-  if (size < 0 || size > MAX_BYTES) throw new Error('Invalid response size')
+  if (size < 0 || size > capacity) throw new Error('Invalid response size')
   // TextDecoder rejects shared-backed views in Chromium; copy into an ordinary buffer.
   return new TextDecoder('utf-8', { fatal: true }).decode(Uint8Array.from(new Uint8Array(buffer, RESPONSE_HEADER_BYTES, size)))
 }
 
-scope.onmessage = (event: MessageEvent<{ assets: string; mode: 'read' | 'modeling' }>) => {
+scope.onmessage = (event: MessageEvent<{ assets: string; mode: 'read' | 'modeling' | 'script'; script?: string }>) => {
   void (async () => {
     const base = event.data.assets
     const url = new URL('pyodide.mjs', base).href
@@ -51,6 +61,28 @@ scope.onmessage = (event: MessageEvent<{ assets: string; mode: 'read' | 'modelin
       pyodide.FS.writeFile('/sync-probe/utilities/files.py', nativeUtilitiesFiles)
       pyodide.FS.writeFile('/sync-probe/utilities/units.py', nativeUtilitiesUnits)
       pyodide.FS.writeFile('/sync-probe/utilities/transformations.py', nativeUtilitiesTransformations)
+    }
+    if (event.data.mode === 'script') {
+      await pyodide.loadPackage(['numpy', 'six'], { checkIntegrity: true })
+      for (const dir of ['/sync-live/openvsp', '/sync-live/utilities', '/sync-live/degen_geom']) pyodide.FS.mkdirTree(dir)
+      for (const [name, content] of Object.entries({
+        'openvsp/__init__.py': liveFacade,
+        'degen_geom_parse.py': nativeDegenParser,
+        'surface_patches.py': nativePatches,
+        'degen_geom/__init__.py': degenInit,
+        'degen_geom/degen_geom.py': degenModule,
+        'openvsp_utilities.py': nativeOpenVspUtilities,
+        'utilities/__init__.py': nativeUtilitiesInit,
+        'utilities/files.py': nativeUtilitiesFiles,
+        'utilities/units.py': nativeUtilitiesUnits,
+        'utilities/transformations.py': nativeUtilitiesTransformations,
+      })) pyodide.FS.writeFile(`/sync-live/${name}`, content)
+      pyodide.runPython("import sys; sys.path.insert(0, '/sync-live')")
+      const value = await pyodide.runPythonAsync(event.data.script ?? '')
+      let text: string
+      try { text = JSON.stringify(value) } catch { text = String(value) }
+      scope.postMessage({ type: 'done', value: text })
+      return
     }
     pyodide.runPython("import sys; sys.path.insert(0, '/sync-probe')")
     const result = pyodide.runPython(event.data.mode === 'modeling' ? modelingSmoke : smoke) as string

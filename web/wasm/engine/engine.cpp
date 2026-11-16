@@ -1050,6 +1050,65 @@ string SyncFixtureStringArray( const vector< string > &values )
     return StrArray( values );
 }
 
+// Live result reads have no fixture-sized limits; the transport caps the whole
+// response instead. They still fail closed on absurd sizes and non-finite values.
+constexpr size_t LIVE_MAX_VALUES = 2000000;
+
+string LiveStringArray( const vector< string > &values )
+{
+    return StrArray( values );
+}
+
+bool LiveTooLarge( size_t n, string &err )
+{
+    if ( n > LIVE_MAX_VALUES ) { err = "Result field too large for the synchronous transport"; return true; }
+    return false;
+}
+
+string LiveIntArray( const vector< int > &values )
+{
+    string out = "[";
+    for ( size_t i = 0; i < values.size(); ++i ) out += ( i ? "," : "" ) + std::to_string( values[i] );
+    return out + "]";
+}
+
+string LiveDoubleArray( const vector< double > &values )
+{
+    string out = "[";
+    for ( size_t i = 0; i < values.size(); ++i )
+    {
+        if ( !std::isfinite( values[i] ) ) return string();
+        out += ( i ? "," : "" ) + Num( values[i] );
+    }
+    return out + "]";
+}
+
+string LiveDoubleMatrix( const vector< vector< double > > &values, size_t &count )
+{
+    string out = "[";
+    count = 0;
+    for ( size_t r = 0; r < values.size(); ++r )
+    {
+        count += values[r].size();
+        if ( count > LIVE_MAX_VALUES ) return string();
+        const string row = LiveDoubleArray( values[r] );
+        if ( row.empty() && !values[r].empty() ) return string();
+        out += ( r ? "," : "" ) + row;
+    }
+    return out + "]";
+}
+
+string LiveVec3dArray( const vector< vec3d > &values )
+{
+    string out = "[";
+    for ( size_t i = 0; i < values.size(); ++i )
+    {
+        if ( !std::isfinite( values[i].x() ) || !std::isfinite( values[i].y() ) || !std::isfinite( values[i].z() ) ) return string();
+        out += ( i ? "," : "" ) + string( "[" ) + Num( values[i].x() ) + "," + Num( values[i].y() ) + "," + Num( values[i].z() ) + "]";
+    }
+    return out + "]";
+}
+
 vector< string > SplitCsv( const string &s )
 {
     vector< string > out;
@@ -2445,6 +2504,149 @@ void RunImpl( const Job &j )
         vector< vec3d > values = vsp::GetVec3dResults( result_id, j.b, index );
         if ( !TakeParmErrors( true ).empty() ) return Result( j.id, "Invalid vec3d result field or index", "" );
         return Result( j.id, "", Vec3dArrayJson( values ) );
+    }
+    // ---- Native-like in-process analysis and results access ------------------
+    // Unlike the P1 diagnostic these run on the page's own model: a crash takes
+    // the session with it, and analysis results stay in the page's ResultsMgr.
+    if ( j.op == "liveAnalysisDefaults" || j.op == "liveAnalysisSetInt" || j.op == "liveAnalysisRun" )
+    {
+        const bool degen = j.a == "DegenGeom", patches = j.a == "SurfacePatches";
+        if ( !degen && !patches ) return Result( j.id, "Unknown analysis", "" );
+        auto &errors = vsp::ErrorMgrSingleton::getInstance();
+        if ( j.op == "liveAnalysisDefaults" )
+        {
+            vsp::SetAnalysisInputDefaults( j.a );
+            if ( errors.GetNumTotalErrors() ) return Result( j.id, errors.PopLastError().GetErrorString(), "" );
+            return Result( j.id, "", "null" );
+        }
+        if ( j.op == "liveAnalysisSetInt" )
+        {
+            if ( j.b != "Set" && j.b != "WriteCSVFlag" && j.b != "WriteMFileFlag" && j.b != "UseModeFlag" )
+                return Result( j.id, "Unsupported analysis input", "" );
+            vsp::SetIntAnalysisInput( j.a, j.b, { static_cast< int >( j.value ) }, 0 );
+            if ( errors.GetNumTotalErrors() ) return Result( j.id, errors.PopLastError().GetErrorString(), "" );
+            return Result( j.id, "", "null" );
+        }
+        // Always the whole model, never file output, never mode application.
+        vsp::SetIntAnalysisInput( j.a, "Set", { vsp::SET_ALL }, 0 );
+        if ( degen )
+        {
+            vsp::SetIntAnalysisInput( j.a, "WriteCSVFlag", { 0 }, 0 );
+            vsp::SetIntAnalysisInput( j.a, "WriteMFileFlag", { 0 }, 0 );
+            vsp::SetIntAnalysisInput( j.a, "UseModeFlag", { 0 }, 0 );
+        }
+        if ( errors.GetNumTotalErrors() ) return Result( j.id, errors.PopLastError().GetErrorString(), "" );
+        const string root = vsp::ExecAnalysis( j.a );
+        if ( errors.GetNumTotalErrors() ) return Result( j.id, errors.PopLastError().GetErrorString(), "" );
+        if ( root.empty() ) return Result( j.id, "Analysis returned no root result", "" );
+        return Result( j.id, "", Quote( root ) );
+    }
+    if ( j.op == "liveResultsIds" )
+        return Result( j.id, "", LiveStringArray( vsp::GetAllResultsIDs() ) );
+    if ( j.op == "liveResultName" || j.op == "liveResultNames" )
+    {
+        if ( j.a.empty() || !ResultsMgrSingleton::getInstance().FindResultsPtr( j.a ) )
+            return Result( j.id, "Unknown result ID", "" );
+        if ( j.op == "liveResultName" ) return Result( j.id, "", Quote( vsp::GetResultsName( j.a ) ) );
+        return Result( j.id, "", LiveStringArray( vsp::GetAllDataNames( j.a ) ) );
+    }
+    if ( j.op == "liveResultNumData" || j.op == "liveResultType" )
+    {
+        if ( j.a.empty() || j.b.empty() ) return Result( j.id, "Invalid result field", "" );
+        if ( j.op == "liveResultNumData" ) return Result( j.id, "", std::to_string( vsp::GetNumData( j.a, j.b ) ) );
+        const int type = vsp::GetResultsType( j.a, j.b );
+        if ( TakeParmErrors( true ) != "" ) return Result( j.id, "Unknown result field", "" );
+        return Result( j.id, "", std::to_string( type ) );
+    }
+    if ( j.op == "liveResultShape" )
+    {
+        if ( j.a.empty() || j.b.empty() ) return Result( j.id, "Invalid result field", "" );
+        const int index = static_cast< int >( j.value );
+        const int type = vsp::GetResultsType( j.a, j.b );
+        if ( TakeParmErrors( true ) != "" ) return Result( j.id, "Unknown result field", "" );
+        size_t rows = 0, cols = 0, total = 0;
+        if ( type == vsp::DOUBLE_MATRIX_DATA )
+        {
+            const auto m = vsp::GetDoubleMatResults( j.a, j.b, index );
+            rows = m.size();
+            for ( const auto &r : m ) { cols = std::max( cols, r.size() ); total += r.size(); }
+        }
+        else if ( type == vsp::INT_DATA ) total = vsp::GetIntResults( j.a, j.b, index ).size();
+        else if ( type == vsp::DOUBLE_DATA ) total = vsp::GetDoubleResults( j.a, j.b, index ).size();
+        else if ( type == vsp::STRING_DATA ) total = vsp::GetStringResults( j.a, j.b, index ).size();
+        else if ( type == vsp::VEC3D_DATA ) total = vsp::GetVec3dResults( j.a, j.b, index ).size();
+        if ( TakeParmErrors( true ) != "" ) return Result( j.id, "Invalid result field or index", "" );
+        return Result( j.id, "", "{\"type\":" + std::to_string( type ) + ",\"rows\":" + std::to_string( rows ) +
+                                 ",\"cols\":" + std::to_string( cols ) + ",\"total\":" + std::to_string( total ) + "}" );
+    }
+    if ( j.op == "liveResultValues" )
+    {
+        if ( j.a.empty() || j.b.empty() ) return Result( j.id, "Invalid result field", "" );
+        const int index = static_cast< int >( j.value );
+        if ( index < 0 ) return Result( j.id, "Invalid result index", "" );
+        const int type = vsp::GetResultsType( j.a, j.b );
+        if ( TakeParmErrors( true ) != "" ) return Result( j.id, "Unknown result field", "" );
+        string value;
+        if ( type == vsp::INT_DATA )
+        {
+            const auto v = vsp::GetIntResults( j.a, j.b, index );
+            string err;
+            if ( LiveTooLarge( v.size(), err ) ) return Result( j.id, err, "" );
+            value = LiveIntArray( v );
+        }
+        else if ( type == vsp::DOUBLE_DATA )
+        {
+            const auto v = vsp::GetDoubleResults( j.a, j.b, index );
+            string err;
+            if ( LiveTooLarge( v.size(), err ) ) return Result( j.id, err, "" );
+            value = LiveDoubleArray( v );
+        }
+        else if ( type == vsp::STRING_DATA )
+        {
+            value = LiveStringArray( vsp::GetStringResults( j.a, j.b, index ) );
+        }
+        else if ( type == vsp::DOUBLE_MATRIX_DATA )
+        {
+            size_t count = 0;
+            value = LiveDoubleMatrix( vsp::GetDoubleMatResults( j.a, j.b, index ), count );
+            if ( value.empty() ) return Result( j.id, "Invalid or oversized double matrix result", "" );
+        }
+        else if ( type == vsp::VEC3D_DATA )
+        {
+            value = LiveVec3dArray( vsp::GetVec3dResults( j.a, j.b, index ) );
+            if ( value.empty() && !vsp::GetVec3dResults( j.a, j.b, index ).empty() ) return Result( j.id, "Invalid vec3d result", "" );
+        }
+        else if ( type == vsp::INT_MATRIX_DATA )
+        {
+            string out = "[";
+            const auto rows = ResultsMgrSingleton::getInstance().GetIntMatResults( j.a, j.b, index );
+            for ( size_t i = 0; i < rows.size(); ++i ) out += ( i ? "," : "" ) + IntArrayJson( rows[i] );
+            value = out + "]";
+        }
+        else return Result( j.id, "Unsupported result type", "" );
+        if ( TakeParmErrors( true ) != "" ) return Result( j.id, "Invalid result field or index", "" );
+        return Result( j.id, "", "{\"type\":" + std::to_string( type ) + ",\"value\":" + value + "}" );
+    }
+    if ( j.op == "liveParmGet" || j.op == "liveParmSet" )
+    {
+        const size_t sep = j.b.find( '\x1f' );
+        if ( sep == string::npos ) return Result( j.id, "Invalid parameter name", "" );
+        const string group = j.b.substr( 0, sep ), name = j.b.substr( sep + 1 );
+        const double before = vsp::GetParmVal( j.a, name, group );
+        const string readErr = TakeParmErrors( true );
+        if ( !readErr.empty() ) return Result( j.id, "GetParmVal(" + group + "/" + name + "): " + readErr, "" );
+        if ( j.op == "liveParmGet" ) return Result( j.id, "", Num( before ) );
+        const double actual = vsp::SetParmVal( j.a, name, group, j.value );
+        const string writeErr = TakeParmErrors( true );
+        if ( !writeErr.empty() ) return Result( j.id, "SetParmVal(" + group + "/" + name + "): " + writeErr, "" );
+        return Result( j.id, "", Num( actual ) );
+    }
+    if ( j.op == "liveUpdate" )
+    {
+        vsp::Update();
+        if ( vsp::ErrorMgrSingleton::getInstance().GetNumTotalErrors() )
+            return Result( j.id, vsp::ErrorMgrSingleton::getInstance().PopLastError().GetErrorString(), "" );
+        return Result( j.id, "", "null" );
     }
     if ( j.op == "geomTypes" )
     {

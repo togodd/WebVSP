@@ -6,14 +6,14 @@ type Model = { geoms: Geom[]; modelEpoch: string; modelEpochValid: boolean }
 const MAX_BYTES = 64 * 1024
 const RESPONSE_HEADER_BYTES = 8
 
-function responseTooLarge(write: boolean, issued: boolean): string {
-  return JSON.stringify({ ok: false, error: { message: 'Synchronous response exceeds 65536-byte limit', code: 'RESPONSE_TOO_LARGE', ...(write ? { outcome: issued ? 'unknown' : 'not_written' } : {}) } })
+function responseTooLarge(write: boolean, issued: boolean, capacity: number): string {
+  return JSON.stringify({ ok: false, error: { message: `Synchronous response exceeds ${capacity}-byte limit`, code: 'RESPONSE_TOO_LARGE', ...(write ? { outcome: issued ? 'unknown' : 'not_written' } : {}) } })
 }
-function encodeResponse(response: unknown, write: boolean, issued: boolean): Uint8Array {
+function encodeResponse(response: unknown, write: boolean, issued: boolean, capacity: number): Uint8Array {
   const encoded = new TextEncoder().encode(JSON.stringify(response))
-  if (encoded.length <= MAX_BYTES) return encoded
-  const fallback = new TextEncoder().encode(responseTooLarge(write, issued))
-  if (fallback.length > MAX_BYTES) throw new Error('Response overflow fallback exceeds transport limit')
+  if (encoded.length <= capacity) return encoded
+  const fallback = new TextEncoder().encode(responseTooLarge(write, issued, capacity))
+  if (fallback.length > capacity) throw new Error('Response overflow fallback exceeds transport limit')
   return fallback
 }
 
@@ -22,7 +22,14 @@ export function runSyncProbe(): Promise<unknown> { return run('read') }
 /** Fixed diagnostic that creates and modifies one root wing. */
 export function runSyncModelingProbe(): Promise<unknown> { return run('modeling') }
 
-async function run(mode: 'read' | 'modeling'): Promise<unknown> {
+/**
+ * Run user Python against the live page model. The native-shaped `openvsp`
+ * module is available, as are the original degen_geom/surface patching helpers.
+ * This is arbitrary code in the user's own page: not a security boundary.
+ */
+export function runSyncScript(code: string): Promise<unknown> { return run('script', code) }
+
+async function run(mode: 'read' | 'modeling' | 'script', script?: string): Promise<unknown> {
   if (!crossOriginIsolated || typeof SharedArrayBuffer === 'undefined') throw new Error('Cross-origin isolation and SharedArrayBuffer are required')
   const worker = new Worker(new URL('./syncWorker.ts', import.meta.url), { type: 'module' })
   const assets = new URL(`${import.meta.env.BASE_URL}pyodide/`, window.location.href).href
@@ -177,6 +184,54 @@ async function run(mode: 'read' | 'modeling'): Promise<unknown> {
         const engineOp: 'parm_value_id' | 'parm_int_value_id' | 'parm_name_id' | 'parm_type_id' = op === 'parm_value_id' ? 'parm_value_id' : op === 'parm_int_value_id' ? 'parm_int_value_id' : op === 'parm_name_id' ? 'parm_name_id' : 'parm_type_id'
         return callGuarded(engineOp, args.parm_id, '', 0, epoch!)
       }
+      if (mode === 'script' && op.startsWith('live_')) {
+        const live = (engineOp: string, a = '', b = '', value = 0) => syncProbeEngineCall(engineOp, a, b, value)
+        const text = (key: string) => {
+          const v = args[key]
+          if (typeof v !== 'string' || !v) throw new WasmEngineError(400, `Invalid ${key}`, 'not_written')
+          return v
+        }
+        if (op === 'live_add_geom') {
+          const type = text('type')
+          const parent = args.parent === undefined || args.parent === '' ? '' : text('parent')
+          const result = await live('addGeom', type, parent)
+          const id = (result as { id?: string })?.id
+          if (!id) throw new Error('Geometry creation returned no ID')
+          return id
+        }
+        if (op === 'live_delete_geom') {
+          await live('deleteGeoms', text('geom_id'))
+          return null
+        }
+        if (op === 'live_update') {
+          await live('liveUpdate')
+          return null
+        }
+        if (op === 'live_parm_get') {
+          return live('liveParmGet', text('geom_id'), text('key'))
+        }
+        if (op === 'live_parm_set') {
+          if (typeof args.value !== 'number' || !Number.isFinite(args.value)) throw new WasmEngineError(400, 'Invalid parameter value', 'not_written')
+          return live('liveParmSet', text('geom_id'), text('key'), args.value as number)
+        }
+        if (op === 'live_analysis_defaults') return live('liveAnalysisDefaults', text('analysis'))
+        if (op === 'live_analysis_set_int') {
+          if (typeof args.value !== 'number' || !Number.isSafeInteger(args.value)) throw new WasmEngineError(400, 'Invalid analysis input value', 'not_written')
+          return live('liveAnalysisSetInt', text('analysis'), text('name'), args.value as number)
+        }
+        if (op === 'live_analysis_run') return live('liveAnalysisRun', text('analysis'))
+        if (op === 'live_results_ids') return live('liveResultsIds')
+        if (op === 'live_result_names') return live('liveResultNames', text('result_id'))
+        if (op === 'live_result_name') return live('liveResultName', text('result_id'))
+        if (op === 'live_result_num_data') return live('liveResultNumData', text('result_id'), text('name'))
+        if (op === 'live_result_type') return live('liveResultType', text('result_id'), text('name'))
+        if (op === 'live_result_shape') return live('liveResultShape', text('result_id'), text('name'), Number(args.index ?? 0))
+        if (op === 'live_result_values') {
+          if (typeof args.index !== 'number' || !Number.isSafeInteger(args.index) || args.index < 0) throw new WasmEngineError(400, 'Invalid result index', 'not_written')
+          return live('liveResultValues', text('result_id'), text('name'), args.index as number)
+        }
+        throw new Error('Unsupported live operation')
+      }
       if (op === 'results_fixture_open') return syncProbeEngineCall('results_fixture_open')
       if (op === 'results_fixture_close') return syncProbeEngineCall('results_fixture_close', String(args.fixture_token ?? ''))
       if (op === 'results_fixture_data_names') return syncProbeEngineCall('results_fixture_data_names', String(args.fixture_token ?? ''))
@@ -196,14 +251,15 @@ async function run(mode: 'read' | 'modeling'): Promise<unknown> {
     worker.onerror = (event) => finish(new Error(`Sync worker failed: ${event.message}`))
     worker.onmessageerror = () => finish(new Error('Invalid sync worker message'))
     worker.onmessage = (event: MessageEvent) => {
-      const msg = event.data as { type?: string; op?: string; args?: string; value?: string; error?: string; buffer?: SharedArrayBuffer }
+      const msg = event.data as { type?: string; op?: string; args?: string; value?: string; error?: string; buffer?: SharedArrayBuffer; capacity?: number }
       if (msg.type === 'done') {
         try { finish(undefined, JSON.parse(msg.value ?? '')) } catch { finish(new Error('Invalid sync result')) }
         return
       }
       if (msg.type === 'failed') return finish(new Error(msg.error ?? 'Sync worker failed'))
       if (msg.type === 'abandon') { poisoned = true; return }
-      if (msg.type !== 'request' || !(msg.buffer instanceof SharedArrayBuffer) || msg.buffer.byteLength !== RESPONSE_HEADER_BYTES + MAX_BYTES) return finish(new Error('Invalid sync request'))
+      const capacity = typeof msg.capacity === 'number' ? msg.capacity : MAX_BYTES
+      if (msg.type !== 'request' || !(msg.buffer instanceof SharedArrayBuffer) || msg.buffer.byteLength !== RESPONSE_HEADER_BYTES + capacity) return finish(new Error('Invalid sync request'))
       const buffer = msg.buffer
       if (msg.op === 'timeout_test') {
         setTimeout(() => {
@@ -234,14 +290,23 @@ async function run(mode: 'read' | 'modeling'): Promise<unknown> {
         }
         if (finished) return
         const write = SYNC_API.some((entry) => entry.operation === (msg.op ?? '') && entry.write)
-        const bytes = encodeResponse(response, write, currentWriteIssued)
-        new Uint8Array(buffer, RESPONSE_HEADER_BYTES).set(bytes)
         const control = new Int32Array(buffer, 0, 2)
+        let bytes: Uint8Array
+        try {
+          bytes = encodeResponse(response, write, currentWriteIssued, capacity)
+          new Uint8Array(buffer, RESPONSE_HEADER_BYTES).set(bytes)
+        } catch (error) {
+          // Never leave the waiting Python thread without an answer.
+          const message = `Synchronous response could not be delivered: ${error instanceof Error ? error.message : String(error)}`
+          bytes = new TextEncoder().encode(JSON.stringify({ ok: false, error: { message, code: 'TRANSPORT_WRITE_FAILED', ...(write ? { outcome: currentWriteIssued ? 'unknown' : 'not_written' } : {}) } }))
+          if (bytes.length > capacity) bytes = bytes.slice(0, capacity)
+          new Uint8Array(buffer, RESPONSE_HEADER_BYTES, bytes.length).set(bytes)
+        }
         Atomics.store(control, 1, bytes.length)
         Atomics.store(control, 0, 1)
         Atomics.notify(control, 0)
       })()
     }
-    worker.postMessage({ assets, mode })
+    worker.postMessage({ assets, mode, script })
   })
 }

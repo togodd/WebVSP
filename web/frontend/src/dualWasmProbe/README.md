@@ -16,6 +16,41 @@ The file test explicitly sends a fixed Python string to the page, writes a rando
 
 The fixed read diagnostic also opens a one-shot opaque ResultsMgr lease and runs the unchanged original `parse_results_object` against it. The engine creates fixed namedtuple-safe fields for int, string, double, double matrix, and vec3d, deep-copies typed getter results on the engine thread, and deletes only its own result. The lease is explicitly closed after parsing and has a 30-second TTL for worker loss. This validates the parser and transport contract only; arbitrary live result IDs, unrestricted Results Manager calls, and real analysis side effects are not exposed.
 
+## In-process mode: native-shaped Python on the page model
+
+`window.__runPython(code)` (with `?dualWasmProbe=1`) runs Python against the **live page
+model**, the way a desktop script does. The worker installs `openvsp` as a package whose
+calls go straight to the page's engine thread: `AddGeom`, `SetParmVal(geom, name, group, value)`,
+`GetParmVal`, `Update`, `FindGeoms`, `FindGeom`, `GetGeomName`, `GetGeomTypeName`,
+`GetGeomParmIDs`, `SetAnalysisInputDefaults`, `SetIntAnalysisInput`, `ExecAnalysis`,
+`GetAllResultsIDs`, `GetAllDataNames`, `GetResultsName`, `GetNumData`, `GetResultsType`,
+`GetIntResults`, `GetDoubleResults`, `GetStringResults`, `GetDoubleMatResults`,
+`GetVec3dResults` and `parse_results_object`. The original `degen_geom_parse` and
+`surface_patches` helpers run unmodified on those results, so existing scripts are the
+target, not a new API.
+
+```js
+await window.__runPython(`
+import openvsp as vsp, degen_geom_parse
+w = vsp.AddGeom("WING")
+vsp.SetParmVal(w, "TotalSpan", "WingGeom", 12.0)
+vsp.Update()
+root = vsp.ExecAnalysis("DegenGeom")
+len(degen_geom_parse.parse_degen_geom(root))
+`)
+```
+
+Analysis results **stay in the page's ResultsManager**, as on the desktop: nothing is
+serialized away, and later calls can read them.
+
+This mode deliberately gives up the protections the isolated diagnostic has: an analysis
+out-of-memory or assertion takes the whole engine session — and unsaved edits — with it;
+the engine thread is busy while an analysis runs, so the GUI mirror and 3D view stop
+updating and clicks are ignored; and there is no cancellation. It is arbitrary Python in
+your own page, not a security boundary. Analyses always cover the whole model with file
+output and mode application disabled. Large result fields use an 8 MiB response buffer;
+anything beyond that fails with a clear error instead of being truncated.
+
 ## P1 current-model analysis
 
 The page has a product entry: the top bar's **Geometry analysis** button opens a
