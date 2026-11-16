@@ -58,12 +58,16 @@ This mode deliberately gives up the protections the isolated diagnostic has: an 
 out-of-memory or assertion takes the whole engine session — and unsaved edits — with it;
 the engine thread is busy while an analysis runs, so the GUI mirror and 3D view stop
 updating and clicks are ignored; and there is no cancellation. It is arbitrary Python in
-your own page, not a security boundary. Analyses always cover the whole model with file
+your own page, not a security boundary. Live write errors do not currently expose a reliable
+`not_written`/`unknown` outcome to Python; after a transport error or timeout, inspect the
+model before retrying. Analyses always cover the whole model with file
 output and mode application disabled. Numeric result fields use bounded binary chunks that preserve IEEE-754 NaN and infinities,
 including ragged matrices. A field can change between chunk requests; shape changes are
 detected where possible, but a same-shape concurrent modification is not an atomic snapshot.
-String fields still use JSON chunks and a single oversized response fails instead of being
-truncated. `parse_results_object` first requests one result object as a bounded binary
+String fields still use JSON chunks sized by item count, not UTF-8 bytes: even a chunk of
+many moderate strings can exceed the 8 MiB response buffer. Oversized responses fail rather
+than being truncated, and the current engine getter can copy the whole string field before
+slicing it. A single string larger than the buffer cannot currently be retrieved. `parse_results_object` first requests one result object as a bounded binary
 snapshot (at most 512 KiB, 32,768 items and 1,024 fields); if it is unsupported or too
 large, it falls back to field reads. Strings are values, never inferred references, and
 no cache persists after parsing. The experimental recursive tree operation remains disabled.
