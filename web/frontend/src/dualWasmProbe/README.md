@@ -23,7 +23,7 @@ python/packages/degen_geom/degen_geom/{__init__,degen_geom}.py
 python/packages/utilities/utilities/{__init__,files,units,transformations,uberlogging,wt_util,atmosphere,simple_rotor_calcs}.py
 ```
 
-目录里没有的文件就是浏览器里没有提供的文件；`python/packages/README.md` 列出了缺口与原因，逐函数状态见
+目录里没有的文件就是浏览器里没有提供的文件；[python/PACKAGES.md](python/PACKAGES.md) 列出了缺口与原因，逐函数状态见
 [PYTHON_COMPATIBILITY.md](PYTHON_COMPATIBILITY.md)。每个文件与上游逐字节一致，`npm run dev` / `npm run build`
 前由 `scripts/check-native-modules.mjs` 按相同相对路径校验。
 
