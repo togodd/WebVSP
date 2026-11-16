@@ -31,6 +31,9 @@ struct Metrics
 // rebuilt in another instance, where IDs are reassigned.
 std::string Fingerprint();
 
+// FNV-1a of Fingerprint(): equality across two instances, not a stable file format.
+std::string FingerprintHash( const std::string &fingerprint );
+
 // No-op counter and state snapshot.
 Metrics TakeMetrics();
 

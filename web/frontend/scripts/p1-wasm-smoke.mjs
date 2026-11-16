@@ -141,7 +141,7 @@ try {
     }
   })
   await page.unroute(programRoute, injectProgram)
-  if (injected !== 1 || timeout.constructed !== 1 || timeout.posted !== 1 || timeout.messages !== 0 || timeout.enteredCallMain !== 1 || timeout.enteredAtTermination !== 1 || timeout.accelerated !== 1 || timeout.terminated !== 1 || timeout.failure !== 'Isolated DegenGeom timed out; its disposable worker was terminated' || !timeout.concurrentError.includes('already running')) throw new Error(`P1 timeout was not handled: ${JSON.stringify({ injected, ...timeout })}`)
+  if (injected !== 1 || timeout.constructed !== 1 || timeout.posted !== 1 || timeout.messages !== 0 || timeout.enteredCallMain !== 1 || timeout.enteredAtTermination !== 1 || timeout.accelerated !== 1 || timeout.terminated !== 1 || !/^Isolated (WING )?DegenGeom timed out; its disposable worker was terminated$/.test(timeout.failure) || !timeout.concurrentError.includes('already running')) throw new Error(`P1 timeout was not handled: ${JSON.stringify({ injected, ...timeout })}`)
   const afterTimeout = await page.evaluate(() => window.__webvspEngine.request('GET', '/model'))
   if (JSON.stringify(before) !== JSON.stringify(afterTimeout)) throw new Error('Page model changed after worker timeout')
   // A full subsequent run proves the guard was released and real workers recover.

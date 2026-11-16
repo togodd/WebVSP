@@ -54,7 +54,7 @@ class SnapshotFacade(types.ModuleType):
             raise ValueError('Unsupported analysis or invalid snapshot')
         if (snapshot.get('protocol') != 'webvsp-p1-analysis' or
                 type(snapshot.get('version')) is not int or snapshot['version'] != 1 or
-                snapshot.get('model') not in ('WING', 'PROP') or
+                snapshot.get('model') not in ('WING', 'PROP', 'MODEL') or
                 snapshot.get('analysis') != analysis):
             raise ValueError('Invalid P1 snapshot header')
         if not isinstance(snapshot.get('root'), str) or not snapshot['root']:
@@ -63,6 +63,7 @@ class SnapshotFacade(types.ModuleType):
             raise ValueError('Invalid results list')
         self.analysis = analysis
         self.model = snapshot['model']
+        self.fingerprint = snapshot.get('modelFingerprint')
         self.root = snapshot['root']
         self._results = {}
         if len(snapshot['results']) > 4096:
@@ -210,6 +211,8 @@ def run():
         snapshots[analysis] = SnapshotFacade(json.loads(raw), analysis)
     if snapshots['DegenGeom'].model != snapshots['SurfacePatches'].model:
         raise ValueError('Snapshot models differ')
+    if snapshots['DegenGeom'].fingerprint != snapshots['SurfacePatches'].fingerprint:
+        raise ValueError('Copies of the current model differ between analyses')
 
     degen = snapshots['DegenGeom']
     utility, parser, _ = _bind(degen)
@@ -244,6 +247,7 @@ def run():
                     raise ValueError('Invalid surface patch matrices')
     return json.dumps({'protocol': 'webvsp-p1-analysis-summary', 'version': 1,
                        'model': degen.model,
+                       'modelFingerprint': degen.fingerprint,
                        'DegenGeom': {'root': degen.root, 'rootFields': list(root._fields),
                                      'results': len(degen._results), 'objects': len(objects),
                                      'geomIds': sorted(set(o.geom_id for o in objects))},

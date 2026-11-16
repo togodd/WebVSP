@@ -5,6 +5,8 @@
 #include "VSP_Geom_API.h"
 #include "APIErrorMgr.h"
 #include "ResultsMgr.h"
+#include "p1_xml_probe.h"
+#include <algorithm>
 #include <cmath>
 #include <cstdio>
 #include <stdexcept>
@@ -113,13 +115,20 @@ struct OwnedResults
     ~OwnedResults() noexcept { try { cleanup(); } catch ( ... ) {} }
 };
 
-string snapshot( const string &model, const string &analysis, const string &root, const vector<string> &ids )
+string snapshot( const string &model, const string &analysis, const string &root, const vector<string> &ids,
+                 const string &modelFingerprint = string(), int modelFingerprintLines = 0 )
 {
     if ( ids.size() > MAX_RESULTS ) throw std::runtime_error( "snapshot results budget exceeded" );
     if ( std::set<string>( ids.begin(), ids.end() ).count( root ) != 1 ) throw std::runtime_error( "analysis root missing" );
     Writer w;
     w.add( "{\"protocol\":\"webvsp-p1-analysis\",\"version\":1,\"model\":" ); w.quote( model );
-    w.add( ",\"analysis\":" ); w.quote( analysis ); w.add( ",\"root\":" ); w.quote( root ); w.add( ",\"results\":[" );
+    w.add( ",\"analysis\":" ); w.quote( analysis ); w.add( ",\"root\":" ); w.quote( root );
+    if ( !modelFingerprint.empty() )
+    {
+        w.add( ",\"modelFingerprint\":" ); w.quote( modelFingerprint );
+        w.add( ",\"modelFingerprintLines\":" ); w.integer( modelFingerprintLines );
+    }
+    w.add( ",\"results\":[" );
     for ( size_t i = 0; i < ids.size(); ++i )
     {
         Results *r = ResultsMgr.FindResultsPtr( ids[i] );
@@ -150,22 +159,45 @@ string snapshot( const string &model, const string &analysis, const string &root
 
 int main( int argc, char **argv )
 {
-    if ( argc != 3 || ( string( argv[1] ) != "WING" && string( argv[1] ) != "PROP" ) ||
+    if ( argc != 3 || ( string( argv[1] ) != "WING" && string( argv[1] ) != "PROP" && string( argv[1] ) != "FILE" ) ||
          ( string( argv[2] ) != "DegenGeom" && string( argv[2] ) != "SurfacePatches" ) )
     {
-        std::fprintf( stderr, "Usage: vsp_p1_analysis WING|PROP DegenGeom|SurfacePatches\n" );
+        std::fprintf( stderr, "Usage: vsp_p1_analysis WING|PROP|FILE DegenGeom|SurfacePatches\n" );
         return 2;
     }
     try
     {
-        const string model = argv[1], analysis = argv[2];
+        const string mode = argv[1], analysis = argv[2];
+        const string model = mode == "FILE" ? "MODEL" : mode;
         vsp::VSPCheckSetup();
         vsp::ErrorMgrSingleton::getInstance().SilenceErrors();
         check_errors( "setup" );
-        string geom = vsp::AddGeom( model );
-        check_errors( "AddGeom" );
-        if ( geom.empty() ) throw std::runtime_error( "AddGeom returned no geometry" );
-        vsp::Update(); check_errors( "Update" );
+        if ( mode != "FILE" )
+        {
+            string geom = vsp::AddGeom( model );
+            check_errors( "AddGeom" );
+            if ( geom.empty() ) throw std::runtime_error( "AddGeom returned no geometry" );
+            vsp::Update(); check_errors( "Update" );
+        }
+        string fingerprint;
+        int fingerprintLines = 0;
+        if ( mode == "FILE" )
+        {
+            // The page writes exactly this path into this disposable instance.
+            const string path = "/p1-input.vsp3";
+            std::FILE *f = std::fopen( path.c_str(), "rb" );
+            if ( !f ) throw std::runtime_error( "model input missing" );
+            std::fseek( f, 0, SEEK_END );
+            const long size = std::ftell( f );
+            std::fclose( f );
+            if ( size <= 0 || size > 4L * 1024 * 1024 ) throw std::runtime_error( "model input size invalid" );
+            vsp::ReadVSPFile( path ); // Appends; this instance starts empty.
+            check_errors( "ReadVSPFile" );
+            if ( vsp::FindGeoms().empty() ) throw std::runtime_error( "model input has no geometry" );
+            const string text = p1probe::Fingerprint();
+            fingerprint = p1probe::FingerprintHash( text );
+            fingerprintLines = static_cast< int >( std::count( text.begin(), text.end(), '\n' ) );
+        }
         string json;
         {
             OwnedResults owned;
@@ -178,7 +210,7 @@ int main( int argc, char **argv )
                 vsp::SetIntAnalysisInput( analysis, "UseModeFlag", { 0 } ); check_errors( "UseModeFlag input" );
             }
             string root = vsp::ExecAnalysis( analysis ); check_errors( "analysis" );
-            json = snapshot( model, analysis, root, owned.ids() );
+            json = snapshot( model, analysis, root, owned.ids(), fingerprint, fingerprintLines );
             owned.cleanup(); // A cleanup failure must not publish success.
         }
         std::printf( "WEBVSP_P1_RESULT=%s\n", json.c_str() );

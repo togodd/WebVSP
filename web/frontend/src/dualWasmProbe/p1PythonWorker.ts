@@ -20,7 +20,7 @@ scope.onmessage = ({ data }: MessageEvent<{ base: string; model: string; snapsho
   if (started) return // A disposable worker accepts at most one request.
   started = true
   void (async () => {
-    if (!['WING', 'PROP'].includes(data.model) || typeof data.snapshots?.DegenGeom !== 'string' || typeof data.snapshots?.SurfacePatches !== 'string') throw new Error('Invalid P1 Python diagnostic input')
+    if (!['WING', 'PROP', 'MODEL'].includes(data.model) || typeof data.snapshots?.DegenGeom !== 'string' || typeof data.snapshots?.SurfacePatches !== 'string') throw new Error('Invalid P1 Python diagnostic input')
     const base = new URL('pyodide/', data.base).href
     const { loadPyodide } = await import(/* @vite-ignore */ new URL('pyodide.mjs', base).href) as { loadPyodide: (options: { indexURL: string }) => Promise<PyodideInterface> }
     const pyodide = await loadPyodide({ indexURL: base })

@@ -13,8 +13,9 @@ if (new URLSearchParams(window.location.search).get('dualWasmProbe') === '1') {
   void import('./dualWasmProbe/probe').then(({ runDualWasmProbe }) => {
     ;(window as unknown as Record<string, unknown>).__runDualWasmProbe = runDualWasmProbe
   })
-  void import('./dualWasmProbe/p1Probe').then(({ runP1AnalysisProbe }) => {
+  void import('./dualWasmProbe/p1Probe').then(({ runP1AnalysisProbe, runP1CurrentModelProbe }) => {
     ;(window as unknown as Record<string, unknown>).__runP1AnalysisProbe = runP1AnalysisProbe
+    ;(window as unknown as Record<string, unknown>).__runP1CurrentModelProbe = runP1CurrentModelProbe
   })
   void import('./dualWasmProbe/syncProbe').then(({ runSyncProbe, runSyncModelingProbe }) => {
     ;(window as unknown as Record<string, unknown>).__runSyncWasmProbe = runSyncProbe

@@ -9,6 +9,7 @@
 #include "Vehicle.h"
 #include "VehicleMgr.h"
 #include "XmlUtil.h"
+#include "Geom.h"
 
 #include <libxml/tree.h>
 
@@ -123,13 +124,8 @@ string Fingerprint()
         out += "subsurfs " + std::to_string( vsp::GetSubSurfIDVec( id ).size() ) + "\n";
     }
 
-    // Selection IDs are reassigned on reload; compare names instead.
-    vector< string > active;
-    for ( const string &id : vsp::GetActiveGeoms() ) active.push_back( vsp::GetGeomName( id ) );
-    std::sort( active.begin(), active.end() );
-    out += "active " + std::to_string( active.size() );
-    for ( const string &name : active ) out += " " + name;
-    out += "\n";
+    // Selection is deliberately excluded: it is UI state, not geometry, and an
+    // isolated instance starts with nothing selected.
     return out;
 }
 
@@ -184,8 +180,67 @@ string Serialize( string *err, size_t maxBytes )
     return xml;
 }
 
+string FingerprintHash( const string &fingerprint )
+{
+    // FNV-1a 64-bit; only equality across two instances matters.
+    unsigned long long hash = 1469598103934665603ULL;
+    for ( unsigned char c : fingerprint )
+    {
+        hash ^= c;
+        hash *= 1099511628211ULL;
+    }
+    char b[24];
+    std::snprintf( b, sizeof b, "%016llx", hash );
+    return b;
+}
+
+// Deliberately narrow: only geometry whose state is fully serialized and whose
+// analysis does not depend on external files or scripts.
+bool SupportedGeomType( int type )
+{
+    switch ( type )
+    {
+    case POD_GEOM_TYPE:
+    case FUSELAGE_GEOM_TYPE:
+    case MS_WING_GEOM_TYPE:
+    case BLANK_GEOM_TYPE:
+    case PROP_GEOM_TYPE:
+    case STACK_GEOM_TYPE:
+        return true;
+    default:
+        return false;
+    }
+}
+
 string Report( bool includeXml )
 {
+    const vector< string > ids = vsp::FindGeoms();
+    string unsupported = "[";
+    bool supported = !ids.empty();
+    for ( size_t i = 0; i < ids.size(); ++i )
+    {
+        Geom *geom = VehicleMgr.GetVehicle() ? VehicleMgr.GetVehicle()->FindGeom( ids[i] ) : nullptr;
+        const int type = geom ? geom->GetType().m_Type : -1;
+        const string name = geom ? geom->GetType().m_Name : string( "?" );
+        const string parent = vsp::GetGeomParent( ids[i] );
+        const bool attached = !parent.empty() && parent != "NONE";
+        if ( !geom || !SupportedGeomType( type ) || attached )
+        {
+            supported = false;
+            if ( unsupported.size() > 1 ) unsupported += ",";
+            unsupported += "{\"name\":" + Quote( vsp::GetGeomName( ids[i] ) ) +
+                           ",\"type\":" + Quote( name ) +
+                           ",\"attached\":" + ( attached ? "true" : "false" ) + "}";
+        }
+    }
+    unsupported += "]";
+
+    if ( !supported )
+    {
+        return "{\"ok\":false,\"error\":" + Quote( ids.empty() ? "EMPTY_MODEL" : "UNSUPPORTED_GEOM" ) +
+               ",\"unsupported\":" + unsupported + ",\"geoms\":" + std::to_string( ids.size() ) + "}";
+    }
+
     Metrics before = TakeMetrics();
     string fpBefore = Fingerprint();
     before.parmLines = CountParmLines( fpBefore );
@@ -231,6 +286,15 @@ string Report( bool includeXml )
            ",\"parmLinesRemoved\":" + std::to_string( removed.size() ) +
            ",\"parmLinesAdded\":" + std::to_string( added.size() ) + "}";
     out += ",\"samples\":" + samples;
+    out += ",\"fingerprintHash\":" + Quote( FingerprintHash( fpBefore ) );
+    out += ",\"fingerprintLines\":" + std::to_string( std::count( fpBefore.begin(), fpBefore.end(), '\n' ) );
+    out += ",\"types\":[";
+    {
+        const vector< string > ids = vsp::FindGeoms();
+        for ( size_t i = 0; i < ids.size(); ++i )
+            out += ( i ? "," : "" ) + Quote( vsp::GetGeomTypeName( ids[i] ) );
+        out += "]";
+    }
     out += ",\"xmlBytes\":" + std::to_string( xml.size() );
     if ( includeXml && !xml.empty() ) out += ",\"xml\":" + Quote( xml );
     out += "}";

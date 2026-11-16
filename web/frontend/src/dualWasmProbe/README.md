@@ -16,6 +16,38 @@ The file test explicitly sends a fixed Python string to the page, writes a rando
 
 The fixed read diagnostic also opens a one-shot opaque ResultsMgr lease and runs the unchanged original `parse_results_object` against it. The engine creates fixed namedtuple-safe fields for int, string, double, double matrix, and vec3d, deep-copies typed getter results on the engine thread, and deletes only its own result. The lease is explicitly closed after parsing and has a 30-second TTL for worker loss. This validates the parser and transport contract only; arbitrary live result IDs, unrestricted Results Manager calls, and real analysis side effects are not exposed.
 
+## P1 current-model analysis (diagnostic)
+
+`await window.__runP1CurrentModelProbe()` analyzes a **serialized copy** of the active
+model in the disposable instance. The page model is never passed to the analysis. The
+engine encodes it to memory with `EncodeXml(SET_ALL)` — no file is written and the
+filename is not changed — and the isolated instance reads that text into its own fresh
+vehicle.
+
+Supported subset: `POD`, `FUSELAGE`, `WING`, `STACK`, `BLANK`, `PROP`, top-level only
+(no attached parent). Everything else — meshes, NGon meshes, human/wire/clone geometry,
+custom geometry, attached geometry, empty models — is rejected before serialization.
+Links, control surfaces and point-set airfoils inside those types are preserved.
+
+Equivalence is checked, not assumed: the engine hashes an ID-free canonical fingerprint
+of the source model (geometry tree, per-geom parameters keyed by display group/name,
+subsurface counts), the isolated instance hashes the same way after decoding, and the
+page refuses to return analysis results when the two hashes differ. The copy is also
+required to match across the two analyses.
+
+Measured side effects of encoding, from the Phase 1 spike: parameter values, update
+count, filename, selection and results are unchanged; the page watcher emits no
+`model_changed`. The global parm-change counter rises (50-64 per model), which only
+invalidates `LinkMgr`'s metadata caches, and `ParmMgr`'s dirty flag becomes true, which
+only triggers linkable-parameter metadata rebuilds.
+
+Limits: the model text is capped at 4 MiB and the result snapshot at 8 MiB. Each
+analysis still loads a fresh WASM instance and a fresh Pyodide, so a run takes tens of
+seconds on a large model. `ReadVSPFile` appends to a vehicle, so the isolated instance
+must be fresh — never reuse it. A model whose analysis output would exceed a budget
+fails rather than being truncated; peak native analysis memory and CPU remain only
+loosely bounded by the 1 GiB WASM maximum and the host timeout.
+
 ## P1 isolated analysis diagnostic
 
 With `?dualWasmProbe=1`, run `await window.__runP1AnalysisProbe()` in the browser console. This is a fixed diagnostic, not a general analysis API. Each analysis executes on a separately instantiated disposable WebAssembly module and its own worker, memory, OpenVSP global managers and filesystem; it creates a fixed default `WING` or `PROP` and **does not read or analyze the active page model**. It runs both real `DegenGeom` and `SurfacePatches` with `SET_ALL`, with DegenGeom mode and CSV/M output explicitly disabled. Separate instances are used for the two analyses, so their geom and results IDs are unrelated. The original `parse_results_object`, `parse_degen_geom` and `export_surface_patches` run unchanged against validated, in-memory snapshots. The adapter is narrow and snapshot-backed: it does not provide general `ExecAnalysis`, support arbitrary models or sets, or establish native SWIG parity.
