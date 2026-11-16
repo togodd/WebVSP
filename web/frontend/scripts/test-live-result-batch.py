@@ -33,6 +33,15 @@ def snapshot():
             text('points') + u(4) + u(1) + struct.pack('<3d', 1, 2, 3))
 
 class BatchTest(unittest.TestCase):
+    def test_instance_validation_precedes_bridge(self):
+        calls = []
+        vsp.request = lambda *args: calls.append(args) or snapshot()
+        with self.assertRaisesRegex(ValueError, 'Multiple OpenVSP instances'):
+            vsp.parse_results_object('root', object())
+        self.assertEqual(calls, [])
+        self.assertIsNone(vsp._RESULT_PARSE_CACHE)
+        self.assertEqual(vsp.parse_results_object('root', vsp).ref, ['another_result_id'])
+
     def test_batch_namedtuple_and_ieee(self):
         calls = []
         def request(op, raw):

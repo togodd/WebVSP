@@ -517,6 +517,8 @@ def _batch_result_cache(res_id):
 def parse_results_object(res_id, vsp_instance=None):
     """Desktop parser, with an operation-scoped cache that cannot go stale later."""
     import openvsp_utilities
+    # Preserve the facade's instance validation before any bridge request.
+    get_instance(vsp_instance)
     global _RESULT_PARSE_CACHE
     previous = _RESULT_PARSE_CACHE
     if previous is None:
