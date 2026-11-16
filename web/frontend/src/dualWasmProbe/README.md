@@ -175,6 +175,16 @@ WebVSP 自己编写的 Python 文件在 `python/` 顶层：`openvsp_live.py`（�
   没有路由到这两个 op。影响：脚本里的 `SetParmValUpdate` 会 `AttributeError`；可先 `SetParmValByID(pid, v)` 再
   `vsp.Update()` 近似替代，但更新时机与副作用不完全等价。
 
+- **`SetDoubleAnalysisInput`、`SetStringAnalysisInput` 与其它分析**：门面里没有这两个函数（调用即
+  `AttributeError`）；引擎的分析 op 也把分析名限定为 `DegenGeom`/`SurfacePatches`，其它名字返回
+  `Unknown analysis`，int 输入只认四个固定名字。这是**策略性白名单**，不是缺少一个 setter：
+  `CompGeom`/CFD/FEA/VSPAERO 系列会按 vehicle 导出设置写文件（浏览器只有 MEMFS，写出来也拿不到）；
+  `VSPAEROSinglePoint` 还会启动求解器（页面 worker，异步，`ExecAnalysis` 立即返回）；`ParasiteDrag`
+  需要 string + 多个 double 输入，并且会写 CSV、改导出路径；大模型上的时长也可能超过同步桥 60 秒上限。
+  真要支持需按分析逐项定义：允许的输入类型与名字、文件输出策略（禁写或重定向到 MEMFS 并清理）、超时/
+  取消、结果清理，以及桌面对照测试。成本分级：`MassProp`（全 int、无文件）最低，`CompGeom` 中等，
+  `ParasiteDrag` 较高，VSPAERO/CFD/FEA 与同步桥语义冲突、不建议在控制台做。
+
 ### 未实现原因分类
 
 1. 原生扩展不可用：桌面 `openvsp` 是 CPython 扩展，必须逐函数桥接；没写进门面的函数即不存在。
