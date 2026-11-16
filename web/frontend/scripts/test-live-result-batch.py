@@ -33,6 +33,28 @@ def snapshot():
             text('points') + u(4) + u(1) + struct.pack('<3d', 1, 2, 3))
 
 class BatchTest(unittest.TestCase):
+    def test_explicit_batch_statuses_and_vro1(self):
+        ids = ['ok', 'missing']
+        payload = b'VRM1' + u(2) + u(0) + u(len(snapshot())) + snapshot() + u(1) + u(0)
+        calls = []
+        vsp.request = lambda op, raw: calls.append((op, json.loads(raw))) or payload
+        result = vsp.GetResultSnapshots(ids)
+        self.assertEqual([x['status'] for x in result], ['ok', 'unknown'])
+        self.assertEqual(result[0]['data']['name'], 'Sample')
+        self.assertEqual(calls, [('live_result_objects', {'result_ids': ids})])
+
+    def test_batch_rejects_implicit_or_malformed_input(self):
+        with self.assertRaises(ValueError): vsp.GetResultSnapshots(['a\x1fb'])
+        with self.assertRaises(ValueError): vsp.GetResultSnapshots([])
+        with self.assertRaises(ValueError): vsp.GetResultSnapshots(['x'] * 33)
+        vsp.request = lambda *_: b'VRM1' + u(1) + u(0) + u(0)
+        with self.assertRaisesRegex(Exception, 'Invalid batch result item'):
+            vsp.GetResultSnapshots(['x'])
+
+    def test_capabilities(self):
+        vsp.request = lambda op, raw: json.dumps({'ok': True, 'value': {'max_ids': 32}})
+        self.assertEqual(vsp.GetResultSnapshotCapabilities()['max_ids'], 32)
+
     def test_instance_validation_precedes_bridge(self):
         calls = []
         vsp.request = lambda *args: calls.append(args) or snapshot()

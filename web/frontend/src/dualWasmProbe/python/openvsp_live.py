@@ -267,6 +267,59 @@ def GetAllResultsIDs():
     return _call('live_results_ids')
 
 
+def GetResultSnapshotCapabilities():
+    """Return bridge capabilities; callers must not infer IDs or consistency."""
+    return _call('live_result_objects_capabilities')
+
+
+def GetResultSnapshots(result_ids, fallback=False):
+    """Explicit IDs only. Fallback uses separate jobs and is not a snapshot."""
+    if not isinstance(result_ids, (list, tuple)) or not 1 <= len(result_ids) <= 32:
+        raise ValueError('At most 32 explicit result IDs are supported')
+    ids = list(result_ids)
+    if any(not isinstance(x, str) or not 1 <= len(x) <= 128 or not all(33 <= ord(c) <= 126 for c in x) for x in ids):
+        raise ValueError('Result IDs must be printable ASCII strings of 1..128 bytes')
+    raw = request('live_result_objects', json.dumps({'result_ids': ids}, allow_nan=False))
+    if isinstance(raw, str):
+        envelope = json.loads(raw)
+        error = envelope.get('error') or {}
+        if fallback and not envelope.get('ok') and (error.get('code') == 'UNSUPPORTED_OPERATION' or error.get('message') in ('Unsupported live operation', 'Unknown operation')):
+            out = []
+            for result_id in ids:
+                try:
+                    entry = _batch_result_cache(result_id)
+                    out.append({'id': result_id, 'status': 'ok', 'data': entry} if entry is not None else {'id': result_id, 'status': 'over_limit_or_unsupported'})
+                except OpenVSPError:
+                    out.append({'id': result_id, 'status': 'unknown_or_error'})
+            return out
+        raise OpenVSPError((envelope.get('error') or {}).get('message', 'Batch result read failed'))
+    data = bytes(raw.to_py() if hasattr(raw, 'to_py') else raw)
+    if len(data) > 512 * 1024 or len(data) < 8 or data[:4] != b'VRM1':
+        raise OpenVSPError('Invalid batch result header')
+    count = struct.unpack_from('<I', data, 4)[0]
+    if count != len(ids):
+        raise OpenVSPError('Batch result count mismatch')
+    pos, out = 8, []
+    for result_id in ids:
+        if pos + 8 > len(data): raise OpenVSPError('Truncated batch result')
+        status, size = struct.unpack_from('<II', data, pos); pos += 8
+        if status == 1 and size == 0: out.append({'id': result_id, 'status': 'unknown'})
+        elif status == 2 and size == 0: out.append({'id': result_id, 'status': 'over_limit_or_unsupported'})
+        elif status == 0 and size >= 12 and size <= 512 * 1024 and pos + size <= len(data):
+            payload = data[pos:pos + size]; pos += size
+            # Reuse the strict VRO1 decoder without another bridge request.
+            try:
+                entry = _decode_vro1(payload)
+            except ValueError as exc:
+                raise OpenVSPError('Malformed VRO1 result payload') from exc
+            if entry is None:
+                raise OpenVSPError('Malformed VRO1 result payload')
+            out.append({'id': result_id, 'status': 'ok', 'data': entry})
+        else: raise OpenVSPError('Invalid batch result item')
+    if pos != len(data): raise OpenVSPError('Trailing batch result bytes')
+    return out
+
+
 def GetResultTree(result_id):
     """Fetch a recursive JSON result tree in one engine request (Phase 3)."""
     return _call('live_result_tree', result_id=result_id)
@@ -441,8 +494,53 @@ def GetDoubleMatResults(result_id, data_name, index=0):
     return _numeric_values(result_id, data_name, index, DOUBLE_MATRIX_DATA)
 
 
+def _decode_vro1(data):
+    try:
+        if len(data) > 512 * 1024 or data[:4] != b'VRO1': raise ValueError('invalid VRO1 header')
+        pos = 4
+        def number():
+            nonlocal pos
+            if pos + 4 > len(data): raise ValueError('truncated number')
+            value, = struct.unpack_from('<I', data, pos); pos += 4; return value
+        def text():
+            nonlocal pos
+            size = number()
+            if size > len(data) - pos: raise ValueError('truncated string')
+            value = data[pos:pos + size].decode('utf-8'); pos += size; return value
+        def vector(fmt):
+            nonlocal pos
+            n = number(); size = struct.calcsize(fmt)
+            if n > 32768 or n > (len(data) - pos) // size: raise ValueError('invalid vector size')
+            values = list(struct.unpack_from('<%d%s' % (n, fmt), data, pos)); pos += n * size; return values
+        name, count = text(), number()
+        if count > 1024: raise ValueError('too many fields')
+        entry = {'names': [], 'name': name, 'types': {}, 'values': {}}
+        for _ in range(count):
+            field, kind = text(), number()
+            if field in entry['types']: return None
+            if kind == INT_DATA: value = vector('i')
+            elif kind == DOUBLE_DATA: value = vector('d')
+            elif kind == STRING_DATA:
+                n = number()
+                if n > 32768: raise ValueError('too many values')
+                value = [text() for _ in range(n)]
+            elif kind == DOUBLE_MATRIX_DATA:
+                n = number()
+                if n > 32768: raise ValueError('too many values')
+                value = [vector('d') for _ in range(n)]
+            elif kind == VEC3D_DATA:
+                n = number()
+                if n > 32768 or n > (len(data) - pos) // 24: return None
+                value = [list(struct.unpack_from('<3d', data, pos + 24 * i)) for i in range(n)]; pos += n * 24
+            else: return None
+            entry['names'].append(field); entry['types'][field] = kind; entry['values'][(field, 0, kind)] = value
+        return entry if pos == len(data) else None
+    except (UnicodeDecodeError, struct.error, OverflowError) as exc:
+        raise ValueError('invalid VRO1 payload') from exc
+
+
 def _batch_result_cache(res_id):
-    """Decode the bounded VRO1 snapshot, or return None for safe fallback."""
+    """Decode one VRO1 object; malformed/unsupported data safely falls back."""
     raw = request('live_result_object', json.dumps({'result_id': res_id}, allow_nan=False))
     if isinstance(raw, str):
         envelope = json.loads(raw)
@@ -450,66 +548,9 @@ def _batch_result_cache(res_id):
             raise OpenVSPError((envelope.get('error') or {}).get('message', 'Result object read failed'))
         return None
     data = bytes(raw.to_py() if hasattr(raw, 'to_py') else raw)
+    if len(data) > 512 * 1024 or data[:4] != b'VRO1': return None
     try:
-        if len(data) > 512 * 1024 or data[:4] != b'VRO1':
-            return None
-        pos = 4
-        def number():
-            nonlocal pos
-            value, = struct.unpack_from('<I', data, pos)
-            pos += 4
-            return value
-        def text():
-            nonlocal pos
-            size = number()
-            if size > len(data) - pos:
-                raise ValueError('truncated string')
-            value = data[pos:pos + size].decode('utf-8')
-            pos += size
-            return value
-        def vector(fmt):
-            nonlocal pos
-            n = number()
-            size = struct.calcsize(fmt)
-            if n > 32768 or n > (len(data) - pos) // size:
-                raise ValueError('invalid vector size')
-            values = list(struct.unpack_from('<%d%s' % (n, fmt), data, pos))
-            pos += n * size
-            return values
-        name, count = text(), number()
-        if count > 1024:
-            return None
-        entry = {'names': [], 'name': name, 'types': {}, 'values': {}}
-        for _ in range(count):
-            field, kind = text(), number()
-            if field in entry['types']:
-                return None
-            if kind == INT_DATA:
-                value = vector('i')
-            elif kind == DOUBLE_DATA:
-                value = vector('d')
-            elif kind == STRING_DATA:
-                n = number()
-                if n > 32768:
-                    return None
-                value = [text() for _ in range(n)]
-            elif kind == DOUBLE_MATRIX_DATA:
-                n = number()
-                if n > 32768:
-                    return None
-                value = [vector('d') for _ in range(n)]
-            elif kind == VEC3D_DATA:
-                n = number()
-                if n > 32768 or n > (len(data) - pos) // 24:
-                    return None
-                value = [list(struct.unpack_from('<3d', data, pos + 24 * i)) for i in range(n)]
-                pos += n * 24
-            else:
-                return None
-            entry['names'].append(field)
-            entry['types'][field] = kind
-            entry['values'][(field, 0, kind)] = value
-        return entry if pos == len(data) else None
+        return _decode_vro1(data)
     except (ValueError, UnicodeDecodeError, struct.error, OverflowError):
         return None
 

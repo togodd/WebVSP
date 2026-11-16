@@ -2779,6 +2779,45 @@ void RunImpl( const Job &j )
         return Result( j.id, "", Quote( result->GetID() ) );
     }
 #endif
+    // Explicit IDs only: one job, no traversal or relationship inference. VRM1
+    // contains count, then (status, byte length, VRO1 bytes) for each input.
+    if ( j.op == "liveResultObjectsCapabilities" )
+        return Result( j.id, "", "{\"version\":1,\"max_ids\":32,\"max_id_bytes\":128,\"max_bytes\":524288}" );
+    if ( j.op == "liveResultObjects" )
+    {
+        constexpr size_t MAX_IDS = 32, MAX_ID_BYTES = 128, MAX_BYTES = 512 * 1024;
+        vector<string> ids;
+        if ( j.a.empty() ) return Result( j.id, "Invalid result IDs", "" );
+        if ( !j.a.empty() )
+        {
+            size_t start = 0;
+            while ( true )
+            {
+                size_t end = j.a.find( '\x1f', start );
+                string id = j.a.substr( start, end == string::npos ? string::npos : end - start );
+                if ( id.empty() || id.size() > MAX_ID_BYTES || ids.size() == MAX_IDS )
+                    return Result( j.id, "Invalid result IDs", "" );
+                for ( unsigned char c : id ) if ( c < 33 || c > 126 ) return Result( j.id, "Invalid result IDs", "" );
+                ids.push_back( id );
+                if ( end == string::npos ) break;
+                start = end + 1;
+            }
+        }
+        vector<uint8_t> out = { 'V', 'R', 'M', '1' };
+        Put32( out, ids.size() );
+        for ( size_t i = 0; i < ids.size(); ++i )
+        {
+            Results *r = ResultsMgrSingleton::getInstance().FindResultsPtr( ids[i] );
+            vector<uint8_t> bytes = r ? LiveBinaryObject( r ) : vector<uint8_t>();
+            // Reserve every remaining status header before adding a payload.
+            const size_t reserved = 8 * ( ids.size() - i );
+            unsigned status = !r ? 1 : ( bytes.empty() || bytes.size() > MAX_BYTES - out.size() - reserved ? 2 : 0 );
+            Put32( out, status ); Put32( out, status == 0 ? bytes.size() : 0 );
+            if ( status == 0 ) out.insert( out.end(), bytes.begin(), bytes.end() );
+        }
+        { std::lock_guard< std::mutex > lock( g_Mutex ); g_Binary[j.id] = std::move( out ); }
+        return Result( j.id, "", "", true );
+    }
     if ( j.op == "liveResultObject" )
     {
         Results *result = ResultsMgrSingleton::getInstance().FindResultsPtr( j.a );

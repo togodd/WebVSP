@@ -74,6 +74,11 @@ try:
     assert math.isnan(obj.matrix[1][0]) and obj.matrix[1][1:] == [math.inf, -math.inf]
     assert obj.empty_matrix == []
     assert math.isnan(obj.points[0][0]) and obj.points[0][1:] == [math.inf, -math.inf]
+    assert vsp.GetResultSnapshotCapabilities()['max_ids'] == 32
+    batch = vsp.GetResultSnapshots([root, 'missing', string_root, root])
+    assert [x['status'] for x in batch] == ['ok', 'unknown', 'over_limit_or_unsupported', 'ok']
+    assert math.isnan(batch[0]['data']['values'][('n8193', 0, 2)][4096])
+    assert batch[3]['id'] == root
     summary = json.dumps({'ok': True, 'requests': len(requests)})
 finally:
     live.request = original_request

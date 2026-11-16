@@ -269,6 +269,13 @@ async function run(mode: 'read' | 'modeling' | 'script' | 'console', script?: st
         if (op === 'live_analysis_run') return live('liveAnalysisRun', text('analysis'))
         if (op === 'live_results_ids') return live('liveResultsIds')
         if (op === 'live_result_tree') throw new WasmEngineError(400, 'Result tree batching is disabled until bounded and lossless', 'not_written')
+        if (op === 'live_result_objects_capabilities') return live('liveResultObjectsCapabilities')
+        if (op === 'live_result_objects') {
+          const ids = args.result_ids
+          if (!Array.isArray(ids) || ids.length < 1 || ids.length > 32 || ids.some(id => typeof id !== 'string' || !/^[\x21-\x7e]{1,128}$/.test(id)))
+            throw new WasmEngineError(400, 'Invalid result IDs', 'not_written')
+          return live('liveResultObjects', ids.join('\x1f'))
+        }
         if (op === 'live_result_object') return live('liveResultObject', text('result_id'))
         if (op === 'live_result_binary_field') {
           const name = text('name')
@@ -391,13 +398,14 @@ async function run(mode: 'read' | 'modeling' | 'script' | 'console', script?: st
             const args = JSON.parse(msg.args ?? '{}') as Record<string, unknown>
             if (!args || typeof args !== 'object' || Array.isArray(args)) throw new Error('Invalid arguments')
             const value = await dispatch(msg.op ?? '', args)
-            if ((msg.op === 'live_result_binary_field' || msg.op === 'live_result_object') && value instanceof ArrayBuffer) binaryResponse = value
+            if ((msg.op === 'live_result_binary_field' || msg.op === 'live_result_object' || msg.op === 'live_result_objects') && value instanceof ArrayBuffer) binaryResponse = value
             response = { ok: true, value }
           } finally { active = false }
         } catch (error) {
           const write = isWrite(msg.op ?? '')
           const details = error instanceof WasmEngineError ? { outcome: error.outcome ?? (write ? (currentWriteIssued ? 'unknown' : 'not_written') : undefined), actual: error.actual, code: error.code } : { outcome: write ? (currentWriteIssued ? 'unknown' : 'not_written') : undefined }
-          response = { ok: false, error: { message: error instanceof Error ? error.message : String(error), ...details } }
+          const message = error instanceof Error ? error.message : String(error)
+          response = { ok: false, error: { message, ...(message === 'Unsupported live operation' ? { code: 'UNSUPPORTED_OPERATION' } : {}), ...details } }
         }
         if (finished) return
         const write = isWrite(msg.op ?? '')

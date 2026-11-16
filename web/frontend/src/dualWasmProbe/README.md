@@ -69,8 +69,16 @@ String fields use VRB2 chunks of at most 4096 UTF-8 bytes per value, including f
 individual strings larger than the response buffer. Python reassembles and validates each
 value as UTF-8; malformed or changing chunks fail rather than being silently truncated. `parse_results_object` first requests one result object as a bounded binary
 snapshot (at most 512 KiB, 32,768 items and 1,024 fields); if it is unsupported or too
-large, it falls back to field reads. Strings are values, never inferred references, and
-no cache persists after parsing. The experimental recursive tree operation remains disabled.
+large, it falls back to field reads. `GetResultSnapshots([id, ...], fallback=False)` is the
+explicit-ID, one-engine-job batch API: it preserves caller order and duplicates and returns
+per-item `unknown` (missing ID) or `over_limit_or_unsupported` status, plus decoded VRO1 data
+for successful items. The batch has at most 32 printable-ASCII IDs (128 bytes each) and a
+512 KiB aggregate response cap. `GetResultSnapshotCapabilities()` reports these limits.
+The batch is consistent within its one engine job only; separate calls and fallback reads do
+not promise cross-request consistency. `fallback=True` is only for unsupported batch operation
+and performs non-atomic individual reads. Malformed successful VRM1/VRO1 payloads fail closed
+rather than becoming an item status. Strings are values, never inferred references, and no
+cache persists after parsing. The experimental recursive tree operation remains disabled.
 
 ## P1 current-model analysis
 
