@@ -1,13 +1,4 @@
-import { openEngineFile, saveEngineFile, syncProbeEngineCall, wasmRequest, WasmEngineError } from '../api/wasmEngine'
-
-type Geom = { id: string; name: string; type: string }
-
-/** The page's current model snapshot; geometry queries below read it in model order. */
-async function pageGeoms(): Promise<Geom[]> {
-  const result = await wasmRequest('GET', '/model') as { geoms?: Geom[] }
-  if (!Array.isArray(result?.geoms)) throw new Error('Model read returned no geometry list')
-  return result.geoms
-}
+import { openEngineFile, saveEngineFile, syncProbeEngineCall, WasmEngineError } from '../api/wasmEngine'
 
 const MAX_BYTES = 64 * 1024
 const RESPONSE_HEADER_BYTES = 8
@@ -18,7 +9,7 @@ const LIVE_WRITES = new Set([
   'live_analysis_defaults', 'live_analysis_set_int', 'live_analysis_run', 'live_insert_xsec',
   'live_delete_xsec', 'live_change_xsec_shape', 'live_add_sub_surf', 'live_delete_sub_surf',
   'live_set_set_name', 'live_set_set_flag', 'live_delete_result', 'live_delete_all_results',
-  'live_parm_set_update',
+  'live_parm_set_update', 'live_set_geom_name',
 ])
 // File operations also mutate the session: ReadVSPFile replaces the model and
 // WriteVSPFile renames it, so both carry write-outcome semantics.
@@ -99,18 +90,16 @@ async function run(mode: 'script' | 'console', script?: string): Promise<unknown
         if (typeof v !== 'string' || !v) throw new WasmEngineError(400, `Invalid ${key}`, 'not_written')
         return v
       }
-      if (op === 'find_geoms') return (await pageGeoms()).map((g) => g.id)
+      if (op === 'find_geoms') return syncProbeEngineCall('liveFindGeoms')
       if (op === 'find_geom') {
         const index = args.index
-        if (typeof index !== 'number' || !Number.isSafeInteger(index)) throw new WasmEngineError(400, 'Invalid index', 'not_written')
-        return (await pageGeoms()).filter((g) => g.name === textArg('name'))[index]?.id ?? ''
+        if (typeof index !== 'number' || !Number.isSafeInteger(index) || index < 0) throw new WasmEngineError(400, 'Invalid index', 'not_written')
+        return syncProbeEngineCall('liveFindGeom', textArg('name'), '', index)
       }
-      if (op === 'geom_name' || op === 'geom_type') {
-        const id = textArg('geom_id')
-        const geom = (await pageGeoms()).find((g) => g.id === id)
-        if (!geom) throw new WasmEngineError(404, 'Geometry not found', 'not_written')
-        return op === 'geom_name' ? geom.name : geom.type
-      }
+      if (op === 'geom_name') return syncProbeEngineCall('liveGeomName', textArg('geom_id'))
+      if (op === 'geom_type') return syncProbeEngineCall('liveGeomTypeName', textArg('geom_id'))
+      if (op === 'geom_parent') return syncProbeEngineCall('liveGeomParent', textArg('geom_id'))
+      if (op === 'geom_children') return syncProbeEngineCall('liveGeomChildren', textArg('geom_id'))
       if (op === 'geom_parm_ids') return syncProbeEngineCall('geomParmIDs', textArg('geom_id'))
       if (FILE_OPS.has(op)) {
         if (finished || poisoned) throw new WasmEngineError(400, 'Probe stopped', 'not_written')
@@ -187,6 +176,11 @@ async function run(mode: 'script' | 'console', script?: string): Promise<unknown
         if (op === 'live_parm_group') return live('liveParmGroup', text('parm_id'))
         if (op === 'live_parm_display_group') return live('liveParmDisplayGroup', text('parm_id'))
         if (op === 'live_parm_find') return live('liveParmFind', text('container_id'), text('key'))
+        if (op === 'live_set_geom_name') {
+          const name = args.name
+          if (typeof name !== 'string' || !name || new TextEncoder().encode(name).length > 256) throw new WasmEngineError(400, 'Invalid geometry name', 'not_written')
+          return live('liveSetGeomName', text('geom_id'), name)
+        }
         if (op === 'live_parm_set_update') {
           if (typeof args.value !== 'number' || !Number.isFinite(args.value)) throw new WasmEngineError(400, 'Invalid parameter value', 'not_written')
           return live('liveParmSetUpdate', text('parm_id'), '', args.value as number)

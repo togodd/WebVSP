@@ -86,7 +86,9 @@ WebVSP 自己编写的 Python 文件在 `python/` 顶层：`openvsp_live.py`（�
 | `SET_ALL`、数据类型常量、`CLONE_DELETE_*` | ✅ | `SET_ALL=0` 构建时与 `APIDefines.h` 校验 |
 | `XS_*`、`SS_*` 常量 | 🟨 | 只写死一小部分，不是完整枚举 |
 | `AddGeom`、`DeleteGeom`、`Update`、`FindGeoms`、`FindGeom` | ✅ | `DeleteGeom` 支持三种克隆策略；`Update` 参数被忽略，始终完整更新 |
-| `GetGeomName`、`GetGeomTypeName`、`GetGeomParmIDs` | ✅ | |
+| `FindGeoms`、`FindGeom`、`GetGeomName`、`GetGeomTypeName` | ✅ | 直接读引擎线程，改名后同一段脚本内即可见 |
+| `GetGeomParent`、`GetGeomChildren`、`SetGeomName` | ✅ | 顶层父级是 `'NONE'`；自命名（Clone 等）拒绝改名 |
+| `GetGeomParmIDs` | ✅ | |
 | `GetParmVal`、`SetParmVal` | ✅ | `GetParmVal` 支持单参数重载；`SetParmVal` 不触发更新 |
 | `GetParmInfo`、`GetParmInfoByName`、`GetParmValByID`、`SetParmValByID` | ✅ | `GetParmInfo` 另含 `active`、`lower`、`upper`、`groupName` |
 | `GetParmType`、`GetParmLowerLimit`/`UpperLimit`、`GetParmActiveFlag` | ✅ | 限制为 `None` 表示无界 |
@@ -108,7 +110,6 @@ WebVSP 自己编写的 Python 文件在 `python/` 顶层：`openvsp_live.py`（�
 | `parse_results_object`、`GetResultSnapshotCapabilities`、`GetResultSnapshots` | ✅ | 见“运行机制与限制” |
 | `GetResultTree`、`parse_results_tree`、`parse_results_object_fast`、`parse_surface_patches_fast` | 🚫 | 递归结果树被固定拒绝 |
 | `ReadVSPFile`、`WriteVSPFile`、`ExportFile`、`ImportFile`、`SetVSP3FileName`、`GetVSPFileName`、`ClearVSPModel` | ✅ | 同步语义，操作引擎文件系统；相对路径解析到 `/work`（见“Python 工作区与文件 API”）。`ExportFile` 只支持原生默认可选参数；本构建无 STEP 导出 |
-| `SetGeomName`、`GetGeomParent`、`SetParmValUpdate` | ❌ | 未桥接；引擎/页面已有可用数据或操作，缺少路由与守卫（见下节）。`GetGeomType` 不是原生接口，只有 `GetGeomTypeName`/`GetGeomTypes` |
 
 ### 上游 helper 模块
 
@@ -185,6 +186,29 @@ vsp.SetParmValUpdate(w, 'TotalSpan', 'WingGeom', 16.0)  # 按几何/名/组
   与桌面语义一致。
 - 参数读取是逐次引擎调用，不是原子快照；修改一个参数后，别的参数的 active/limits 可能随之变化。
 
+### 几何层级与改名
+
+```python
+w = vsp.AddGeom('WING')
+pod = vsp.AddGeom('POD', w)
+vsp.Update()
+
+vsp.GetGeomParent(w)        # 'NONE'（顶层）
+vsp.GetGeomParent(pod)      # w
+vsp.GetGeomChildren(w)      # [pod, ...]，模型顺序
+vsp.GetGeomChildren(pod)    # []
+
+vsp.SetGeomName(w, 'MainWing')
+vsp.GetGeomName(w)          # 立即为 'MainWing'
+vsp.FindGeom('MainWing')    # w
+```
+
+- `FindGeoms`/`FindGeom`/`GetGeomName`/`GetGeomTypeName` 现在直接在引擎线程读取，不再依赖页面
+  `GET /model` 快照，所以改名后同一段脚本里立刻可见。
+- `GetGeomParent` 返回原生值：顶层几何是 `'NONE'`，不是空串。
+- `SetGeomName` 与原生一致：会触发模型更新；自命名几何（Clone、部分派生几何）拒绝改名并抛 `OpenVSPError`；
+  名称限 1–256 UTF-8 字节，写入后读回校验。
+
 ### 结果管理
 
 长会话里分析结果会一直留在 ResultsManager 中（与桌面一致），因此补了按名查找与清理：
@@ -237,24 +261,10 @@ vsp.DeleteAllResults()                      # 清空
 
 ### 未桥接接口的堵点与影响
 
-这几个函数不是“做不到”，而是没接到 Python 门面上；堵点各不相同：
+剩余缺口不是“做不到”，而是有策略或依赖上的原因：
 
-- **`SetGeomName(id, name)`**：引擎已有 `guardedSetGeomName`（校验当前模型、非自动命名、≤256 字节，写入后读回校验，
-  不一致报 `different`/`unknown`）。堵点在于控制台写入走的是不带 epoch 的 `syncProbeEngineCall`，而 guarded 写需要
-  先取 `wasmRequest('GET','/model')` 的 `modelEpoch` 再调 `callGuarded`。要暴露给 Python，需给控制台加 epoch 读取、
-  一条 `live_set_geom_name` 路由、门面函数和测试；不需要改 C++。影响：批量脚本里的改名会直接 `AttributeError`，
-  目前只能通过镜像 GUI 改名。
-- **`GetGeomParent(id)`**：没有引擎 op 也不需要有——页面 `GET /model` 的每个几何已经带 `parent`/`children`，
-  控制台的 `FindGeoms`/`GetGeomName` 本来就在读这份数据。堵点仅是“没人写这层门面函数”。影响：脚本无法直接查父子
-  关系；注意它和现有几何查询一样是页面快照，不是引擎线程上的原子读。
 - **`GetGeomType(id)`**：**原生 API 里没有这个函数**，只有 `GetGeomTypes()`（类型名列表）和
   `GetGeomTypeName(id)`（已支持）。所以它不是缺口，不应为“补齐”去臆造一个数字类型码。
-- **`SetParmValUpdate(parm_id, value)`**：原生有两个重载（按参数 ID 或 geom/name/group）。引擎已有 `setParm`
-  （直接调 `vsp::SetParmValUpdate`，页面保存参数走的就是它）和更严格的 `geomSetParm`（检查 limits/active、
-  读回校验）。堵点是控制台只暴露了 `liveParmSet`/`liveParmSetById`，它们调用的是 `vsp::SetParmVal`（不触发更新），
-  没有路由到这两个 op。影响：脚本里的 `SetParmValUpdate` 会 `AttributeError`；可先 `SetParmValByID(pid, v)` 再
-  `vsp.Update()` 近似替代，但更新时机与副作用不完全等价。
-
 - **`SetDoubleAnalysisInput`、`SetStringAnalysisInput` 与其它分析**：门面里没有这两个函数（调用即
   `AttributeError`）；引擎的分析 op 也把分析名限定为 `DegenGeom`/`SurfacePatches`，其它名字返回
   `Unknown analysis`，int 输入只认四个固定名字。这是**策略性白名单**，不是缺少一个 setter：
@@ -286,10 +296,11 @@ vsp.DeleteAllResults()                      # 清空
 | 批量快照 | `python3 scripts/test-live-result-batch.py` |
 | 结果管理 | `python3 scripts/test-live-results.py` |
 | 参数元数据 | `python3 scripts/test-live-params.py` |
+| 几何层级/改名 | `python3 scripts/test-live-geometry.py` |
 | 文件 API 路径/参数 | `python3 scripts/test-live-files.py` |
 | 上游模块数值 | `python3 scripts/test-native-atmosphere.py`、`test-native-uberlogging.py`、`test-native-wt-util.py` |
 | 源码一致性 | `node scripts/check-native-modules.mjs` |
-| 真实浏览器（先构建并启动预览） | `console-smoke.mjs`、`live-analysis-smoke.mjs`、`scipy-console-browser-check.mjs`、`delete-clone-browser-check.mjs`、`live-binary-browser-check.mjs`、`file-io-browser-check.mjs`、`results-browser-check.mjs`、`params-browser-check.mjs` |
+| 真实浏览器（先构建并启动预览） | `console-smoke.mjs`、`live-analysis-smoke.mjs`、`scipy-console-browser-check.mjs`、`delete-clone-browser-check.mjs`、`live-binary-browser-check.mjs`、`file-io-browser-check.mjs`、`results-browser-check.mjs`、`params-browser-check.mjs`、`geometry-browser-check.mjs` |
 
 浏览器脚本需要 `CHROMIUM_PATH` 与 `WEBVSP_URL`（默认 `http://127.0.0.1:4173/`）。`?dualWasmProbe=1`
 只注册测试入口 `__runPython`；产品入口是顶栏 **Python Console** 按钮。

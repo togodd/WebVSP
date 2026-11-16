@@ -3162,6 +3162,54 @@ void RunImpl( const Job &j )
         if ( !err.empty() ) return Result( j.id, "SetParmVal failed: " + err, "" );
         return Result( j.id, "", Num( actual ) );
     }
+    if ( j.op == "liveFindGeoms" )
+        return Result( j.id, "", LiveStringArray( vsp::FindGeoms() ) );
+    if ( j.op == "liveFindGeom" )
+    {
+        if ( j.a.empty() ) return Result( j.id, "Invalid geometry name", "" );
+        if ( !std::isfinite( j.value ) || j.value < 0 || std::floor( j.value ) != j.value )
+            return Result( j.id, "Invalid geometry index", "" );
+        return Result( j.id, "", Quote( vsp::FindGeom( j.a, static_cast< int >( j.value ) ) ) );
+    }
+    if ( j.op == "liveGeomName" || j.op == "liveGeomTypeName" )
+    {
+        if ( j.a.empty() ) return Result( j.id, "Invalid geometry ID", "" );
+        const string value = j.op == "liveGeomName" ? vsp::GetGeomName( j.a ) : vsp::GetGeomTypeName( j.a );
+        string err = TakeErrors();
+        if ( !err.empty() ) return Result( j.id, err, "" );
+        return Result( j.id, "", Quote( value ) );
+    }
+    if ( j.op == "liveGeomParent" || j.op == "liveGeomChildren" )
+    {
+        if ( j.a.empty() ) return Result( j.id, "Invalid geometry ID", "" );
+        if ( j.op == "liveGeomChildren" )
+        {
+            const vector< string > children = vsp::GetGeomChildren( j.a );
+            string err = TakeErrors();
+            if ( !err.empty() ) return Result( j.id, err, "" );
+            return Result( j.id, "", LiveStringArray( children ) );
+        }
+        const string parent = vsp::GetGeomParent( j.a );
+        string err = TakeErrors();
+        if ( !err.empty() ) return Result( j.id, err, "" );
+        return Result( j.id, "", Quote( parent ) );
+    }
+    if ( j.op == "liveSetGeomName" )
+    {
+        // Same refusal as native for self-naming geometries; byte cap keeps the
+        // request and the model's automatic naming bounded.
+        if ( j.a.empty() ) return Result( j.id, "Invalid geometry ID", "" );
+        if ( j.b.empty() || j.b.size() > 256 ) return Result( j.id, "Geometry name must be 1 to 256 bytes", "" );
+        vsp::SetGeomName( j.a, j.b );
+        string err = TakeErrors();
+        Watch( "Rename", true );
+        if ( !err.empty() ) return Result( j.id, err, "" );
+        const string actual = vsp::GetGeomName( j.a );
+        string read_err = TakeErrors();
+        if ( !read_err.empty() ) return Result( j.id, read_err, "" );
+        if ( actual != j.b ) return Result( j.id, "Readback differs after rename: " + actual, "" );
+        return Result( j.id, "", "null" );
+    }
     if ( j.op == "liveUpdate" )
     {
         vsp::Update();

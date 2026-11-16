@@ -41,7 +41,7 @@ _LIVE_WRITES = frozenset({
     'live_delete_xsec', 'live_change_xsec_shape', 'live_add_sub_surf', 'live_delete_sub_surf',
     'live_set_set_name', 'live_set_set_flag', 'read_file', 'write_file', 'import_file',
     'export_file', 'set_vsp_file_name', 'clear_model', 'live_delete_result',
-    'live_delete_all_results', 'live_parm_set_update',
+    'live_delete_all_results', 'live_parm_set_update', 'live_set_geom_name',
 })
 
 
@@ -192,6 +192,10 @@ def FindGeoms():
 
 
 def FindGeom(name, index=0):
+    if not isinstance(name, str) or not name:
+        raise ValueError('A geometry name is required')
+    if type(index) is not int or index < 0:
+        raise ValueError('Geometry index must be a non-negative integer')
     return _call('find_geom', name=name, index=index)
 
 
@@ -201,6 +205,28 @@ def GetGeomName(geom_id):
 
 def GetGeomTypeName(geom_id):
     return _call('geom_type', geom_id=geom_id)
+
+
+def GetGeomParent(geom_id):
+    """Parent geometry ID; top-level geometries return 'NONE' (native semantics)."""
+    return _call('geom_parent', geom_id=geom_id)
+
+
+def GetGeomChildren(geom_id):
+    """Direct child geometry IDs in model order (empty for a leaf)."""
+    return _call('geom_children', geom_id=geom_id)
+
+
+def SetGeomName(geom_id, name):
+    """Rename a geometry and update the model (native refusal rules apply)."""
+    if not isinstance(geom_id, str) or not geom_id:
+        raise ValueError('A geometry ID is required')
+    if not isinstance(name, str) or not name:
+        raise ValueError('A geometry name is required')
+    if len(name.encode('utf-8')) > 256:
+        raise ValueError('Geometry name must be at most 256 UTF-8 bytes')
+    _call('live_set_geom_name', geom_id=geom_id, name=name)
+    return None
 
 
 def GetGeomParmIDs(geom_id):
