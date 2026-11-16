@@ -77,6 +77,9 @@ export function getEngineSessionId(): string {
 let modulePromise: Promise<VspModule> | null = null
 let nextId = 1
 const pending = new Map<number, Pending>()
+let fastDrainOutstanding = 0
+let fastDrainScheduled = false
+let fastDrainVsp: VspModule | null = null
 const listeners = new Set<(e: SocketMessage) => void>()
 let ready: (() => void) | null = null
 const readyPromise = new Promise<void>((r) => (ready = r))
@@ -155,8 +158,33 @@ async function call(op: string, a = '', b = '', value = 0): Promise<unknown> {
 }
 
 /** Fixed diagnostic engine operation; not a general native API surface. */
-export function syncProbeEngineCall(op: string, a = '', b = '', value = 0): Promise<unknown> {
-  return call(op, a, b, value)
+export async function syncProbeEngineCall(op: string, a = '', b = '', value = 0): Promise<unknown> {
+  const vsp = await load()
+  await readyPromise
+  const id = nextId++
+  fastDrainVsp = vsp
+  fastDrainOutstanding++
+  try {
+    const result = submitPending(pending, id, () => vsp.call(id, op, a, b, value))
+    scheduleFastDrain()
+    return await result
+  } finally {
+    fastDrainOutstanding--
+  }
+}
+
+// Requests still run asynchronously on OpenVSP's owning thread: an immediate
+// take() may be empty. While sync calls are pending, schedule another task,
+// yielding to rendering/input and to the pthread instead of busy-spinning.
+function scheduleFastDrain(): void {
+  if (fastDrainScheduled || !fastDrainOutstanding || !fastDrainVsp) return
+  fastDrainScheduled = true
+  setTimeout(() => {
+    fastDrainScheduled = false
+    if (!fastDrainOutstanding || !fastDrainVsp) return
+    try { drain(fastDrainVsp) } catch (err) { console.error('WebVSP engine:', err) }
+    scheduleFastDrain()
+  }, 0)
 }
 
 /** Internal discovery snapshot: no epoch required, but serializer errors are fatal. */

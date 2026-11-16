@@ -43,7 +43,10 @@ len(degen_geom_parse.parse_degen_geom(root))
 The Python console displays per-run bridge call count, cumulative `Atomics.wait` time,
 and response bytes alongside total wall time. Bridge wait includes engine queueing,
 analysis execution and page delivery: it is **not** a measurement of polling overhead
-or Python CPU. The first run's total can also include interpreter initialization; use
+or Python CPU. While a live synchronous call is pending, the page also runs a
+request-driven fast drain (zero-delay scheduled turns); the normal 16 ms drain remains
+for mirror and background engine events. This avoids busy-spinning and does not promise
+a speedup when the engine-side result getter itself dominates the call. The first run's total can also include interpreter initialization; use
 subsequent runs for warm measurements. Counters reset per run and include failed calls.
 The `profile` object returned by the internal console session also contains per-operation
 counts, wait time and bytes.
