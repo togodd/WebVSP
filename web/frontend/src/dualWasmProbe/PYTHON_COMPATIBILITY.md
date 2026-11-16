@@ -1,7 +1,7 @@
 # 浏览器 Python 兼容性清单
 
 本清单描述 **页面内 Python 控制台**（`Python Console`、`window.__runPython`、脚本模式）实际能用的上游
-`src/python_api` 代码。不包含独立的只读/建模探测（它们用另一套更小的 `_sync_generated.py` 门面），
+`src/python_api` 代码。早期用于验证桥接的只读/建模固定诊断已经删除，其历史结论保留在文档中，
 也不代表桌面 OpenVSP 的能力。上游源码路径均相对 `src/python_api/packages/`。
 
 **判定口径**
@@ -15,7 +15,7 @@
 
 “验证”指本仓库脚本：`console-smoke.mjs`、`p1-live-smoke.mjs`、`live-binary-browser-check.mjs`、
 `scipy-console-browser-check.mjs`、`delete-clone-browser-check.mjs`、`test-live-*.py`、
-`test-native-*.py`、`test-wing-reference.py`。
+`test-native-*.py`、`test-p1-snapshot.py`。
 
 ---
 
@@ -52,7 +52,7 @@
 | `GetParmInfo(parm_id)` | ✅ | 返回字典（name/group/value/limits 等由引擎提供） |
 | `GetParmInfoByName(geom_id, name, group)` | ✅ | |
 | `GetParmValByID`/`SetParmValByID` | ✅ | 按参数 ID 读写 |
-| `SetGeomName`、`GetGeomParent`、`GetGeomType`、`SetParmValUpdate` 等 | ❌ | 未桥接；重命名只在受限建模门面里提供 |
+| `SetGeomName`、`GetGeomParent`、`GetGeomType`、`SetParmValUpdate` 等 | ❌ | 未桥接；早期受限建模诊断已删除 |
 
 ### 1.3 翼型剖面（XSec）
 
@@ -159,7 +159,7 @@
 | --- | --- | --- |
 | `parse_results_object` | ✅ | **被门面的优化版覆盖**（同一语义，内部快照+缓存）；上游实现仍被门面调用 |
 | `convert_vec3d_array_to_list_matrix`、`convert_double_tuple_to_list_matrix` | ✅ | 纯转换 |
-| `get_wing_reference_quantities(...)` | 🟨 | 只读探测的浏览器测试验证过该函数；live 控制台只验证了可导入与模块身份，未在控制台单独运行 |
+| `get_wing_reference_quantities(...)` | 🟨 | 依赖的 `FindGeom`/`GetParmVal` 已在控制台验证；函数本身只验证了导入与模块身份，未在控制台单独运行 |
 | `get_propeller_thrust_vectors(...)`、`get_single_propeller_info(...)` | 🟨 | 依赖含 Prop 的 DegenGeom 结果与通用参数读取；代码上可行，但未在浏览器专门验证 |
 | `plot_propeller_info(...)` | ❌ | matplotlib |
 | `set_3d_axis_equal(ax)` | ❌ | matplotlib 轴对象 |
@@ -184,7 +184,7 @@
 | 模块 | 状态 | 说明 |
 | --- | --- | --- |
 | `units.py` | ✅ | 纯 `math` 换算；已验证 `degC2degF`、`gauge2diam`；`tas2eas`/`eas2tas` 需要大气对象（SciPy） |
-| `transformations.py` | ✅ | 纯 NumPy；`TransMatrix` 在只读探测和翼参考量路径上验证 |
+| `transformations.py` | ✅ | 纯 NumPy；`TransMatrix` 由 `degen_geom` 解析路径与控制台导入测试覆盖 |
 | `files.py` | 🟨 | `split_filename`、`AsciiFile`、`BinaryFile`、`StructUnpack` 可用（仅虚拟 FS）。`RunManager` 基本目录管理可用，但传 `copyfiles` 时上游使用 Python ≥3.10 已移除的 `collections.Iterable`，会 `AttributeError`（上游自身缺陷，未修改） |
 | `uberlogging.py` | ✅ | 原样源码；`%`、`{}`、默认风格均有测试 |
 | `wt_util.py` | ✅ | 原样源码；`find_nearest`、`merge_files`、`archive`、`archive_file`、`remove_file(s)` 在临时目录测试。`keyboard()` 需要交互，不适合 worker；所有文件操作只作用于虚拟 FS |
@@ -238,8 +238,8 @@
 
 ```bash
 cd web/frontend
-node scripts/check-native-modules.mjs && python3 scripts/test-sync-native.py
-python3 scripts/test-live-imports.py && python3 scripts/test-native-uberlogging.py
+node scripts/check-native-modules.mjs && python3 scripts/test-live-imports.py
+python3 scripts/test-native-uberlogging.py
 python3 scripts/test-native-wt-util.py && python3 scripts/test-native-atmosphere.py
 python3 scripts/test-live-errors.py && python3 scripts/test-live-binary.py
 python3 scripts/test-live-result-batch.py && python3 scripts/test-live-strings.py

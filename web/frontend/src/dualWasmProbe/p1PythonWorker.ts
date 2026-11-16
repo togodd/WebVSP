@@ -1,18 +1,16 @@
 /// <reference lib="webworker" />
 import type { PyodideInterface } from 'pyodide'
-import facade from './python/openvsp.py?raw'
-import syncGenerated from './python/_sync_generated.py?raw'
-import nativeUtility from './python/native/openvsp_utilities.py?raw'
-import nativeDegenParser from './python/native/degen_geom_parse.py?raw'
-import nativePatches from './python/native/surface_patches.py?raw'
-import degenInit from './python/native/degen_geom/__init__.py?raw'
-import degenModule from './python/native/degen_geom/degen_geom.py?raw'
-import utilitiesInit from './python/native/utilities/__init__.py?raw'
-import utilitiesFiles from './python/native/utilities/files.py?raw'
-import utilitiesUnits from './python/native/utilities/units.py?raw'
-import utilitiesUberlogging from './python/native/utilities/uberlogging.py?raw'
-import utilitiesWtUtil from './python/native/utilities/wt_util.py?raw'
-import utilitiesTransforms from './python/native/utilities/transformations.py?raw'
+import nativeUtility from './python/packages/openvsp/openvsp/utilities.py?raw'
+import nativeDegenParser from './python/packages/openvsp/openvsp/degen_geom_parse.py?raw'
+import nativePatches from './python/packages/openvsp/openvsp/surface_patches.py?raw'
+import degenInit from './python/packages/degen_geom/degen_geom/__init__.py?raw'
+import degenModule from './python/packages/degen_geom/degen_geom/degen_geom.py?raw'
+import utilitiesInit from './python/packages/utilities/utilities/__init__.py?raw'
+import utilitiesFiles from './python/packages/utilities/utilities/files.py?raw'
+import utilitiesUnits from './python/packages/utilities/utilities/units.py?raw'
+import utilitiesUberlogging from './python/packages/utilities/utilities/uberlogging.py?raw'
+import utilitiesWtUtil from './python/packages/utilities/utilities/wt_util.py?raw'
+import utilitiesTransforms from './python/packages/utilities/utilities/transformations.py?raw'
 import p1Analysis from './python/p1_analysis.py?raw'
 import p1Smoke from './python/p1_smoke.py?raw'
 
@@ -37,7 +35,7 @@ scope.onmessage = ({ data }: MessageEvent<{ base: string; model: string; snapsho
     } })
     for (const dir of ['/p1-probe', '/p1-probe/utilities', '/p1-probe/degen_geom']) pyodide.FS.mkdirTree(dir)
     for (const [name, content] of Object.entries({
-      'openvsp.py': facade, '_sync_generated.py': syncGenerated, 'native_openvsp_utilities.py': nativeUtility,
+      'native_openvsp_utilities.py': nativeUtility,
       'native_degen_geom_parse.py': nativeDegenParser, 'native_surface_patches.py': nativePatches,
       'degen_geom/__init__.py': degenInit, 'degen_geom/degen_geom.py': degenModule,
       'utilities/__init__.py': utilitiesInit, 'utilities/files.py': utilitiesFiles,

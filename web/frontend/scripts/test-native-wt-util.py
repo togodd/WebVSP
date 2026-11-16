@@ -4,7 +4,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'src/dualWasmProbe/python/native'))
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'src/dualWasmProbe/python/packages/utilities'))
 from utilities import wt_util
 
 

@@ -2,7 +2,7 @@
 
 **Historical diagnostic baseline:** this records earlier fixed-probe observations, not the current live console capability list. See [the live compatibility inventory](PYTHON_COMPATIBILITY.md) for current scope; the limitations below are dated to the sampled diagnostic.
 
-This report records a fixed browser run of [`sample-python-packages.mjs`](../../scripts/sample-python-packages.mjs) against the deployed WebVSP container. It is evidence about this pinned Pyodide/runtime setup, not a general promise that every package imports or that arbitrary Python can run in the browser.
+This report records a fixed browser run of the (now removed) `scripts/sample-python-packages.mjs` against the deployed WebVSP container; it is kept as historical evidence, and the script no longer exists. It is evidence about this pinned Pyodide/runtime setup, not a general promise that every package imports or that arbitrary Python can run in the browser.
 
 ## Sample strata
 
@@ -38,7 +38,7 @@ This baseline run completed with no external browser requests and Python `3.14.2
 
 ## Existing shared-model OpenVSP function sample
 
-A later `sync-wasm-smoke.mjs` run loaded the byte-for-byte original `openvsp/openvsp/utilities.py` as `native_openvsp_utilities` with the real original `utilities` package files, NumPy 2.4.6 and six 1.17.0. Build checks compare all bundled source bytes with the original files. The fixed worker injects `SET_ALL=0` into the restricted `openvsp` facade before import, matching the native enum; the facade is a module, not the native package, so this is **not** `import openvsp.utilities` or native package initialization. The test confirms the module resolves `vsp_module` to the facade and `RunManager` to the genuine utilities package, executes NumPy and creates an identity `TransMatrix` from the unchanged original transformations module.
+A later `sync-wasm-smoke.mjs` run (that diagnostic is also removed) loaded the byte-for-byte original `openvsp/openvsp/utilities.py` as `native_openvsp_utilities` with the real original `utilities` package files, NumPy 2.4.6 and six 1.17.0. Build checks compare all bundled source bytes with the original files. The fixed worker injects `SET_ALL=0` into the restricted `openvsp` facade before import, matching the native enum; the facade is a module, not the native package, so this is **not** `import openvsp.utilities` or native package initialization. The test confirms the module resolves `vsp_module` to the facade and `RunManager` to the genuine utilities package, executes NumPy and creates an identity `TransMatrix` from the unchanged original transformations module.
 
 For an existing wing the imported original function returned `[45, 18, 2.5]` both by ID and by name, matching independent engine reads; the test blocks external requests. It also confirms the diagnostic rejects missing and tampered NumPy wheel responses. It exercises one function and one model/parameter combination, not all functions in the imported module.
 

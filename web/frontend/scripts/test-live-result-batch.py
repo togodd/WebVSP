@@ -12,7 +12,7 @@ sys.modules['sync_bridge'] = types.SimpleNamespace(request=lambda *args: None)
 import openvsp_live as vsp
 
 # Exercise the real upstream parser without its unrelated numpy dependencies.
-source = (Path(__file__).resolve().parents[1] / 'src/dualWasmProbe/python/native/openvsp_utilities.py').read_text()
+source = (Path(__file__).resolve().parents[1] / 'src/dualWasmProbe/python/packages/openvsp/openvsp/utilities.py').read_text()
 namespace = {'namedtuple': __import__('collections').namedtuple,
              'vsp_module': vsp,
              'convert_double_tuple_to_list_matrix': lambda x: [list(r) for r in x],

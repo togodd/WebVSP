@@ -1,8 +1,14 @@
-import { callGuarded, syncProbeEngineCall, syncProbeFileExperiment, wasmRequest, WasmEngineError } from '../api/wasmEngine'
-import { SYNC_API } from './syncApi.generated'
+import { syncProbeEngineCall, wasmRequest, WasmEngineError } from '../api/wasmEngine'
 
 type Geom = { id: string; name: string; type: string }
-type Model = { geoms: Geom[]; modelEpoch: string; modelEpochValid: boolean }
+
+/** The page's current model snapshot; geometry queries below read it in model order. */
+async function pageGeoms(): Promise<Geom[]> {
+  const result = await wasmRequest('GET', '/model') as { geoms?: Geom[] }
+  if (!Array.isArray(result?.geoms)) throw new Error('Model read returned no geometry list')
+  return result.geoms
+}
+
 const MAX_BYTES = 64 * 1024
 const RESPONSE_HEADER_BYTES = 8
 
@@ -13,7 +19,7 @@ const LIVE_WRITES = new Set([
   'live_delete_xsec', 'live_change_xsec_shape', 'live_add_sub_surf', 'live_delete_sub_surf',
   'live_set_set_name', 'live_set_set_flag',
 ])
-const isWrite = (op: string) => LIVE_WRITES.has(op) || SYNC_API.some((entry) => entry.operation === op && entry.write)
+const isWrite = (op: string) => LIVE_WRITES.has(op)
 
 function responseTooLarge(write: boolean, issued: boolean, capacity: number): string {
   return JSON.stringify({ ok: false, error: { message: `Synchronous response exceeds ${capacity}-byte limit`, code: 'RESPONSE_TOO_LARGE', ...(write ? { outcome: issued ? 'unknown' : 'not_written' } : {}) } })
@@ -25,11 +31,6 @@ function encodeResponse(response: unknown, write: boolean, issued: boolean, capa
   if (fallback.length > capacity) throw new Error('Response overflow fallback exceeds transport limit')
   return fallback
 }
-
-/** Fixed, read-only opt-in diagnostic. */
-export function runSyncProbe(): Promise<unknown> { return run('read') }
-/** Fixed diagnostic that creates and modifies one root wing. */
-export function runSyncModelingProbe(): Promise<unknown> { return run('modeling') }
 
 /**
  * Run user Python against the live page model. The native-shaped `openvsp`
@@ -67,7 +68,7 @@ export function startConsoleSession(): Promise<ConsoleSession> {
   return run('console') as Promise<ConsoleSession>
 }
 
-async function run(mode: 'read' | 'modeling' | 'script' | 'console', script?: string): Promise<unknown> {
+async function run(mode: 'script' | 'console', script?: string): Promise<unknown> {
   if (!crossOriginIsolated || typeof SharedArrayBuffer === 'undefined') throw new Error('Cross-origin isolation and SharedArrayBuffer are required')
   const worker = new Worker(new URL('./syncWorker.ts', import.meta.url), { type: 'module' })
   const assets = new URL(`${import.meta.env.BASE_URL}pyodide/`, window.location.href).href
@@ -79,8 +80,6 @@ async function run(mode: 'read' | 'modeling' | 'script' | 'console', script?: st
     let currentWriteIssued = false
     let consoleRunId = 0
     const consoleRuns = new Map<number, { resolve: (r: ConsoleResult) => void; reject: (e: Error) => void }>()
-    let epoch: string | undefined
-    const parameterIds = new Map<string, Map<string, string>>()
     const finish = (error?: Error, value?: unknown) => {
       if (finished) return
       finished = true
@@ -90,141 +89,26 @@ async function run(mode: 'read' | 'modeling' | 'script' | 'console', script?: st
       else resolve(value)
     }
     const timer = setTimeout(() => finish(new Error(dispatchedWrite ? 'Synchronous probe timed out after a write was dispatched; its outcome may be unknown. Do not retry automatically.' : 'Synchronous probe timed out before a model write was dispatched.')), 120_000)
-    async function model(): Promise<Model> {
-      const result = await wasmRequest('GET', '/model') as Model
-      if (!result.modelEpochValid || !result.modelEpoch) throw new Error('Model identity unavailable')
-      if (epoch !== undefined && epoch !== result.modelEpoch) throw new Error('Model was replaced during probe')
-      epoch = result.modelEpoch
-      return result
-    }
     async function dispatch(op: string, args: Record<string, unknown>): Promise<unknown> {
-      const spec = SYNC_API.find((entry) => entry.operation === op)
-      if (spec) {
-        const valid = Object.keys(args).length === spec.arguments.length && spec.arguments.every((arg) => {
-          const value = args[arg.wire]
-          if (arg.type === 'string') return typeof value === 'string'
-          if (arg.type === 'boolean') return typeof value === 'boolean'
-          if (arg.type === 'integer') return typeof value === 'number' && Number.isSafeInteger(value)
-          return typeof value === 'number' && Number.isFinite(value)
-        })
-        if (!valid) throw new WasmEngineError(400, 'Invalid synchronous API arguments', 'not_written')
+      const textArg = (key: string) => {
+        const v = args[key]
+        if (typeof v !== 'string' || !v) throw new WasmEngineError(400, `Invalid ${key}`, 'not_written')
+        return v
       }
-      if (op === 'timeout_real_test') {
-        await new Promise((resolve) => setTimeout(resolve, 150))
-        return 'late'
+      if (op === 'find_geoms') return (await pageGeoms()).map((g) => g.id)
+      if (op === 'find_geom') {
+        const index = args.index
+        if (typeof index !== 'number' || !Number.isSafeInteger(index)) throw new WasmEngineError(400, 'Invalid index', 'not_written')
+        return (await pageGeoms()).filter((g) => g.name === textArg('name'))[index]?.id ?? ''
       }
-      if (op === 'ping_slow') {
-        await new Promise((resolve) => setTimeout(resolve, 150))
-        return 'ok'
-      }
-      if (op === 'setup') {
-        const current = await model()
-        const wing = current.geoms.find((g) => g.type === 'Wing')
-        if (!wing) throw new Error('Add a wing in WebVSP before running this read-only probe')
-        return { id: wing.id, name: wing.name, nameUnique: current.geoms.filter((g) => g.name === wing.name).length === 1 }
-      }
-      if (op === 'find_geoms') return (await model()).geoms.map((g) => g.id)
       if (op === 'geom_name' || op === 'geom_type') {
-        if (typeof args.geom_id !== 'string' || !args.geom_id) throw new WasmEngineError(400, 'Geometry ID is required', 'not_written')
-        const geom = (await model()).geoms.find((g) => g.id === args.geom_id)
+        const id = textArg('geom_id')
+        const geom = (await pageGeoms()).find((g) => g.id === id)
         if (!geom) throw new WasmEngineError(404, 'Geometry not found', 'not_written')
         return op === 'geom_name' ? geom.name : geom.type
       }
-      if (op === 'find_geom') {
-        if (typeof args.name !== 'string' || typeof args.index !== 'number' || !Number.isSafeInteger(args.index)) throw new Error('Invalid geometry name or index')
-        return (await model()).geoms.filter((g) => g.name === args.name)[args.index]?.id ?? ''
-      }
-      if (op === 'set_geom_name') {
-        if (mode !== 'modeling' || typeof args.geom_id !== 'string' || typeof args.name !== 'string' || !args.name || args.name.length > 256) throw new WasmEngineError(400, 'Only non-empty geometry names up to 256 characters are supported', 'not_written')
-        const current = await model()
-        const geom = current.geoms.find((g) => g.id === args.geom_id)
-        if (!geom) throw new WasmEngineError(404, 'Geometry not found', 'not_written')
-        if (finished || poisoned) throw new WasmEngineError(400, 'Probe stopped', 'not_written')
-        dispatchedWrite = true
-        currentWriteIssued = true
-        await callGuarded('guardedSetGeomName', args.geom_id, args.name, 0, epoch!)
-        return null
-      }
-      if (op === 'delete_geom') {
-        if (mode !== 'modeling' || typeof args.geom_id !== 'string' || !args.geom_id) throw new WasmEngineError(400, 'A geometry ID is required', 'not_written')
-        if (!(await model()).geoms.some((g) => g.id === args.geom_id)) throw new WasmEngineError(404, 'Geometry not found', 'not_written')
-        if (finished || poisoned) throw new WasmEngineError(400, 'Probe stopped', 'not_written')
-        dispatchedWrite = true
-        currentWriteIssued = true
-        await callGuarded('guardedDeleteGeom', args.geom_id, '', 0, epoch!)
-        return null
-      }
-      if (op === 'add_geom') {
-        if (mode !== 'modeling' || args.type !== 'WING' || args.parent !== '') throw new WasmEngineError(400, 'Only a root WING is supported', 'not_written')
-        await model()
-        if (finished || poisoned) throw new WasmEngineError(400, 'Probe stopped', 'not_written')
-        dispatchedWrite = true
-        currentWriteIssued = true
-        const result = await callGuarded<{ id: string }>('addGeom', 'WING', '', 0, epoch!)
-        // Selection is a separate UI operation; never label its failure as a failed creation.
-        try {
-          if (finished || poisoned) throw new Error('Probe stopped after creation')
-          await wasmRequest('POST', '/pick', { id: result.id })
-        }
-        catch { throw new WasmEngineError(500, `Wing ${result.id} was created, but selection refresh failed`, 'unknown') }
-        return result.id
-      }
-      if (op === 'update') {
-        if (mode !== 'modeling' || args.update_managers !== true) throw new WasmEngineError(400, 'Only Update(True) is supported', 'not_written')
-        await model()
-        if (finished || poisoned) throw new WasmEngineError(400, 'Probe stopped', 'not_written')
-        dispatchedWrite = true
-        currentWriteIssued = true
-        return callGuarded('guardedUpdate', '', '', 0, epoch!)
-      }
-      if (op === 'parm_value' || op === 'set_parm') {
-        const allowed = (args.group === 'WingGeom' && typeof args.name === 'string' && ['TotalArea', 'TotalSpan', 'TotalChord'].includes(args.name)) || (args.group === 'XForm' && args.name === 'X_Rel_Location')
-        if (typeof args.geom !== 'string' || !args.geom || !allowed || (op === 'set_parm' && (mode !== 'modeling' || args.group !== 'XForm' || typeof args.value !== 'number' || !Number.isFinite(args.value)))) throw new WasmEngineError(400, 'Unsupported parameter query or write', 'not_written')
-        const current = await model()
-        if (!current.geoms.some((g) => g.id === args.geom && g.type === 'Wing')) throw new Error('Wing not found in current model')
-        let matches = parameterIds.get(args.geom)
-        if (!matches) {
-          const ids = await callGuarded<string[]>('geomParmIDs', args.geom, '', 0, epoch!)
-          if (new Set(ids).size !== ids.length) throw new Error('Duplicate parameter ID')
-          matches = new Map<string, string>()
-          for (const id of ids) {
-            if (finished || poisoned) throw new Error('Probe stopped')
-            const p: { name: string; group: string; container: string } = await callGuarded('geomParm', args.geom, id, 0, epoch!)
-            if (p.container === args.geom && ((p.group === 'WingGeom' && ['TotalArea', 'TotalSpan', 'TotalChord'].includes(p.name)) || (p.group === 'XForm' && p.name === 'X_Rel_Location'))) {
-              const key = `${p.group}/${p.name}`
-              if (matches.has(key)) throw new Error('Ambiguous parameter')
-              matches.set(key, id)
-            }
-          }
-          if (matches.size !== 4) throw new Error('Required parameter not found')
-          parameterIds.set(args.geom, matches)
-        }
-        const parmId = matches.get(`${args.group}/${args.name}`)
-        if (!parmId) throw new Error('Parameter not found')
-        const p: { name: string; group: string; container: string; value: number | null } = await callGuarded('geomParm', args.geom, parmId, 0, epoch!)
-        if (p.name !== args.name || p.group !== args.group || p.container !== args.geom || typeof p.value !== 'number' || !Number.isFinite(p.value)) throw new Error('Parameter changed or is invalid')
-        if (op === 'set_parm') {
-          if (finished || poisoned) throw new WasmEngineError(400, 'Probe stopped', 'not_written')
-          dispatchedWrite = true
-          currentWriteIssued = true
-          const result = await callGuarded<{ actual: number }>('geomSetParm', args.geom, parmId, args.value as number, epoch!)
-          return result.actual
-        }
-        return p.value
-      }
-      if (op === 'geom_parm_ids') {
-        if (typeof args.geom_id !== 'string' || !args.geom_id) throw new WasmEngineError(400, 'Geometry ID is required', 'not_written')
-        await model()
-        return callGuarded('geomParmIDs', args.geom_id, '', 0, epoch!)
-      }
-      if (op === 'parm_value_id' || op === 'parm_int_value_id' || op === 'parm_name_id' || op === 'parm_type_id') {
-        if (typeof args.parm_id !== 'string' || !args.parm_id) throw new WasmEngineError(400, 'Parameter ID is required', 'not_written')
-        await model()
-        if (finished || poisoned) throw new WasmEngineError(400, 'Probe stopped', 'not_written')
-        const engineOp: 'parm_value_id' | 'parm_int_value_id' | 'parm_name_id' | 'parm_type_id' = op === 'parm_value_id' ? 'parm_value_id' : op === 'parm_int_value_id' ? 'parm_int_value_id' : op === 'parm_name_id' ? 'parm_name_id' : 'parm_type_id'
-        return callGuarded(engineOp, args.parm_id, '', 0, epoch!)
-      }
-      if ((mode === 'script' || mode === 'console') && op.startsWith('live_')) {
+      if (op === 'geom_parm_ids') return syncProbeEngineCall('geomParmIDs', textArg('geom_id'))
+      if (op.startsWith('live_')) {
         const live = (engineOp: string, a = '', b = '', value = 0) => {
           if (isWrite(op)) {
             if (finished || poisoned) throw new WasmEngineError(400, 'Probe stopped', 'not_written')
@@ -249,8 +133,9 @@ async function run(mode: 'read' | 'modeling' | 'script' | 'console', script?: st
         if (op === 'live_delete_geom') {
           const id = text('geom_id')
           const policy = args.clone_delete
-          if (typeof policy !== 'number' || !Number.isInteger(policy) || policy < 0 || policy > 2)
-            throw new WasmEngineError(400, 'Invalid clone_delete', 'not_written')
+          if (typeof policy !== 'number' || !Number.isInteger(policy) || policy < 0 || policy > 2) {
+            throw new WasmEngineError(400, 'Invalid clone_delete policy', 'not_written')
+          }
           await live('liveDeleteGeom', id, '', policy)
           return null
         }
@@ -267,35 +152,15 @@ async function run(mode: 'read' | 'modeling' | 'script' | 'console', script?: st
         }
         if (op === 'live_analysis_defaults') return live('liveAnalysisDefaults', text('analysis'))
         if (op === 'live_analysis_set_int') {
-          if (typeof args.value !== 'number' || !Number.isSafeInteger(args.value)) throw new WasmEngineError(400, 'Invalid analysis input value', 'not_written')
+          if (typeof args.value !== 'number' || !Number.isSafeInteger(args.value)) throw new WasmEngineError(400, 'Invalid analysis input', 'not_written')
           return live('liveAnalysisSetInt', text('analysis'), text('name'), args.value as number)
         }
         if (op === 'live_analysis_run') return live('liveAnalysisRun', text('analysis'))
-        if (op === 'live_results_ids') return live('liveResultsIds')
-        if (op === 'live_result_tree') throw new WasmEngineError(400, 'Result tree batching is disabled until bounded and lossless', 'not_written')
-        if (op === 'live_result_objects_capabilities') return live('liveResultObjectsCapabilities')
-        if (op === 'live_result_objects') {
-          const ids = args.result_ids
-          if (!Array.isArray(ids) || ids.length < 1 || ids.length > 32 || ids.some(id => typeof id !== 'string' || !/^[\x21-\x7e]{1,128}$/.test(id)))
-            throw new WasmEngineError(400, 'Invalid result IDs', 'not_written')
-          return live('liveResultObjects', ids.join('\x1f'))
+        if (op === 'live_parm_info') return live('liveParmInfo', text('parm_id'))
+        if (op === 'live_parm_set_by_id') {
+          if (typeof args.value !== 'number' || !Number.isFinite(args.value)) throw new WasmEngineError(400, 'Invalid parameter value', 'not_written')
+          return live('liveParmSetById', text('parm_id'), '', args.value as number)
         }
-        if (op === 'live_result_object') return live('liveResultObject', text('result_id'))
-        if (op === 'live_result_binary_field') {
-          const name = text('name')
-          if (name.includes('\x1f')) throw new WasmEngineError(400, 'Invalid result field', 'not_written')
-          const integer = (key: string, max: number) => {
-            const n = args[key]
-            if (typeof n !== 'number' || !Number.isSafeInteger(n) || n < 0 || n > max) throw new WasmEngineError(400, `Invalid ${key}`, 'not_written')
-            return n
-          }
-          const index = integer('index', 0x7fffffff), row = integer('row', 0xffffffff), offset = integer('offset', 0xffffffff)
-          return live('liveResultBinaryField', text('result_id'), `${name}\x1f${row}\x1f${offset}`, index)
-        }
-        if (op === 'live_result_names') return live('liveResultNames', text('result_id'))
-        if (op === 'live_result_name') return live('liveResultName', text('result_id'))
-        if (op === 'live_result_num_data') return live('liveResultNumData', text('result_id'), text('name'))
-        if (op === 'live_result_type') return live('liveResultType', text('result_id'), text('name'))
         if (op === 'live_xsec_surfs') return live('liveXSecSurfs', text('geom_id'))
         if (op === 'live_xsecs') return live('liveXSecs', text('xsec_surf_id'))
         if (op === 'live_xsec_shape') return live('liveXSecShape', text('xsec_id'))
@@ -323,30 +188,36 @@ async function run(mode: 'read' | 'modeling' | 'script' | 'console', script?: st
         if (op === 'live_set_set_name') return live('liveSetSetName', '', text('name'), Number(args.index))
         if (op === 'live_get_set_flag') return live('liveGetSetFlag', text('geom_id'), '', Number(args.set_index))
         if (op === 'live_set_set_flag') return live('liveSetSetFlag', text('geom_id'), args.flag ? '1' : '0', Number(args.set_index))
-        if (op === 'live_parm_info') return live('liveParmInfo', text('parm_id'))
-        if (op === 'live_parm_set_by_id') {
-          if (typeof args.value !== 'number' || !Number.isFinite(args.value)) throw new WasmEngineError(400, 'Invalid parameter value', 'not_written')
-          return live('liveParmSetById', text('parm_id'), '', args.value as number)
+        if (op === 'live_result_names') return live('liveResultNames', text('result_id'))
+        if (op === 'live_result_name') return live('liveResultName', text('result_id'))
+        if (op === 'live_result_num_data') return live('liveResultNumData', text('result_id'), text('name'))
+        if (op === 'live_result_type') return live('liveResultType', text('result_id'), text('name'))
+        if (op === 'live_results_ids') return live('liveResultsIds')
+        if (op === 'live_result_binary_field') {
+          const name = text('name')
+          if (name.includes('\x1f')) throw new WasmEngineError(400, 'Invalid result field', 'not_written')
+          const integer = (key: string, max: number) => {
+            const n = args[key]
+            if (typeof n !== 'number' || !Number.isSafeInteger(n) || n < 0 || n > max) throw new WasmEngineError(400, `Invalid ${key}`, 'not_written')
+            return n
+          }
+          const index = integer('index', 0x7fffffff), row = integer('row', 0xffffffff), offset = integer('offset', 0xffffffff)
+          return live('liveResultBinaryField', text('result_id'), `${name}\x1f${row}\x1f${offset}`, index)
+        }
+        if (op === 'live_result_object') return live('liveResultObject', text('result_id'))
+        if (op === 'live_result_tree') throw new WasmEngineError(400, 'Result tree batching is disabled until bounded and lossless', 'not_written')
+        if (op === 'live_result_objects_capabilities') return live('liveResultObjectsCapabilities')
+        if (op === 'live_result_objects') {
+          const ids = args.result_ids
+          if (!Array.isArray(ids) || ids.length < 1 || ids.length > 32 || ids.some((id) => typeof id !== 'string' || !/^[\x21-\x7e]{1,128}$/.test(id))) {
+            throw new WasmEngineError(400, 'Invalid result ID list', 'not_written')
+          }
+          return live('liveResultObjects', ids.join('\x1f'))
         }
         if (op === 'live_result_shape') return live('liveResultShape', text('result_id'), text('name'), Number(args.index ?? 0))
-
         throw new Error('Unsupported live operation')
       }
-      if (op === 'results_fixture_open') return syncProbeEngineCall('results_fixture_open')
-      if (op === 'results_fixture_close') return syncProbeEngineCall('results_fixture_close', String(args.fixture_token ?? ''))
-      if (op === 'results_fixture_data_names') return syncProbeEngineCall('results_fixture_data_names', String(args.fixture_token ?? ''))
-      if (op === 'results_fixture_name') return syncProbeEngineCall('results_fixture_name', String(args.fixture_token ?? ''))
-      if (op === 'results_fixture_type') return syncProbeEngineCall('results_fixture_type', String(args.fixture_token ?? ''), String(args.data_name ?? ''))
-      if (op === 'results_fixture_int') return syncProbeEngineCall('results_fixture_int', String(args.fixture_token ?? ''), String(args.data_name ?? ''), Number(args.index ?? 0))
-      if (op === 'results_fixture_double') return syncProbeEngineCall('results_fixture_double', String(args.fixture_token ?? ''), String(args.data_name ?? ''), Number(args.index ?? 0))
-      if (op === 'results_fixture_string') return syncProbeEngineCall('results_fixture_string', String(args.fixture_token ?? ''), String(args.data_name ?? ''), Number(args.index ?? 0))
-      if (op === 'results_fixture_matrix') return syncProbeEngineCall('results_fixture_matrix', String(args.fixture_token ?? ''), String(args.data_name ?? ''), Number(args.index ?? 0))
-      if (op === 'results_fixture_vec3d') return syncProbeEngineCall('results_fixture_vec3d', String(args.fixture_token ?? ''), String(args.data_name ?? ''), Number(args.index ?? 0))
-      if (op === 'file_roundtrip') {
-        if (args.text !== 'python-to-openvsp\n') throw new Error('Unsupported file content')
-        return syncProbeFileExperiment(args.text)
-      }
-      throw new Error('Unsupported synchronous probe operation')
+      throw new Error('Unsupported synchronous operation')
     }
     worker.onerror = (event) => finish(new Error(`Sync worker failed: ${event.message}`))
     worker.onmessageerror = () => finish(new Error('Invalid sync worker message'))
@@ -380,17 +251,6 @@ async function run(mode: 'read' | 'modeling' | 'script' | 'console', script?: st
       const capacity = typeof msg.capacity === 'number' ? msg.capacity : MAX_BYTES
       if (msg.type !== 'request' || !(msg.buffer instanceof SharedArrayBuffer) || msg.buffer.byteLength !== RESPONSE_HEADER_BYTES + capacity) return finish(new Error('Invalid sync request'))
       const buffer = msg.buffer
-      if (msg.op === 'timeout_test') {
-        setTimeout(() => {
-          const bytes = new TextEncoder().encode('{"ok":true,"value":"late"}')
-          new Uint8Array(buffer, RESPONSE_HEADER_BYTES).set(bytes)
-          const control = new Int32Array(buffer, 0, 2)
-          Atomics.store(control, 1, bytes.length)
-          Atomics.store(control, 0, 1)
-          Atomics.notify(control, 0)
-        }, 100)
-        return
-      }
       void (async () => {
         let response: unknown
         let binaryResponse: ArrayBuffer | undefined

@@ -9,7 +9,9 @@ from unittest.mock import patch
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'src/dualWasmProbe/python'))
 from p1_analysis import SnapshotFacade, _bind, run
 import types
-sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'src/dualWasmProbe/python/native'))
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'src/dualWasmProbe/python/packages'))
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'src/dualWasmProbe/python/packages/utilities'))
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'src/dualWasmProbe/python/packages/degen_geom'))
 
 
 def sample():
@@ -57,8 +59,8 @@ class P1SnapshotTest(unittest.TestCase):
         other = sample()
         other['results'][1]['fields'][2]['value'] = [17]
         second = SnapshotFacade(other, 'DegenGeom')
-        native = Path(__file__).resolve().parents[1] / 'src/dualWasmProbe/python/native'
-        paths = {'native_openvsp_utilities': native / 'openvsp_utilities.py',
+        native = Path(__file__).resolve().parents[1] / 'src/dualWasmProbe/python/packages/openvsp/openvsp'
+        paths = {'native_openvsp_utilities': native / 'utilities.py',
                  'native_degen_geom_parse': native / 'degen_geom_parse.py',
                  'native_surface_patches': native / 'surface_patches.py'}
         original_import = __import__('importlib').import_module

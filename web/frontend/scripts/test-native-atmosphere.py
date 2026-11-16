@@ -11,8 +11,8 @@ from pathlib import Path
 
 import numpy as np
 
-native = Path(__file__).resolve().parents[1] / 'src/dualWasmProbe/python/native'
-sys.path.insert(0, str(native))
+native = Path(__file__).resolve().parents[1] / 'src/dualWasmProbe/python/packages'
+sys.path.insert(0, str(native / 'utilities'))
 
 import utilities.atmosphere as atm  # noqa: E402
 import utilities.simple_rotor_calcs as rotor  # noqa: E402

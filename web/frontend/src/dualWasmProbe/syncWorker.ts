@@ -1,25 +1,21 @@
 /// <reference lib="webworker" />
 import type { PyodideInterface } from 'pyodide'
-import nativeUtility from './python/sync_native_utility.py?raw'
-import smoke from './python/sync_smoke.py?raw'
-import modelingSmoke from './python/sync_modeling_smoke.py?raw'
-import facade from './python/openvsp.py?raw'
 import liveFacade from './python/openvsp_live.py?raw'
-import nativeDegenParser from './python/native/degen_geom_parse.py?raw'
-import nativePatches from './python/native/surface_patches.py?raw'
-import degenInit from './python/native/degen_geom/__init__.py?raw'
-import degenModule from './python/native/degen_geom/degen_geom.py?raw'
-import syncGenerated from './python/_sync_generated.py?raw'
-import nativeOpenVspUtilities from './python/native/openvsp_utilities.py?raw'
-import nativeUtilitiesInit from './python/native/utilities/__init__.py?raw'
-import nativeUtilitiesFiles from './python/native/utilities/files.py?raw'
-import nativeUtilitiesUnits from './python/native/utilities/units.py?raw'
-import nativeUtilitiesTransformations from './python/native/utilities/transformations.py?raw'
-import nativeUtilitiesUberlogging from './python/native/utilities/uberlogging.py?raw'
-import nativeUtilitiesWtUtil from './python/native/utilities/wt_util.py?raw'
-import nativeUtilitiesAtmosphere from './python/native/utilities/atmosphere.py?raw'
-import nativeUtilitiesRotor from './python/native/utilities/simple_rotor_calcs.py?raw'
 import liveImports from './python/live_imports.py?raw'
+// Bundled upstream files keep the src/python_api package layout so gaps stay visible.
+import openvspUtilities from './python/packages/openvsp/openvsp/utilities.py?raw'
+import openvspDegenParser from './python/packages/openvsp/openvsp/degen_geom_parse.py?raw'
+import openvspPatches from './python/packages/openvsp/openvsp/surface_patches.py?raw'
+import degenInit from './python/packages/degen_geom/degen_geom/__init__.py?raw'
+import degenModule from './python/packages/degen_geom/degen_geom/degen_geom.py?raw'
+import utilitiesInit from './python/packages/utilities/utilities/__init__.py?raw'
+import utilitiesFiles from './python/packages/utilities/utilities/files.py?raw'
+import utilitiesUnits from './python/packages/utilities/utilities/units.py?raw'
+import utilitiesTransformations from './python/packages/utilities/utilities/transformations.py?raw'
+import utilitiesUberlogging from './python/packages/utilities/utilities/uberlogging.py?raw'
+import utilitiesWtUtil from './python/packages/utilities/utilities/wt_util.py?raw'
+import utilitiesAtmosphere from './python/packages/utilities/utilities/atmosphere.py?raw'
+import utilitiesRotor from './python/packages/utilities/utilities/simple_rotor_calcs.py?raw'
 
 const scope = self as unknown as DedicatedWorkerGlobalScope
 const MAX_BYTES = 64 * 1024
@@ -98,20 +94,22 @@ async function setupLive(pyodide: PyodideInterface): Promise<void> {
   await pyodide.loadPackage(['numpy', 'six'], { checkIntegrity: true })
   for (const dir of ['/sync-live/openvsp', '/sync-live/utilities', '/sync-live/degen_geom']) pyodide.FS.mkdirTree(dir)
   for (const [name, content] of Object.entries({
+    // The facade takes the desktop package's import name; every other file is
+    // written under the same relative path it has in src/python_api/packages.
     'openvsp/__init__.py': liveFacade,
-    'degen_geom_parse.py': nativeDegenParser,
-    'surface_patches.py': nativePatches,
+    'openvsp/utilities.py': openvspUtilities,
+    'openvsp/degen_geom_parse.py': openvspDegenParser,
+    'openvsp/surface_patches.py': openvspPatches,
     'degen_geom/__init__.py': degenInit,
     'degen_geom/degen_geom.py': degenModule,
-    'openvsp_utilities.py': nativeOpenVspUtilities,
-    'utilities/__init__.py': nativeUtilitiesInit,
-    'utilities/files.py': nativeUtilitiesFiles,
-    'utilities/units.py': nativeUtilitiesUnits,
-    'utilities/transformations.py': nativeUtilitiesTransformations,
-    'utilities/uberlogging.py': nativeUtilitiesUberlogging,
-    'utilities/wt_util.py': nativeUtilitiesWtUtil,
-    'utilities/atmosphere.py': nativeUtilitiesAtmosphere,
-    'utilities/simple_rotor_calcs.py': nativeUtilitiesRotor,
+    'utilities/__init__.py': utilitiesInit,
+    'utilities/files.py': utilitiesFiles,
+    'utilities/units.py': utilitiesUnits,
+    'utilities/transformations.py': utilitiesTransformations,
+    'utilities/uberlogging.py': utilitiesUberlogging,
+    'utilities/wt_util.py': utilitiesWtUtil,
+    'utilities/atmosphere.py': utilitiesAtmosphere,
+    'utilities/simple_rotor_calcs.py': utilitiesRotor,
   })) pyodide.FS.writeFile(`/sync-live/${name}`, content)
   pyodide.runPython("import sys\nif '/sync-live' not in sys.path: sys.path.insert(0, '/sync-live')")
   pyodide.runPython(liveImports)
@@ -194,7 +192,7 @@ async function runConsole(pyodide: PyodideInterface, message: ConsoleMessage): P
   }
 }
 
-type ConsoleMessage = { assets?: string; mode?: 'read' | 'modeling' | 'script' | 'console'; script?: string; type?: string; id?: number; code?: string; profile?: boolean }
+type ConsoleMessage = { assets?: string; mode?: 'script' | 'console'; script?: string; type?: string; id?: number; code?: string; profile?: boolean }
 let consoleReady: PyodideInterface | null = null
 
 scope.onmessage = (event: MessageEvent<ConsoleMessage>) => {
@@ -209,23 +207,6 @@ scope.onmessage = (event: MessageEvent<ConsoleMessage>) => {
     const { loadPyodide } = await import(/* @vite-ignore */ url) as { loadPyodide: (options: { indexURL: string }) => Promise<PyodideInterface> }
     const pyodide = await loadPyodide({ indexURL: base })
     pyodide.registerJsModule('sync_bridge', { request })
-    pyodide.FS.mkdirTree('/sync-probe')
-    pyodide.FS.writeFile('/sync-probe/sync_native_utility.py', nativeUtility)
-    pyodide.FS.writeFile('/sync-probe/openvsp.py', facade)
-    pyodide.FS.writeFile('/sync-probe/_sync_generated.py', syncGenerated)
-    if (event.data.mode === 'read') {
-      await pyodide.loadPackage(['numpy', 'six'], { checkIntegrity: true })
-      pyodide.FS.mkdirTree('/sync-probe/utilities')
-      pyodide.FS.writeFile('/sync-probe/native_openvsp_utilities.py', nativeOpenVspUtilities)
-      pyodide.FS.writeFile('/sync-probe/utilities/__init__.py', nativeUtilitiesInit)
-      pyodide.FS.writeFile('/sync-probe/utilities/files.py', nativeUtilitiesFiles)
-      pyodide.FS.writeFile('/sync-probe/utilities/units.py', nativeUtilitiesUnits)
-      pyodide.FS.writeFile('/sync-probe/utilities/transformations.py', nativeUtilitiesTransformations)
-      pyodide.FS.writeFile('/sync-probe/utilities/uberlogging.py', nativeUtilitiesUberlogging)
-      pyodide.FS.writeFile('/sync-probe/utilities/wt_util.py', nativeUtilitiesWtUtil)
-      pyodide.FS.writeFile('/sync-probe/utilities/atmosphere.py', nativeUtilitiesAtmosphere)
-      pyodide.FS.writeFile('/sync-probe/utilities/simple_rotor_calcs.py', nativeUtilitiesRotor)
-    }
     if (event.data.mode === 'console') {
       await setupLive(pyodide)
       const lines: string[] = []
@@ -245,8 +226,6 @@ scope.onmessage = (event: MessageEvent<ConsoleMessage>) => {
       scope.postMessage({ type: 'done', value: text })
       return
     }
-    pyodide.runPython("import sys; sys.path.insert(0, '/sync-probe')")
-    const result = pyodide.runPython(event.data.mode === 'modeling' ? modelingSmoke : smoke) as string
-    scope.postMessage({ type: 'done', value: result })
+    throw new Error('Unsupported Python worker mode')
   })().catch((error: unknown) => scope.postMessage({ type: 'failed', error: error instanceof Error ? error.message : String(error) }))
 }

@@ -1,5 +1,7 @@
 # Python package reuse audit
 
+**Historical evidence:** the analysis below was produced before the browser Python work. The fixed probes and generator scripts it mentions have been removed; see [PYTHON_COMPATIBILITY.md](PYTHON_COMPATIBILITY.md) for what the live console actually provides today.
+
 This is a static inventory of `src/python_api/packages`, generated with the host Python stdlib module list. It excludes test and example files and non-`.py` files (including `openvsp/setup.py.in`) from module counts. A tier is a triage signal, not proof of browser compatibility; sampled runtime evidence is recorded separately below.
 
 ## Scope and tier definitions

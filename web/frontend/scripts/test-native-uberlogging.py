@@ -4,8 +4,8 @@ import logging
 import sys
 from pathlib import Path
 
-native = Path(__file__).resolve().parents[1] / 'src/dualWasmProbe/python/native'
-sys.path.insert(0, str(native))
+native = Path(__file__).resolve().parents[1] / 'src/dualWasmProbe/python/packages'
+sys.path.insert(0, str(native / 'utilities'))
 from utilities.uberlogging import StyleAdapter
 
 stream = io.StringIO()

@@ -1,32 +1,38 @@
-"""Expose bundled upstream modules under desktop and historical import names.
+"""Expose the bundled upstream packages under their desktop import names.
 
-Import the original top-level modules first: their upstream sources use absolute
-imports and may import the already-initialized openvsp facade. Alias the very
-same module objects, including package children, rather than executing a source
-file a second time under a different name.
+The worker installs files in the same relative layout as
+``src/python_api/packages``: ``openvsp/`` (the facade plus the three upstream
+helper modules), ``degen_geom/`` and ``utilities/``. Scripts written for the
+desktop module import ``openvsp`` and its submodules; older WebVSP scripts used
+flat module names, so those names are aliased to the *same* module objects
+rather than executing a source file twice.
 """
 import importlib
 import sys
 
 _openvsp = importlib.import_module('openvsp')
-for _legacy, _canonical in (
-    ('surface_patches', 'surface_patches'),
-    ('degen_geom_parse', 'degen_geom_parse'),
-    ('openvsp_utilities', 'utilities'),
-    ('degen_geom', 'degen_geom'),
-    ('degen_geom.degen_geom', 'degen_geom.degen_geom'),
+
+# Upstream imports `degen_geom` by its absolute name from openvsp helpers, so the
+# package is imported first and stays at the top level as well.
+importlib.import_module('degen_geom')
+importlib.import_module('degen_geom.degen_geom')
+
+# Canonical package module -> historical flat module name.
+for _canonical, _legacy in (
+    ('openvsp.surface_patches', 'surface_patches'),
+    ('openvsp.degen_geom_parse', 'degen_geom_parse'),
+    ('openvsp.utilities', 'openvsp_utilities'),
 ):
-    _module = importlib.import_module(_legacy)
-    sys.modules['openvsp.' + _canonical] = _module
-    if '.' not in _canonical:
-        setattr(_openvsp, _canonical, _module)
+    _module = importlib.import_module(_canonical)
+    sys.modules[_legacy] = _module
+    setattr(_openvsp, _canonical.split('.')[-1], _module)
 
 # Export reviewed desktop entry points without replacing the live facade's
 # optimized parse_results_object or copying incidental imports from upstream.
 for _source, _names in (
-    ('surface_patches', ('SurfaceComponent', 'Surface', 'SurfacePatch', 'export_surface_patches')),
-    ('degen_geom_parse', ('parse_degen_geom',)),
-    ('openvsp_utilities', ('get_wing_reference_quantities',)),
+    ('openvsp.surface_patches', ('SurfaceComponent', 'Surface', 'SurfacePatch', 'export_surface_patches')),
+    ('openvsp.degen_geom_parse', ('parse_degen_geom',)),
+    ('openvsp.utilities', ('get_wing_reference_quantities',)),
 ):
     _module = importlib.import_module(_source)
     for _name in _names:
@@ -34,4 +40,4 @@ for _source, _names in (
             raise RuntimeError('Live facade export collision: ' + _name)
         setattr(_openvsp, _name, getattr(_module, _name))
 
-del _legacy, _canonical, _module, _openvsp, _source, _names, _name
+del _canonical, _legacy, _module, _name, _names, _openvsp, _source

@@ -4,9 +4,9 @@
   "version": "0.0.0",
   "type": "module",
   "scripts": {
-    "predev": "node scripts/generate-python-bindings.mjs --check && node scripts/generate-sync-api.mjs --check && node scripts/check-native-modules.mjs && node scripts/copy-pyodide.mjs",
+    "predev": "node scripts/check-native-modules.mjs && node scripts/copy-pyodide.mjs",
     "dev": "vite",
-    "prebuild": "node scripts/generate-python-bindings.mjs --check && node scripts/generate-sync-api.mjs --check && node scripts/check-native-modules.mjs && node scripts/copy-pyodide.mjs",
+    "prebuild": "node scripts/check-native-modules.mjs && node scripts/copy-pyodide.mjs",
     "build": "tsc -b && vite build",
     "lint": "oxlint",
     "preview": "vite preview"
