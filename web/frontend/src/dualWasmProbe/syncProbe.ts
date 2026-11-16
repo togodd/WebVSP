@@ -253,7 +253,17 @@ async function run(mode: 'read' | 'modeling' | 'script' | 'console', script?: st
         if (op === 'live_analysis_run') return live('liveAnalysisRun', text('analysis'))
         if (op === 'live_results_ids') return live('liveResultsIds')
         if (op === 'live_result_tree') throw new WasmEngineError(400, 'Result tree batching is disabled until bounded and lossless', 'not_written')
-        if (op === 'live_result_binary_field') throw new WasmEngineError(400, 'Binary result fields are disabled until bounded', 'not_written')
+        if (op === 'live_result_binary_field') {
+          const name = text('name')
+          if (name.includes('\x1f')) throw new WasmEngineError(400, 'Invalid result field', 'not_written')
+          const integer = (key: string, max: number) => {
+            const n = args[key]
+            if (typeof n !== 'number' || !Number.isSafeInteger(n) || n < 0 || n > max) throw new WasmEngineError(400, `Invalid ${key}`, 'not_written')
+            return n
+          }
+          const index = integer('index', 0x7fffffff), row = integer('row', 0xffffffff), offset = integer('offset', 0xffffffff)
+          return live('liveResultBinaryField', text('result_id'), `${name}\x1f${row}\x1f${offset}`, index)
+        }
         if (op === 'live_result_names') return live('liveResultNames', text('result_id'))
         if (op === 'live_result_name') return live('liveResultName', text('result_id'))
         if (op === 'live_result_num_data') return live('liveResultNumData', text('result_id'), text('name'))

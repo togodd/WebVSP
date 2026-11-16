@@ -1173,51 +1173,48 @@ string LiveTreeValue( const NameValData *data )
     }
 }
 
-// Encode one numeric field in a bounded, little-endian binary record:
-// magic "VRB1", type, row count, each row's element count, then values.
-// Ragged matrices retain their row lengths and IEEE-754 NaN/Inf bits.
-vector< uint8_t > LiveBinaryField( const NameValData *data )
+// VRB2: type, row count, row index, row length, offset, count, then
+// at most 4096 native little-endian values. Empty matrices use row == rows.
+// Reading directly from NameValData avoids an unbounded intermediate copy.
+vector< uint8_t > LiveBinaryField( const NameValData *data, size_t row, size_t offset )
 {
     if ( !data ) return {};
-    vector< uint8_t > out = { 'V', 'R', 'B', '1' };
-    Put32( out, static_cast< uint32_t >( data->GetType() ) );
     const int type = data->GetType();
-    if ( type == vsp::DOUBLE_DATA )
+    size_t rows = 0, length = 0;
+    if ( type == vsp::INT_DATA || type == vsp::DOUBLE_DATA ) rows = 1;
+    else if ( type == vsp::INT_MATRIX_DATA ) rows = data->GetIntMatData().size();
+    else if ( type == vsp::DOUBLE_MATRIX_DATA ) rows = data->GetDoubleMatData().size();
+    else if ( type == vsp::VEC3D_DATA ) rows = data->GetVec3dData().size();
+    else if ( type != vsp::STRING_DATA ) return {};
+    if ( rows > UINT32_MAX || row > rows || ( row == rows && ( rows != 0 || offset != 0 ) ) ) return {};
+    if ( row < rows )
     {
-        Put32( out, 1 );
-        Put32( out, static_cast< uint32_t >( data->GetDoubleData().size() ) );
-        PutVec( out, data->GetDoubleData() );
+        if ( type == vsp::INT_DATA ) length = data->GetIntData().size();
+        else if ( type == vsp::DOUBLE_DATA ) length = data->GetDoubleData().size();
+        else if ( type == vsp::INT_MATRIX_DATA ) length = data->GetIntMatData()[row].size();
+        else if ( type == vsp::DOUBLE_MATRIX_DATA ) length = data->GetDoubleMatData()[row].size();
+        else length = 3;
     }
-    else if ( type == vsp::INT_DATA )
-    {
-        Put32( out, 1 );
-        Put32( out, static_cast< uint32_t >( data->GetIntData().size() ) );
-        PutVec( out, data->GetIntData() );
-    }
-    else if ( type == vsp::DOUBLE_MATRIX_DATA )
-    {
-        const auto &rows = data->GetDoubleMatData();
-        Put32( out, static_cast< uint32_t >( rows.size() ) );
-        for ( const auto &row : rows ) { Put32( out, static_cast< uint32_t >( row.size() ) ); PutVec( out, row ); }
-    }
-    else if ( type == vsp::INT_MATRIX_DATA )
-    {
-        const auto &rows = data->GetIntMatData();
-        Put32( out, static_cast< uint32_t >( rows.size() ) );
-        for ( const auto &row : rows ) { Put32( out, static_cast< uint32_t >( row.size() ) ); PutVec( out, row ); }
-    }
-    else if ( type == vsp::VEC3D_DATA )
-    {
-        const auto &points = data->GetVec3dData();
-        Put32( out, static_cast< uint32_t >( points.size() ) );
-        for ( const auto &p : points )
+    if ( length > UINT32_MAX || offset > length ) return {};
+    const size_t count = std::min( size_t( 4096 ), length - offset );
+    vector< uint8_t > out = { 'V', 'R', 'B', '2' };
+    Put32( out, type ); Put32( out, rows ); Put32( out, row );
+    Put32( out, length ); Put32( out, offset ); Put32( out, count );
+    auto append = [&]( const auto &values ) {
+        if ( count )
         {
-            Put32( out, 3 );
-            vector< double > xyz = { p.x(), p.y(), p.z() };
-            PutVec( out, xyz );
+            const uint8_t *p = reinterpret_cast< const uint8_t * >( values.data() + offset );
+            out.insert( out.end(), p, p + count * sizeof( values[0] ) );
         }
+    };
+    if ( row < rows )
+    {
+        if ( type == vsp::INT_DATA ) append( data->GetIntData() );
+        else if ( type == vsp::DOUBLE_DATA ) append( data->GetDoubleData() );
+        else if ( type == vsp::INT_MATRIX_DATA ) append( data->GetIntMatData()[row] );
+        else if ( type == vsp::DOUBLE_MATRIX_DATA ) append( data->GetDoubleMatData()[row] );
+        else { const auto &p = data->GetVec3dData()[row]; const vector< double > xyz = { p.x(), p.y(), p.z() }; append( xyz ); }
     }
-    else return {};
     return out;
 }
 
@@ -2735,10 +2732,21 @@ void RunImpl( const Job &j )
         if ( !result ) return Result( j.id, "Unknown result ID", "" );
         if ( !std::isfinite( j.value ) || j.value < 0 || j.value > 2147483647 || std::floor( j.value ) != j.value )
             return Result( j.id, "Invalid result index", "" );
-        const string &field = j.b;
+        const size_t first = j.b.find( '\x1f' ), second = j.b.find( '\x1f', first == string::npos ? 0 : first + 1 );
+        if ( first == string::npos || first == 0 || second == string::npos || j.b.find( '\x1f', second + 1 ) != string::npos )
+            return Result( j.id, "Invalid binary chunk request", "" );
+        auto parse = []( const string &s, size_t &n ) {
+            if ( s.empty() ) return false;
+            n = 0;
+            for ( char c : s ) { if ( c < '0' || c > '9' || n > ( UINT32_MAX - ( c - '0' ) ) / 10 ) return false; n = n * 10 + ( c - '0' ); }
+            return true;
+        };
+        size_t row, offset;
+        if ( !parse( j.b.substr( first + 1, second - first - 1 ), row ) || !parse( j.b.substr( second + 1 ), offset ) )
+            return Result( j.id, "Invalid binary chunk request", "" );
         const int index = static_cast< int >( j.value );
-        NameValData *data = result->FindPtr( field, index );
-        vector< uint8_t > bytes = LiveBinaryField( data );
+        NameValData *data = result->FindPtr( j.b.substr( 0, first ), index );
+        vector< uint8_t > bytes = LiveBinaryField( data, row, offset );
         if ( bytes.empty() ) return Result( j.id, "Unsupported binary result field", "" );
         {
             std::lock_guard< std::mutex > lock( g_Mutex );

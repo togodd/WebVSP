@@ -327,43 +327,74 @@ def _values(result_id, data_name, index, kind):
 
 
 def GetIntResults(result_id, data_name, index=0):
-    return _values(result_id, data_name, index, INT_DATA)
+    return _numeric_values(result_id, data_name, index, INT_DATA)
 
 
 def GetBinaryResults(result_id, data_name, index=0):
-    """Read a numeric field as a versioned binary record, preserving NaN/Inf."""
-    raw = request('live_result_binary_field', json.dumps({'result_id': result_id, 'name': data_name, 'index': index}))
-    if isinstance(raw, str):
-        response = json.loads(raw)
-        raise OpenVSPError((response.get('error') or {}).get('message', 'Binary result failed'))
-    data = bytes(raw.to_py() if hasattr(raw, 'to_py') else raw)
-    if len(data) < 12 or data[:4] != b'VRB1':
-        raise OpenVSPError('Invalid binary result header')
-    kind, rows = struct.unpack_from('<II', data, 4)
-    pos = 12
-    result = []
-    if kind not in (INT_DATA, INT_MATRIX_DATA, DOUBLE_DATA, DOUBLE_MATRIX_DATA, VEC3D_DATA):
-        raise OpenVSPError('Unsupported binary result type')
-    fmt = 'i' if kind in (INT_DATA, INT_MATRIX_DATA) else 'd'
-    item_size = 4 if fmt == 'i' else 8
-    for _ in range(rows):
-        if pos + 4 > len(data):
-            raise OpenVSPError('Truncated binary result')
-        count = struct.unpack_from('<I', data, pos)[0]
-        pos += 4
-        if count > (len(data) - pos) // item_size:
-            raise OpenVSPError('Truncated binary result values')
-        result.append(list(struct.unpack_from('<%d%s' % (count, fmt), data, pos)))
-        pos += count * item_size
-    if pos != len(data):
-        raise OpenVSPError('Unexpected trailing binary result data')
-    return result[0] if kind in (INT_DATA, DOUBLE_DATA) and result else result
+    """Read bounded binary chunks, preserving IEEE-754 values and ragged rows."""
+    return _binary_results(result_id, data_name, index, None)
+
+
+def _binary_results(result_id, data_name, index, wanted_kind):
+    result, row, offset, expected_kind, expected_rows, row_length = [], 0, 0, None, None, None
+    while True:
+        raw = request('live_result_binary_field', json.dumps({'result_id': result_id, 'name': data_name, 'index': index, 'row': row, 'offset': offset}, allow_nan=False))
+        if isinstance(raw, str):
+            response = json.loads(raw)
+            raise OpenVSPError((response.get('error') or {}).get('message', 'Binary result failed'))
+        data = bytes(raw.to_py() if hasattr(raw, 'to_py') else raw)
+        if len(data) < 28 or data[:4] != b'VRB2':
+            raise OpenVSPError('Invalid binary result header')
+        kind, rows, actual_row, length, actual_offset, count = struct.unpack_from('<6I', data, 4)
+        if kind not in (INT_DATA, INT_MATRIX_DATA, DOUBLE_DATA, DOUBLE_MATRIX_DATA, VEC3D_DATA, STRING_DATA):
+            raise OpenVSPError('Unsupported binary result type')
+        if wanted_kind is not None and kind != wanted_kind and expected_kind is None:
+            return []
+        if kind == STRING_DATA:
+            raise OpenVSPError('Unsupported binary result type')
+        if expected_kind is None:
+            expected_kind, expected_rows = kind, rows
+            if kind in (INT_DATA, DOUBLE_DATA) and rows != 1:
+                raise OpenVSPError('Invalid binary result shape')
+        if kind != expected_kind or rows != expected_rows or actual_row != row or actual_offset != offset or row > rows:
+            raise OpenVSPError('Inconsistent binary result chunk')
+        if row_length is not None and length != row_length:
+            raise OpenVSPError('Result changed during binary read')
+        if row == rows and (rows != 0 or length != 0 or count != 0):
+            raise OpenVSPError('Invalid empty binary result')
+        if kind == VEC3D_DATA and row < rows and length != 3:
+            raise OpenVSPError('Invalid vector result shape')
+        size, fmt = (4, 'i') if kind in (INT_DATA, INT_MATRIX_DATA) else (8, 'd')
+        if offset > length or count != min(4096, length - offset) or len(data) != 28 + count * size:
+            raise OpenVSPError('Invalid binary result chunk length')
+        if row == rows:
+            return []
+        if offset == 0:
+            result.append([])
+        result[-1].extend(struct.unpack_from('<%d%s' % (count, fmt), data, 28))
+        offset += count
+        row_length = length
+        if offset == length:
+            row += 1
+            offset, row_length = 0, None
+            if row == rows:
+                return result[0] if kind in (INT_DATA, DOUBLE_DATA) else result
+
+
+def _numeric_values(result_id, data_name, index, kind):
+    cached = _meta(result_id)
+    key = (data_name, int(index), kind)
+    if cached is not None and key in cached['values']:
+        return cached['values'][key]
+    # A valid field of another type has the same empty result as before.
+    value = _binary_results(result_id, data_name, index, kind)
+    if cached is not None:
+        cached['values'][key] = value
+    return value
 
 
 def GetDoubleResults(result_id, data_name, index=0):
-    # Keep the existing chunked path until binary reads have bounded chunking
-    # and match the native getter's wrong-type and missing-field semantics.
-    return _values(result_id, data_name, index, DOUBLE_DATA)
+    return _numeric_values(result_id, data_name, index, DOUBLE_DATA)
 
 
 def GetStringResults(result_id, data_name, index=0):
@@ -371,7 +402,7 @@ def GetStringResults(result_id, data_name, index=0):
 
 
 def GetDoubleMatResults(result_id, data_name, index=0):
-    return _values(result_id, data_name, index, DOUBLE_MATRIX_DATA)
+    return _numeric_values(result_id, data_name, index, DOUBLE_MATRIX_DATA)
 
 
 def parse_results_object(res_id, vsp_instance=None):
@@ -454,4 +485,4 @@ class _Vec3d:
 
 
 def GetVec3dResults(result_id, data_name, index=0):
-    return [_Vec3d(p) for p in _values(result_id, data_name, index, VEC3D_DATA)]
+    return [_Vec3d(p) for p in _numeric_values(result_id, data_name, index, VEC3D_DATA)]

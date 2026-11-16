@@ -59,8 +59,12 @@ out-of-memory or assertion takes the whole engine session — and unsaved edits 
 the engine thread is busy while an analysis runs, so the GUI mirror and 3D view stop
 updating and clicks are ignored; and there is no cancellation. It is arbitrary Python in
 your own page, not a security boundary. Analyses always cover the whole model with file
-output and mode application disabled. Large result fields use an 8 MiB response buffer;
-anything beyond that fails with a clear error instead of being truncated.
+output and mode application disabled. Numeric result fields use bounded binary chunks that preserve IEEE-754 NaN and infinities,
+including ragged matrices. A field can change between chunk requests; shape changes are
+detected where possible, but a same-shape concurrent modification is not an atomic snapshot.
+String fields still use JSON chunks and a single oversized response fails instead of being
+truncated. The experimental recursive tree operation remains disabled pending a bounded,
+lossless implementation.
 
 ## P1 current-model analysis
 
