@@ -30,6 +30,7 @@ try {
   }
   const readFile = (path) => page.evaluate((p) => window.__webvspFileIO.read(p), path)
   const mount = (files) => page.evaluate((f) => window.__webvspWorkspaceTest.mount(f), files)
+  const mountHandle = (files) => page.evaluate((f) => window.__webvspWorkspaceTest.mountHandle(f), files)
   const captureSave = (on) => page.evaluate((v) => window.__webvspFileIO.captureSave(v), on)
   const takeSaved = () => page.evaluate(() => window.__webvspFileIO.takeSaved())
 
@@ -44,7 +45,8 @@ json.dumps({'wing': w, 'name': vsp.GetVSPFileName()})
 `)
   if (!String(seed.name).startsWith('/work/')) failures.push(`seed model name: ${JSON.stringify(seed)}`)
   const seedBytes = await readFile('/work/seed.vsp3')
-  await mount([{ name: 'in.vsp3', base64: seedBytes }])
+  const mounted = await mountHandle([{ name: 'in.vsp3', base64: seedBytes }])
+  if (mounted !== 1) failures.push(`directory mount copied ${mounted} files instead of 1`)
 
   // All seven APIs in one session; relative paths resolve in /work.
   const r = await runPython(`

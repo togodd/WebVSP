@@ -57,7 +57,9 @@ async function walkDirectory(root: FileSystemDirectoryHandle): Promise<Walked[]>
   const out: Walked[] = []
   const walk = async (dir: FileSystemDirectoryHandle, prefix: string, depth: number) => {
     if (depth > MAX_DEPTH) return
-    for await (const entry of (dir as unknown as { values(): AsyncIterable<[string, FileSystemHandle]> }).values()) {
+    // File System Access: entries() yields [name, handle]; values() yields handles only.
+    const entries = (dir as unknown as { entries(): AsyncIterable<[string, FileSystemHandle]> }).entries()
+    for await (const entry of entries) {
       if (out.length >= MAX_FILES) return
       const [name, handle] = entry
       if (handle.kind === 'directory') await walk(handle as FileSystemDirectoryHandle, `${prefix}${name}/`, depth + 1)
@@ -85,6 +87,26 @@ async function writeToFolder(path: string, bytes: Uint8Array): Promise<void> {
   await out.close()
 }
 
+/** Mirror a directory handle into /work and link every file for write-back. */
+export async function mountWorkspaceHandle(handle: FileSystemDirectoryHandle): Promise<number> {
+  const writable = await ensureWritable(handle)
+  folder = handle
+  const walked = await walkDirectory(handle)
+  let bytes = 0
+  let written = 0
+  for (const item of walked) {
+    const file = await item.handle.getFile()
+    if (bytes + file.size > MAX_BYTES) break
+    const data = new Uint8Array(await file.arrayBuffer())
+    bytes += data.length
+    await engineWriteFile(`${WORKSPACE_ROOT}/${item.path}`, data)
+    await linkEngineFile(`${WORKSPACE_ROOT}/${item.path}`, item.handle, item.name)
+    written += 1
+  }
+  set({ name: handle.name, writable, files: written, busy: false, message: written < walked.length ? '超出大小/数量上限，部分文件未载入' : '' })
+  return written
+}
+
 /** Mirror a chosen folder into /work and link every file for write-back. */
 export async function chooseWorkspaceFolder(): Promise<void> {
   const w = window as unknown as { showDirectoryPicker?: (o: unknown) => Promise<FileSystemDirectoryHandle> }
@@ -95,21 +117,7 @@ export async function chooseWorkspaceFolder(): Promise<void> {
   set({ busy: true, message: '' })
   try {
     const handle = await w.showDirectoryPicker({ id: 'webvsp-python-workspace', mode: 'readwrite' })
-    const writable = await ensureWritable(handle)
-    folder = handle
-    const walked = await walkDirectory(handle)
-    let bytes = 0
-    let written = 0
-    for (const item of walked) {
-      const file = await item.handle.getFile()
-      if (bytes + file.size > MAX_BYTES) break
-      const data = new Uint8Array(await file.arrayBuffer())
-      bytes += data.length
-      await engineWriteFile(`${WORKSPACE_ROOT}/${item.path}`, data)
-      await linkEngineFile(`${WORKSPACE_ROOT}/${item.path}`, item.handle, item.name)
-      written += 1
-    }
-    set({ name: handle.name, writable, files: written, busy: false, message: written < walked.length ? '超出大小/数量上限，部分文件未载入' : '' })
+    await mountWorkspaceHandle(handle)
   } catch (error) {
     folder = null
     set({ busy: false, message: error instanceof DOMException && error.name === 'AbortError' ? '已取消' : `选择文件夹失败：${message(error)}` })
