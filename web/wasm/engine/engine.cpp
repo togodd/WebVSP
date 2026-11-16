@@ -53,7 +53,7 @@
 //   rotate(a=ids, b="ax,ay,az", value=degrees)  rotate geoms about a world axis, each about its
 //                                       own origin (one undo step)
 
-#if defined(WEBVSP_PRODUCTION_BUILD) && (defined(WEBVSP_SCRIPT_GUARD_TEST) || defined(WEBVSP_PARM_REENTRY_TEST) || defined(WEBVSP_DELETE_GEOM_PROXY_TEST))
+#if defined(WEBVSP_PRODUCTION_BUILD) && (defined(WEBVSP_SCRIPT_GUARD_TEST) || defined(WEBVSP_PARM_REENTRY_TEST) || defined(WEBVSP_DELETE_GEOM_PROXY_TEST) || defined(WEBVSP_LIVE_BINARY_TEST))
 #error WebVSP test hooks are forbidden in production
 #endif
 
@@ -2738,6 +2738,29 @@ void RunImpl( const Job &j )
         if ( root.empty() ) return Result( j.id, "Analysis returned no root result", "" );
         return Result( j.id, "", Quote( root ) );
     }
+#ifdef WEBVSP_LIVE_BINARY_TEST
+    // Fixed, test-only data in the real ResultsMgr; no caller-controlled values.
+    if ( j.op == "liveBinaryTestFixture" )
+    {
+        Results *result = ResultsMgrSingleton::getInstance().CreateResults( "LiveBinaryFixture", "test only" );
+        if ( !result ) return Result( j.id, "Could not create fixture", "" );
+        const double nan = std::numeric_limits< double >::quiet_NaN();
+        const double inf = std::numeric_limits< double >::infinity();
+        for ( size_t n : { size_t( 0 ), size_t( 4095 ), size_t( 4096 ), size_t( 4097 ), size_t( 8193 ) } )
+        {
+            vector< double > values( n );
+            for ( size_t i = 0; i < n; ++i ) values[i] = static_cast< double >( i );
+            if ( n >= 4096 ) { values[4093] = nan; values[4094] = inf; values[4095] = -inf; }
+            if ( n > 4096 ) values[4096] = nan;
+            result->Add( new NameValData( "n" + std::to_string( n ), values, "test" ) );
+        }
+        result->Add( new NameValData( "matrix", vector< vector< double > >{ {}, { nan, inf, -inf }, {}, vector< double >( 4097, 7.0 ) }, "test" ) );
+        result->Add( new NameValData( "empty_matrix", vector< vector< double > >{}, "test" ) );
+        result->Add( new NameValData( "ints", vector< int >{ INT32_MIN, 0, INT32_MAX }, "test" ) );
+        result->Add( new NameValData( "points", vector< vec3d >{ vec3d( nan, inf, -inf ) }, "test" ) );
+        return Result( j.id, "", Quote( result->GetID() ) );
+    }
+#endif
     if ( j.op == "liveResultObject" )
     {
         Results *result = ResultsMgrSingleton::getInstance().FindResultsPtr( j.a );
