@@ -99,7 +99,7 @@ WebVSP 自己编写的 Python 文件在 `python/` 顶层：`openvsp_live.py`（�
 | `GetIntResults`/`GetDoubleResults`/`GetStringResults`/`GetDoubleMatResults`/`GetVec3dResults` | ✅ | `Vec3d` 只提供 `x()/y()/z()` |
 | `parse_results_object`、`GetResultSnapshotCapabilities`、`GetResultSnapshots` | ✅ | 见“运行机制与限制” |
 | `GetResultTree`、`parse_results_tree`、`parse_results_object_fast`、`parse_surface_patches_fast` | 🚫 | 递归结果树被固定拒绝 |
-| `SetGeomName`、`GetGeomParent`、`GetGeomType`、`SetParmValUpdate` | ❌ | 未桥接；早期受限建模诊断已删除 |
+| `SetGeomName`、`GetGeomParent`、`SetParmValUpdate` | ❌ | 未桥接；引擎/页面已有可用数据或操作，缺少路由与守卫（见下节）。`GetGeomType` 不是原生接口，只有 `GetGeomTypeName`/`GetGeomTypes` |
 
 ### 上游 helper 模块
 
@@ -154,6 +154,26 @@ WebVSP 自己编写的 Python 文件在 `python/` 顶层：`openvsp_live.py`（�
 | matplotlib、pandas、f90nml、fortranformat、multiprocessing_logging、opencv、wx、VTK | ❌ 未打包 |
 | 进程（`subprocess`） | ❌ Pyodide 报 `OSError: emscripten does not support processes` |
 | 文件系统 | 🟨 Pyodide 内存 FS，与页面模型/宿主机磁盘不自动互通 |
+
+### 未桥接接口的堵点与影响
+
+这几个函数不是“做不到”，而是没接到 Python 门面上；堵点各不相同：
+
+- **`SetGeomName(id, name)`**：引擎已有 `guardedSetGeomName`（校验当前模型、非自动命名、≤256 字节，写入后读回校验，
+  不一致报 `different`/`unknown`）。堵点在于控制台写入走的是不带 epoch 的 `syncProbeEngineCall`，而 guarded 写需要
+  先取 `wasmRequest('GET','/model')` 的 `modelEpoch` 再调 `callGuarded`。要暴露给 Python，需给控制台加 epoch 读取、
+  一条 `live_set_geom_name` 路由、门面函数和测试；不需要改 C++。影响：批量脚本里的改名会直接 `AttributeError`，
+  目前只能通过镜像 GUI 改名。
+- **`GetGeomParent(id)`**：没有引擎 op 也不需要有——页面 `GET /model` 的每个几何已经带 `parent`/`children`，
+  控制台的 `FindGeoms`/`GetGeomName` 本来就在读这份数据。堵点仅是“没人写这层门面函数”。影响：脚本无法直接查父子
+  关系；注意它和现有几何查询一样是页面快照，不是引擎线程上的原子读。
+- **`GetGeomType(id)`**：**原生 API 里没有这个函数**，只有 `GetGeomTypes()`（类型名列表）和
+  `GetGeomTypeName(id)`（已支持）。所以它不是缺口，不应为“补齐”去臆造一个数字类型码。
+- **`SetParmValUpdate(parm_id, value)`**：原生有两个重载（按参数 ID 或 geom/name/group）。引擎已有 `setParm`
+  （直接调 `vsp::SetParmValUpdate`，页面保存参数走的就是它）和更严格的 `geomSetParm`（检查 limits/active、
+  读回校验）。堵点是控制台只暴露了 `liveParmSet`/`liveParmSetById`，它们调用的是 `vsp::SetParmVal`（不触发更新），
+  没有路由到这两个 op。影响：脚本里的 `SetParmValUpdate` 会 `AttributeError`；可先 `SetParmValByID(pid, v)` 再
+  `vsp.Update()` 近似替代，但更新时机与副作用不完全等价。
 
 ### 未实现原因分类
 
