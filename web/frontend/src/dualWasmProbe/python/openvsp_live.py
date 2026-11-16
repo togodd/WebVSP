@@ -386,31 +386,6 @@ def GetResultShape(result_id, data_name, index=0):
     return _call('live_result_shape', result_id=result_id, name=data_name, index=index)
 
 
-CHUNK = 100000
-
-
-def _values(result_id, data_name, index, kind):
-    """Reads one field, in chunks when it is large enough to exceed one message."""
-    cached = _meta(result_id)
-    cache_key = (data_name, int(index), kind)
-    if cached is not None and cache_key in cached['values']:
-        return cached['values'][cache_key]
-    out = []
-    offset = 0
-    while True:
-        response = _call('live_result_values', result_id=result_id,
-                         name='%s\x1f%d\x1f%d' % (data_name, offset, CHUNK), index=index)
-        if not isinstance(response, dict) or response.get('type') != kind:
-            return []
-        part = response.get('value') or []
-        out.extend(part)
-        if len(part) < CHUNK:
-            if cached is not None:
-                cached['values'][cache_key] = out
-            return out
-        offset += len(part)
-
-
 def GetIntResults(result_id, data_name, index=0):
     return _numeric_values(result_id, data_name, index, INT_DATA)
 
