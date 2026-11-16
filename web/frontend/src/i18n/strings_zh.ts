@@ -176,5 +176,17 @@ export const ZH: Record<string, string> = {
   'analysis.copyFailed': '复制失败',
   'analysis.needOne': '至少选择一个分析',
 
+  'console.title': 'Python 控制台',
+  'console.open': 'Python',
+  'console.close': '关闭',
+  'console.clear': '清空输出',
+  'console.restart': '重启解释器',
+  'console.run': '运行',
+  'console.running': '运行中…',
+  'console.snippets': '插入：',
+  'console.help': 'Python 直接运行在活动模型上。Ctrl+Enter 运行，↑/↓ 翻历史。结果留在页面里。',
+  'console.placeholder': '# openvsp 已自动导入\nvsp.AddGeom("WING")',
+  'console.hint': 'Ctrl+Enter · ↑ 历史',
+
   'lang.label': '语言',
 }

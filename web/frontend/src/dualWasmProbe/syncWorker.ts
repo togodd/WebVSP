@@ -42,9 +42,51 @@ function request(op: string, args: string): string {
   return new TextDecoder('utf-8', { fatal: true }).decode(Uint8Array.from(new Uint8Array(buffer, RESPONSE_HEADER_BYTES, size)))
 }
 
-scope.onmessage = (event: MessageEvent<{ assets: string; mode: 'read' | 'modeling' | 'script'; script?: string }>) => {
+async function setupLive(pyodide: PyodideInterface): Promise<void> {
+  await pyodide.loadPackage(['numpy', 'six'], { checkIntegrity: true })
+  for (const dir of ['/sync-live/openvsp', '/sync-live/utilities', '/sync-live/degen_geom']) pyodide.FS.mkdirTree(dir)
+  for (const [name, content] of Object.entries({
+    'openvsp/__init__.py': liveFacade,
+    'degen_geom_parse.py': nativeDegenParser,
+    'surface_patches.py': nativePatches,
+    'degen_geom/__init__.py': degenInit,
+    'degen_geom/degen_geom.py': degenModule,
+    'openvsp_utilities.py': nativeOpenVspUtilities,
+    'utilities/__init__.py': nativeUtilitiesInit,
+    'utilities/files.py': nativeUtilitiesFiles,
+    'utilities/units.py': nativeUtilitiesUnits,
+    'utilities/transformations.py': nativeUtilitiesTransformations,
+  })) pyodide.FS.writeFile(`/sync-live/${name}`, content)
+  pyodide.runPython("import sys\nif '/sync-live' not in sys.path: sys.path.insert(0, '/sync-live')")
+}
+
+async function runConsole(pyodide: PyodideInterface, message: ConsoleMessage): Promise<void> {
+  const id = message.id ?? 0
+  const out: string[] = []
+  try {
+    pyodide.setStdout({ batched: (text) => out.push(text) })
+    pyodide.setStderr({ batched: (text) => out.push(text) })
+    const value = await pyodide.runPythonAsync(message.code ?? '')
+    let text: string
+    try { text = value === undefined || value === null ? '' : String(value) } catch { text = '' }
+    try { value?.destroy?.() } catch { /* best effort */ }
+    scope.postMessage({ type: 'result', id, ok: true, value: text, stdout: out.join('\n') })
+  } catch (error) {
+    scope.postMessage({ type: 'result', id, ok: false, error: error instanceof Error ? error.message : String(error), stdout: out.join('\n') })
+  }
+}
+
+type ConsoleMessage = { assets?: string; mode?: 'read' | 'modeling' | 'script' | 'console'; script?: string; type?: string; id?: number; code?: string }
+let consoleReady: PyodideInterface | null = null
+
+scope.onmessage = (event: MessageEvent<ConsoleMessage>) => {
+  if (event.data.type === 'run' && consoleReady) {
+    void runConsole(consoleReady, event.data)
+    return
+  }
   void (async () => {
     const base = event.data.assets
+    if (!base) throw new Error('Missing Pyodide asset base')
     const url = new URL('pyodide.mjs', base).href
     const { loadPyodide } = await import(/* @vite-ignore */ url) as { loadPyodide: (options: { indexURL: string }) => Promise<PyodideInterface> }
     const pyodide = await loadPyodide({ indexURL: base })
@@ -62,22 +104,17 @@ scope.onmessage = (event: MessageEvent<{ assets: string; mode: 'read' | 'modelin
       pyodide.FS.writeFile('/sync-probe/utilities/units.py', nativeUtilitiesUnits)
       pyodide.FS.writeFile('/sync-probe/utilities/transformations.py', nativeUtilitiesTransformations)
     }
+    if (event.data.mode === 'console') {
+      await setupLive(pyodide)
+      const lines: string[] = []
+      pyodide.setStdout({ batched: (text) => { if (lines.length < 2000) lines.push(text) } })
+      pyodide.setStderr({ batched: (text) => { if (lines.length < 2000) lines.push(text) } })
+      consoleReady = pyodide
+      scope.postMessage({ type: 'ready' })
+      return
+    }
     if (event.data.mode === 'script') {
-      await pyodide.loadPackage(['numpy', 'six'], { checkIntegrity: true })
-      for (const dir of ['/sync-live/openvsp', '/sync-live/utilities', '/sync-live/degen_geom']) pyodide.FS.mkdirTree(dir)
-      for (const [name, content] of Object.entries({
-        'openvsp/__init__.py': liveFacade,
-        'degen_geom_parse.py': nativeDegenParser,
-        'surface_patches.py': nativePatches,
-        'degen_geom/__init__.py': degenInit,
-        'degen_geom/degen_geom.py': degenModule,
-        'openvsp_utilities.py': nativeOpenVspUtilities,
-        'utilities/__init__.py': nativeUtilitiesInit,
-        'utilities/files.py': nativeUtilitiesFiles,
-        'utilities/units.py': nativeUtilitiesUnits,
-        'utilities/transformations.py': nativeUtilitiesTransformations,
-      })) pyodide.FS.writeFile(`/sync-live/${name}`, content)
-      pyodide.runPython("import sys; sys.path.insert(0, '/sync-live')")
+      await setupLive(pyodide)
       const value = await pyodide.runPythonAsync(event.data.script ?? '')
       let text: string
       try { text = JSON.stringify(value) } catch { text = String(value) }

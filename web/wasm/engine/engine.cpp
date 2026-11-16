@@ -68,6 +68,7 @@
 #include "Vec3d.h"
 #include "Vehicle.h"
 #include "VehicleMgr.h"
+#include "ParmMgr.h"
 #include "WebProcess.h"
 #include "p1_xml_probe.h"
 #include <angelscript.h>
@@ -1052,7 +1053,8 @@ string SyncFixtureStringArray( const vector< string > &values )
 
 // Live result reads have no fixture-sized limits; the transport caps the whole
 // response instead. They still fail closed on absurd sizes and non-finite values.
-constexpr size_t LIVE_MAX_VALUES = 2000000;
+constexpr size_t LIVE_MAX_VALUES = 400000;
+constexpr size_t LIVE_MAX_CHARS = 6 * 1024 * 1024;
 
 string LiveStringArray( const vector< string > &values )
 {
@@ -1068,7 +1070,11 @@ bool LiveTooLarge( size_t n, string &err )
 string LiveIntArray( const vector< int > &values )
 {
     string out = "[";
-    for ( size_t i = 0; i < values.size(); ++i ) out += ( i ? "," : "" ) + std::to_string( values[i] );
+    for ( size_t i = 0; i < values.size(); ++i )
+    {
+        out += ( i ? "," : "" ) + std::to_string( values[i] );
+        if ( out.size() > LIVE_MAX_CHARS ) return string();
+    }
     return out + "]";
 }
 
@@ -1079,6 +1085,7 @@ string LiveDoubleArray( const vector< double > &values )
     {
         if ( !std::isfinite( values[i] ) ) return string();
         out += ( i ? "," : "" ) + Num( values[i] );
+        if ( out.size() > LIVE_MAX_CHARS ) return string();
     }
     return out + "]";
 }
@@ -2582,39 +2589,70 @@ void RunImpl( const Job &j )
     if ( j.op == "liveResultValues" )
     {
         if ( j.a.empty() || j.b.empty() ) return Result( j.id, "Invalid result field", "" );
+        // "name" or "name<US>offset<US>limit": big fields are read in chunks.
+        string field = j.b;
+        size_t offset = 0, limit = 0;
+        const size_t sep1 = field.find( '\x1f' );
+        if ( sep1 != string::npos )
+        {
+            const size_t sep2 = field.find( '\x1f', sep1 + 1 );
+            if ( sep2 == string::npos ) return Result( j.id, "Invalid result chunk", "" );
+            offset = std::stoul( field.substr( sep1 + 1, sep2 - sep1 - 1 ) );
+            limit = std::stoul( field.substr( sep2 + 1 ) );
+            field = field.substr( 0, sep1 );
+        }
         const int index = static_cast< int >( j.value );
         if ( index < 0 ) return Result( j.id, "Invalid result index", "" );
-        const int type = vsp::GetResultsType( j.a, j.b );
+        const int type = vsp::GetResultsType( j.a, field );
         if ( TakeParmErrors( true ) != "" ) return Result( j.id, "Unknown result field", "" );
+        auto slice = [&]( size_t n, size_t &from, size_t &count ) {
+            from = 0; count = n;
+            if ( limit )
+            {
+                from = std::min( offset, n );
+                count = std::min( limit, n - from );
+            }
+            return true;
+        };
         string value;
         if ( type == vsp::INT_DATA )
         {
-            const auto v = vsp::GetIntResults( j.a, j.b, index );
+            const auto all = vsp::GetIntResults( j.a, field, index );
+            size_t from, count; slice( all.size(), from, count );
             string err;
-            if ( LiveTooLarge( v.size(), err ) ) return Result( j.id, err, "" );
+            if ( !limit && LiveTooLarge( all.size(), err ) ) return Result( j.id, err, "" );
+            const vector< int > v( all.begin() + from, all.begin() + from + count );
             value = LiveIntArray( v );
+            if ( !limit ) value += "";
         }
         else if ( type == vsp::DOUBLE_DATA )
         {
-            const auto v = vsp::GetDoubleResults( j.a, j.b, index );
+            const auto all = vsp::GetDoubleResults( j.a, field, index );
+            size_t from, count; slice( all.size(), from, count );
             string err;
-            if ( LiveTooLarge( v.size(), err ) ) return Result( j.id, err, "" );
+            if ( !limit && LiveTooLarge( all.size(), err ) ) return Result( j.id, err, "" );
+            const vector< double > v( all.begin() + from, all.begin() + from + count );
             value = LiveDoubleArray( v );
+            if ( value.empty() && !v.empty() ) return Result( j.id, "Result field has a non-finite value or exceeds the transport", "" );
         }
         else if ( type == vsp::STRING_DATA )
         {
-            value = LiveStringArray( vsp::GetStringResults( j.a, j.b, index ) );
+            const auto all = vsp::GetStringResults( j.a, field, index );
+            size_t from, count; slice( all.size(), from, count );
+            value = LiveStringArray( vector< string >( all.begin() + from, all.begin() + from + count ) );
         }
         else if ( type == vsp::DOUBLE_MATRIX_DATA )
         {
             size_t count = 0;
-            value = LiveDoubleMatrix( vsp::GetDoubleMatResults( j.a, j.b, index ), count );
+            value = LiveDoubleMatrix( vsp::GetDoubleMatResults( j.a, field, index ), count );
             if ( value.empty() ) return Result( j.id, "Invalid or oversized double matrix result", "" );
         }
         else if ( type == vsp::VEC3D_DATA )
         {
-            value = LiveVec3dArray( vsp::GetVec3dResults( j.a, j.b, index ) );
-            if ( value.empty() && !vsp::GetVec3dResults( j.a, j.b, index ).empty() ) return Result( j.id, "Invalid vec3d result", "" );
+            const auto all = vsp::GetVec3dResults( j.a, field, index );
+            size_t from, count; slice( all.size(), from, count );
+            value = LiveVec3dArray( vector< vec3d >( all.begin() + from, all.begin() + from + count ) );
+            if ( value.empty() && !all.empty() ) return Result( j.id, "Invalid vec3d result", "" );
         }
         else if ( type == vsp::INT_MATRIX_DATA )
         {
@@ -2639,6 +2677,90 @@ void RunImpl( const Job &j )
         const double actual = vsp::SetParmVal( j.a, name, group, j.value );
         const string writeErr = TakeParmErrors( true );
         if ( !writeErr.empty() ) return Result( j.id, "SetParmVal(" + group + "/" + name + "): " + writeErr, "" );
+        return Result( j.id, "", Num( actual ) );
+    }
+    // ---- Live XSec / subsurface / set access (in-process mode) -------------
+    if ( j.op == "liveXSecSurfs" )
+    {
+        vector< string > out;
+        const int n = vsp::GetNumXSecSurfs( j.a );
+        for ( int i = 0; i < n; ++i ) out.push_back( vsp::GetXSecSurf( j.a, i ) );
+        return Result( j.id, "", LiveStringArray( out ) );
+    }
+    if ( j.op == "liveXSecs" )
+    {
+        vector< string > out;
+        const int n = vsp::GetNumXSec( j.a );
+        for ( int i = 0; i < n; ++i ) out.push_back( vsp::GetXSec( j.a, i ) );
+        return Result( j.id, "", LiveStringArray( out ) );
+    }
+    if ( j.op == "liveXSecShape" )
+        return Result( j.id, "", std::to_string( vsp::GetXSecShape( j.a ) ) );
+    if ( j.op == "liveXSecParmIDs" )
+        return Result( j.id, "", LiveStringArray( vsp::GetXSecParmIDs( j.a ) ) );
+    if ( j.op == "liveInsertXSec" )
+    {
+        vsp::InsertXSec( j.a, static_cast< int >( j.value ), std::stoi( j.b ) );
+        return Result( j.id, "", "null" );
+    }
+    if ( j.op == "liveDeleteXSec" )
+    {
+        vsp::CutXSec( j.a, static_cast< int >( j.value ) );
+        return Result( j.id, "", "null" );
+    }
+    if ( j.op == "liveChangeXSecShape" )
+    {
+        vsp::ChangeXSecShapeByID( j.a, std::stoi( j.b ) );
+        return Result( j.id, "", "null" );
+    }
+    if ( j.op == "liveSubSurfs" )
+        return Result( j.id, "", LiveStringArray( vsp::GetSubSurfIDVec( j.a ) ) );
+    if ( j.op == "liveAddSubSurf" )
+    {
+        const string id = vsp::AddSubSurf( j.a, std::stoi( j.b ), static_cast< int >( j.value ) );
+        if ( id.empty() ) return Result( j.id, "Could not add subsurface", "" );
+        return Result( j.id, "", Quote( id ) );
+    }
+    if ( j.op == "liveDeleteSubSurf" )
+    {
+        vsp::DeleteSubSurf( j.b );
+        return Result( j.id, "", "null" );
+    }
+    if ( j.op == "liveNumSets" )
+        return Result( j.id, "", std::to_string( vsp::GetNumSets() ) );
+    if ( j.op == "liveSetName" )
+        return Result( j.id, "", Quote( vsp::GetSetName( static_cast< int >( j.value ) ) ) );
+    if ( j.op == "liveSetSetName" )
+    {
+        vsp::SetSetName( static_cast< int >( j.value ), j.b );
+        return Result( j.id, "", "null" );
+    }
+    if ( j.op == "liveGetSetFlag" )
+        return Result( j.id, "", vsp::GetSetFlag( j.a, static_cast< int >( j.value ) ) ? "true" : "false" );
+    if ( j.op == "liveSetSetFlag" )
+    {
+        vsp::SetSetFlag( j.a, static_cast< int >( j.value ), std::stoi( j.b ) != 0 );
+        return Result( j.id, "", "null" );
+    }
+    if ( j.op == "liveParmInfo" )
+    {
+        if ( j.a.empty() ) return Result( j.id, "Invalid parameter ID", "" );
+        Parm *p = ParmMgr.FindParm( j.a );
+        if ( !p ) return Result( j.id, "Unknown parameter", "" );
+        return Result( j.id, "", "{\"id\":" + Quote( j.a ) +
+            ",\"name\":" + Quote( vsp::GetParmName( j.a ) ) +
+            ",\"group\":" + Quote( vsp::GetParmDisplayGroupName( j.a ) ) +
+            ",\"container\":" + Quote( vsp::GetParmContainer( j.a ) ) +
+            ",\"type\":" + std::to_string( vsp::GetParmType( j.a ) ) +
+            ",\"value\":" + Num( vsp::GetParmVal( j.a ) ) + "}" );
+    }
+    if ( j.op == "liveParmSetById" )
+    {
+        if ( j.a.empty() ) return Result( j.id, "Invalid parameter ID", "" );
+        if ( !ParmMgr.FindParm( j.a ) ) return Result( j.id, "Unknown parameter", "" );
+        const double actual = vsp::SetParmVal( j.a, j.value );
+        const string err = TakeParmErrors( true );
+        if ( !err.empty() ) return Result( j.id, "SetParmVal failed: " + err, "" );
         return Result( j.id, "", Num( actual ) );
     }
     if ( j.op == "liveUpdate" )

@@ -79,6 +79,138 @@ def SetParmVal(geom_id, name, group, value):
     return _call('live_parm_set', geom_id=geom_id, key=group + '\x1f' + name, value=float(value))
 
 
+# ---------------------------------------------------------------- XSec / subsurface
+
+XS_FOUR_SERIES, XS_SIX_SERIES, XS_BICONVEX, XS_WEDGE, XS_ELLIPSE, XS_FILE_AIRFOIL = 0, 1, 2, 3, 4, 6
+SS_RECTANGLE, SS_ELLIPSE, SS_CONTROL, SS_LINE, SS_FINITE_LINE = 0, 1, 2, 3, 4
+
+
+def GetNumXSecSurfs(geom_id):
+    return len(_call('live_xsec_surfs', geom_id=geom_id))
+
+
+def GetXSecSurf(geom_id, index):
+    return _call('live_xsec_surfs', geom_id=geom_id)[index]
+
+
+def GetXSecSurfIDs(geom_id):
+    return _call('live_xsec_surfs', geom_id=geom_id)
+
+
+def GetNumXSec(xsec_surf_id):
+    return len(_call('live_xsecs', xsec_surf_id=xsec_surf_id))
+
+
+def GetXSec(xsec_surf_id, index):
+    return _call('live_xsecs', xsec_surf_id=xsec_surf_id)[index]
+
+
+def GetXSecIDs(xsec_surf_id):
+    return _call('live_xsecs', xsec_surf_id=xsec_surf_id)
+
+
+def GetXSecShape(xsec_id):
+    return _call('live_xsec_shape', xsec_id=xsec_id)
+
+
+def GetXSecParmIDs(xsec_id):
+    return _call('live_xsec_parm_ids', xsec_id=xsec_id)
+
+
+def InsertXSec(geom_id, index, type):
+    return _call('live_insert_xsec', geom_id=geom_id, index=index, shape=type)
+
+
+def CutXSec(geom_id, index):
+    return _call('live_delete_xsec', xsec_surf_id=geom_id, index=index)
+
+
+def DeleteXSec(geom_id, index):
+    """Desktop name for removing a section by index on a geom."""
+    return CutXSec(geom_id, index)
+
+
+def ChangeXSecShape(xsec_surf_id, index, type):
+    xsec = GetXSec(xsec_surf_id, index)
+    return _call('live_change_xsec_shape', xsec_id=xsec, shape=type)
+
+
+def ChangeXSecShapeByID(xsec_id, type):
+    return _call('live_change_xsec_shape', xsec_id=xsec_id, shape=type)
+
+
+def GetSubSurfIDVec(geom_id):
+    return _call('live_sub_surfs', geom_id=geom_id)
+
+
+def GetNumSubSurf(geom_id):
+    return len(GetSubSurfIDVec(geom_id))
+
+
+def GetSubSurf(geom_id, index):
+    return GetSubSurfIDVec(geom_id)[index]
+
+
+def AddSubSurf(geom_id, type, surfindex=0):
+    return _call('live_add_sub_surf', geom_id=geom_id, type=type, surf_index=surfindex)
+
+
+def DeleteSubSurf(geom_id, sub_id):
+    return _call('live_delete_sub_surf', geom_id=geom_id, sub_id=sub_id)
+
+
+# ---------------------------------------------------------------- sets
+
+def GetNumSets():
+    return _call('live_num_sets')
+
+
+def GetSetName(index):
+    return _call('live_set_name', index=index)
+
+
+def GetSetNames():
+    return [GetSetName(i) for i in range(GetNumSets())]
+
+
+def SetSetName(index, name):
+    return _call('live_set_set_name', index=index, name=name)
+
+
+def GetSetFlag(geom_id, set_index):
+    return _call('live_get_set_flag', geom_id=geom_id, set_index=set_index)
+
+
+def SetSetFlag(geom_id, set_index, flag):
+    return _call('live_set_set_flag', geom_id=geom_id, set_index=set_index, flag=bool(flag))
+
+
+# ---------------------------------------------------------------- parameter info
+
+def GetParmInfo(parm_id):
+    return _call('live_parm_info', parm_id=parm_id)
+
+
+def GetParmInfoByName(geom_id, name, group):
+    return _call('live_parm_info', parm_id=_parm_id(geom_id, name, group))
+
+
+def GetParmValByID(parm_id):
+    return _call('live_parm_info', parm_id=parm_id)['value']
+
+
+def SetParmValByID(parm_id, value):
+    return _call('live_parm_set_by_id', parm_id=parm_id, value=float(value))
+
+
+def _parm_id(geom_id, name, group):
+    for pid in GetGeomParmIDs(geom_id):
+        info = GetParmInfo(pid)
+        if info['name'] == name and info['group'] == group:
+            return pid
+    raise OpenVSPError('Parameter %s/%s not found on %s' % (group, name, geom_id))
+
+
 # ---------------------------------------------------------------- analyses
 
 def SetAnalysisInputDefaults(analysis):
@@ -122,11 +254,23 @@ def GetResultShape(result_id, data_name, index=0):
     return _call('live_result_shape', result_id=result_id, name=data_name, index=index)
 
 
+CHUNK = 100000
+
+
 def _values(result_id, data_name, index, kind):
-    response = _call('live_result_values', result_id=result_id, name=data_name, index=index)
-    if not isinstance(response, dict) or response.get('type') != kind:
-        return []
-    return response.get('value') or []
+    """Reads one field, in chunks when it is large enough to exceed one message."""
+    out = []
+    offset = 0
+    while True:
+        response = _call('live_result_values', result_id=result_id,
+                         name='%s\x1f%d\x1f%d' % (data_name, offset, CHUNK), index=index)
+        if not isinstance(response, dict) or response.get('type') != kind:
+            return []
+        part = response.get('value') or []
+        out.extend(part)
+        if len(part) < CHUNK:
+            return out
+        offset += len(part)
 
 
 def GetIntResults(result_id, data_name, index=0):

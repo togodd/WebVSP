@@ -176,5 +176,17 @@ export const EN: Record<string, string> = {
   'analysis.copyFailed': 'Could not copy',
   'analysis.needOne': 'Select at least one analysis',
 
+  'console.title': 'Python console',
+  'console.open': 'Python',
+  'console.close': 'Close',
+  'console.clear': 'Clear output',
+  'console.restart': 'Restart interpreter',
+  'console.run': 'Run',
+  'console.running': 'Running…',
+  'console.snippets': 'Insert:',
+  'console.help': 'Python runs against the live model. Ctrl+Enter runs; ↑/↓ browse history. Results stay in the page.',
+  'console.placeholder': '# openvsp is imported for you\nvsp.AddGeom("WING")',
+  'console.hint': 'Ctrl+Enter · ↑ history',
+
   'lang.label': 'Language',
 }

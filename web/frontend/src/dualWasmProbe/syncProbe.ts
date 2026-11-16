@@ -29,7 +29,20 @@ export function runSyncModelingProbe(): Promise<unknown> { return run('modeling'
  */
 export function runSyncScript(code: string): Promise<unknown> { return run('script', code) }
 
-async function run(mode: 'read' | 'modeling' | 'script', script?: string): Promise<unknown> {
+export interface ConsoleSession {
+  run(code: string): Promise<{ ok: boolean; value: string; stdout: string; error?: string }>
+  close(): void
+}
+
+/**
+ * A long-lived Python session over the live model. Reuses the same bridge so
+ * Python calls reach the page engine exactly as in script mode.
+ */
+export function startConsoleSession(): Promise<ConsoleSession> {
+  return run('console') as Promise<ConsoleSession>
+}
+
+async function run(mode: 'read' | 'modeling' | 'script' | 'console', script?: string): Promise<unknown> {
   if (!crossOriginIsolated || typeof SharedArrayBuffer === 'undefined') throw new Error('Cross-origin isolation and SharedArrayBuffer are required')
   const worker = new Worker(new URL('./syncWorker.ts', import.meta.url), { type: 'module' })
   const assets = new URL(`${import.meta.env.BASE_URL}pyodide/`, window.location.href).href
@@ -39,6 +52,8 @@ async function run(mode: 'read' | 'modeling' | 'script', script?: string): Promi
     let poisoned = false
     let dispatchedWrite = false
     let currentWriteIssued = false
+    let consoleRunId = 0
+    const consoleRuns = new Map<number, { resolve: (r: { ok: boolean; value: string; stdout: string; error?: string }) => void; reject: (e: Error) => void }>()
     let epoch: string | undefined
     const parameterIds = new Map<string, Map<string, string>>()
     const finish = (error?: Error, value?: unknown) => {
@@ -184,7 +199,7 @@ async function run(mode: 'read' | 'modeling' | 'script', script?: string): Promi
         const engineOp: 'parm_value_id' | 'parm_int_value_id' | 'parm_name_id' | 'parm_type_id' = op === 'parm_value_id' ? 'parm_value_id' : op === 'parm_int_value_id' ? 'parm_int_value_id' : op === 'parm_name_id' ? 'parm_name_id' : 'parm_type_id'
         return callGuarded(engineOp, args.parm_id, '', 0, epoch!)
       }
-      if (mode === 'script' && op.startsWith('live_')) {
+      if ((mode === 'script' || mode === 'console') && op.startsWith('live_')) {
         const live = (engineOp: string, a = '', b = '', value = 0) => syncProbeEngineCall(engineOp, a, b, value)
         const text = (key: string) => {
           const v = args[key]
@@ -225,6 +240,38 @@ async function run(mode: 'read' | 'modeling' | 'script', script?: string): Promi
         if (op === 'live_result_name') return live('liveResultName', text('result_id'))
         if (op === 'live_result_num_data') return live('liveResultNumData', text('result_id'), text('name'))
         if (op === 'live_result_type') return live('liveResultType', text('result_id'), text('name'))
+        if (op === 'live_xsec_surfs') return live('liveXSecSurfs', text('geom_id'))
+        if (op === 'live_xsecs') return live('liveXSecs', text('xsec_surf_id'))
+        if (op === 'live_xsec_shape') return live('liveXSecShape', text('xsec_id'))
+        if (op === 'live_xsec_parm_ids') return live('liveXSecParmIDs', text('xsec_id'))
+        if (op === 'live_insert_xsec') {
+          if (typeof args.index !== 'number' || typeof args.shape !== 'number') throw new WasmEngineError(400, 'Invalid XSec index or shape', 'not_written')
+          return live('liveInsertXSec', text('geom_id'), String(args.shape), args.index)
+        }
+        if (op === 'live_delete_xsec') {
+          if (typeof args.index !== 'number') throw new WasmEngineError(400, 'Invalid XSec index', 'not_written')
+          return live('liveDeleteXSec', text('xsec_surf_id'), '', args.index)
+        }
+        if (op === 'live_change_xsec_shape') {
+          if (typeof args.shape !== 'number') throw new WasmEngineError(400, 'Invalid XSec shape', 'not_written')
+          return live('liveChangeXSecShape', text('xsec_id'), String(args.shape))
+        }
+        if (op === 'live_sub_surfs') return live('liveSubSurfs', text('geom_id'))
+        if (op === 'live_add_sub_surf') {
+          if (typeof args.type !== 'number') throw new WasmEngineError(400, 'Invalid subsurface type', 'not_written')
+          return live('liveAddSubSurf', text('geom_id'), String(args.type), Number(args.surf_index ?? 0))
+        }
+        if (op === 'live_delete_sub_surf') return live('liveDeleteSubSurf', text('geom_id'), text('sub_id'))
+        if (op === 'live_num_sets') return live('liveNumSets')
+        if (op === 'live_set_name') return live('liveSetName', '', '', Number(args.index))
+        if (op === 'live_set_set_name') return live('liveSetSetName', '', text('name'), Number(args.index))
+        if (op === 'live_get_set_flag') return live('liveGetSetFlag', text('geom_id'), '', Number(args.set_index))
+        if (op === 'live_set_set_flag') return live('liveSetSetFlag', text('geom_id'), args.flag ? '1' : '0', Number(args.set_index))
+        if (op === 'live_parm_info') return live('liveParmInfo', text('parm_id'))
+        if (op === 'live_parm_set_by_id') {
+          if (typeof args.value !== 'number' || !Number.isFinite(args.value)) throw new WasmEngineError(400, 'Invalid parameter value', 'not_written')
+          return live('liveParmSetById', text('parm_id'), '', args.value as number)
+        }
         if (op === 'live_result_shape') return live('liveResultShape', text('result_id'), text('name'), Number(args.index ?? 0))
         if (op === 'live_result_values') {
           if (typeof args.index !== 'number' || !Number.isSafeInteger(args.index) || args.index < 0) throw new WasmEngineError(400, 'Invalid result index', 'not_written')
@@ -251,7 +298,26 @@ async function run(mode: 'read' | 'modeling' | 'script', script?: string): Promi
     worker.onerror = (event) => finish(new Error(`Sync worker failed: ${event.message}`))
     worker.onmessageerror = () => finish(new Error('Invalid sync worker message'))
     worker.onmessage = (event: MessageEvent) => {
-      const msg = event.data as { type?: string; op?: string; args?: string; value?: string; error?: string; buffer?: SharedArrayBuffer; capacity?: number }
+      const msg = event.data as { type?: string; op?: string; args?: string; value?: string; stdout?: string; ok?: boolean; id?: number; error?: string; buffer?: SharedArrayBuffer; capacity?: number }
+      if (mode === 'console' && msg.type === 'ready') {
+        clearTimeout(timer) // The session stays open until it is closed.
+        resolve({
+          run: (code: string) => new Promise((res, rej) => {
+            const runId = ++consoleRunId
+            consoleRuns.set(runId, { resolve: res, reject: rej })
+            worker.postMessage({ type: 'run', id: runId, code })
+          }),
+          close: () => { finished = true; worker.terminate() },
+        })
+        return
+      }
+      if (mode === 'console' && msg.type === 'result') {
+        const entry = consoleRuns.get(msg.id ?? -1)
+        if (!entry) return
+        consoleRuns.delete(msg.id ?? -1)
+        entry.resolve({ ok: !!msg.ok, value: msg.value ?? '', stdout: msg.stdout ?? '', error: msg.error })
+        return
+      }
       if (msg.type === 'done') {
         try { finish(undefined, JSON.parse(msg.value ?? '')) } catch { finish(new Error('Invalid sync result')) }
         return

@@ -16,6 +16,8 @@ import { Viewport } from './viewport/Viewport'
 import { ResultsSaveToast } from './viewer/ResultsSaveToast'
 import { ResultsViewer } from './viewer/ResultsViewer'
 import { CurrentModelAnalysis } from './analysis/CurrentModelAnalysis'
+import { PythonConsole } from './analysis/PythonConsole'
+import { useConsole } from './analysis/consoleStore'
 import { useAnalysis } from './analysis/store'
 import { WasmToolbar } from './WasmToolbar'
 
@@ -125,6 +127,9 @@ export default function App() {
         <button className="analysis-open" onClick={() => useAnalysis.getState().openWindow()} data-testid="analysis-open">
           {t('analysis.open')}
         </button>
+        <button className="analysis-open" onClick={() => useConsole.getState().openConsole()} data-testid="console-open">
+          {t('console.open')}
+        </button>
         <LanguageSwitch />
         <WasmToolbar />
         {!mirrorEnabled && connected && <span className="hint">{t('app.mirrorUnavailable')}</span>}
@@ -143,6 +148,7 @@ export default function App() {
         ))}
         <ResultsViewer />
         <CurrentModelAnalysis />
+        <PythonConsole />
       </div>
       <DialogHost />
       <DeleteConfirm />

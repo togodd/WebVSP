@@ -609,3 +609,41 @@ input:focus, select:focus, textarea:focus, button:focus-visible {
 .analysis-table th, .analysis-table td { padding: 3px 6px; text-align: left; border-bottom: 1px solid var(--line); }
 .analysis-table th { color: var(--fg-2); font-weight: 500; }
 .analysis-note { font-size: 11px; color: var(--fg-2); }
+
+/* ------------------------------------------------------------ Python console */
+.py-console {
+  position: absolute; left: 0; top: 0; z-index: 45; display: flex; flex-direction: column;
+  background: var(--bg-1); border: 1px solid var(--line-strong); border-radius: 6px;
+  box-shadow: 0 10px 32px rgba(0, 0, 0, 0.55); overflow: hidden;
+}
+.py-console-title { flex: none; cursor: move; }
+.py-console-snippets {
+  flex: none; display: flex; align-items: center; gap: 4px; flex-wrap: wrap; padding: 4px 8px;
+  background: var(--bg-2); border-bottom: 1px solid var(--line); font-size: 11px;
+}
+.py-console-snippets button { height: 20px; padding: 0 6px; font-size: 11px; }
+.py-console-hint { color: var(--fg-3); }
+.py-console-output {
+  flex: 1; min-height: 0; overflow: auto; padding: 6px 8px;
+  font-family: var(--mono); font-size: 11.5px; line-height: 1.45; color: var(--fg-1);
+}
+.py-console-empty { color: var(--fg-3); white-space: pre-wrap; }
+.py-console-entry { margin-bottom: 8px; }
+.py-console-code { margin: 0; color: var(--fg-0); white-space: pre-wrap; word-break: break-word; }
+.py-console-stdout { margin: 2px 0 0; color: var(--fg-2); white-space: pre-wrap; }
+.py-console-value { margin: 2px 0 0; color: #9ad49a; white-space: pre-wrap; word-break: break-word; }
+.py-console-error { margin: 2px 0 0; color: #e08a8a; white-space: pre-wrap; word-break: break-word; }
+.py-console-meta { color: var(--fg-3); font-size: 10px; }
+.py-console-busy { color: var(--fg-2); }
+.py-console-input {
+  flex: none; height: 84px; resize: none; border: 0; border-top: 1px solid var(--line);
+  padding: 6px 8px; font-family: var(--mono); font-size: 11.5px; line-height: 1.45;
+  background: var(--bg-0); color: var(--fg-0); outline: none;
+}
+.py-console-bar {
+  flex: none; display: flex; align-items: center; gap: 8px; padding: 4px 8px;
+  border-top: 1px solid var(--line); background: var(--bg-2);
+}
+.py-console-resize {
+  position: absolute; right: 0; bottom: 0; width: 14px; height: 14px; cursor: nwse-resize;
+}
