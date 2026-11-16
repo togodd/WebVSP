@@ -1116,6 +1116,92 @@ string LiveVec3dArray( const vector< vec3d > &values )
     return out + "]";
 }
 
+// Phase 3 result-tree snapshot. This is a JSON control-plane optimization:
+// one engine request walks the ResultsMgr graph and returns all metadata and
+// fields reachable from a root. Non-finite doubles are represented as null;
+// Phase 4 replaces this payload with a binary protocol that preserves them.
+string LiveTreeNumber( double value )
+{
+    return std::isfinite( value ) ? Num( value ) : "null";
+}
+
+string LiveTreeValue( const NameValData *data )
+{
+    if ( !data ) return "null";
+    switch ( data->GetType() )
+    {
+    case vsp::INT_DATA: return IntArrayJson( data->GetIntData() );
+    case vsp::DOUBLE_DATA:
+    {
+        string out = "[";
+        const auto &values = data->GetDoubleData();
+        for ( size_t i = 0; i < values.size(); ++i ) out += ( i ? "," : "" ) + LiveTreeNumber( values[i] );
+        return out + "]";
+    }
+    case vsp::STRING_DATA: return StrArray( data->GetStringData() );
+    case vsp::VEC3D_DATA:
+    {
+        string out = "[";
+        const auto &values = data->GetVec3dData();
+        for ( size_t i = 0; i < values.size(); ++i )
+        {
+            out += ( i ? "," : "" ) + string( "[" ) + LiveTreeNumber( values[i].x() ) + "," +
+                   LiveTreeNumber( values[i].y() ) + "," + LiveTreeNumber( values[i].z() ) + "]";
+        }
+        return out + "]";
+    }
+    case vsp::INT_MATRIX_DATA:
+    {
+        string out = "[";
+        const auto &rows = data->GetIntMatData();
+        for ( size_t r = 0; r < rows.size(); ++r ) out += ( r ? "," : "" ) + IntArrayJson( rows[r] );
+        return out + "]";
+    }
+    case vsp::DOUBLE_MATRIX_DATA:
+    {
+        string out = "[";
+        const auto &rows = data->GetDoubleMatData();
+        for ( size_t r = 0; r < rows.size(); ++r )
+        {
+            out += ( r ? "," : "" ) + string( "[" );
+            for ( size_t c = 0; c < rows[r].size(); ++c ) out += ( c ? "," : "" ) + LiveTreeNumber( rows[r][c] );
+            out += "]";
+        }
+        return out + "]";
+    }
+    default: return "null";
+    }
+}
+
+void LiveTreeAppend( const string &id, std::set< string > &seen, string &out )
+{
+    if ( id.empty() || seen.count( id ) ) return;
+    Results *result = ResultsMgrSingleton::getInstance().FindResultsPtr( id );
+    if ( !result ) return;
+    seen.insert( id );
+    out += ( seen.size() == 1 ? "" : "," ) + string( "{\"id\":" ) + Quote( id ) +
+           ",\"name\":" + Quote( result->GetName() ) + ",\"fields\":[";
+    bool first = true;
+    vector< string > children;
+    for ( const string &name : result->GetAllDataNames() )
+    {
+        const int count = result->GetNumData( name );
+        for ( int index = 0; index < count; ++index )
+        {
+            NameValData *data = result->FindPtr( name, index );
+            if ( !data ) continue;
+            if ( !first ) out += ",";
+            first = false;
+            out += "{\"name\":" + Quote( name ) + ",\"type\":" + std::to_string( data->GetType() ) +
+                   ",\"index\":" + std::to_string( index ) + ",\"value\":" + LiveTreeValue( data ) + "}";
+            if ( data->GetType() == vsp::STRING_DATA )
+                for ( const string &child : data->GetStringData() ) if ( ResultsMgrSingleton::getInstance().FindResultsPtr( child ) ) children.push_back( child );
+        }
+    }
+    out += "]}";
+    for ( const string &child : children ) LiveTreeAppend( child, seen, out );
+}
+
 vector< string > SplitCsv( const string &s )
 {
     vector< string > out;
@@ -2547,6 +2633,15 @@ void RunImpl( const Job &j )
         if ( errors.GetNumTotalErrors() ) return Result( j.id, errors.PopLastError().GetErrorString(), "" );
         if ( root.empty() ) return Result( j.id, "Analysis returned no root result", "" );
         return Result( j.id, "", Quote( root ) );
+    }
+    if ( j.op == "liveResultTree" )
+    {
+        if ( j.a.empty() || !ResultsMgrSingleton::getInstance().FindResultsPtr( j.a ) )
+            return Result( j.id, "Unknown result ID", "" );
+        std::set< string > seen;
+        string objects;
+        LiveTreeAppend( j.a, seen, objects );
+        return Result( j.id, "", "{\"root\":" + Quote( j.a ) + ",\"objects\":[" + objects + "]}" );
     }
     if ( j.op == "liveResultsIds" )
         return Result( j.id, "", LiveStringArray( vsp::GetAllResultsIDs() ) );

@@ -10,6 +10,7 @@ crash or out-of-memory in the analysis takes the page session with it.
 """
 import json
 import sys
+from collections import namedtuple
 
 from sync_bridge import request
 
@@ -239,6 +240,21 @@ def GetAllResultsIDs():
     return _call('live_results_ids')
 
 
+def GetResultTree(result_id):
+    """Fetch a recursive JSON result tree in one engine request (Phase 3)."""
+    return _call('live_result_tree', result_id=result_id)
+
+
+def _tree_objects(tree):
+    return {item['id']: item for item in tree.get('objects', [])}
+
+
+def parse_results_tree(result_id):
+    """Fetch one recursive tree and return both its envelope and ID index."""
+    tree = GetResultTree(result_id)
+    return tree, _tree_objects(tree)
+
+
 def _meta(result_id):
     if _RESULT_PARSE_CACHE is None:
         return None
@@ -337,6 +353,25 @@ def parse_results_object(res_id, vsp_instance=None):
     finally:
         if previous is None:
             _RESULT_PARSE_CACHE = None
+
+
+def _tree_result(result_id, parsed):
+    item = parsed.get(result_id)
+    if item is None:
+        raise OpenVSPError('Result tree object missing: %s' % result_id)
+    names = []
+    fields = {}
+    for field in item.get('fields', []):
+        if field['name'] not in names:
+            names.append(field['name'])
+        fields[field['name']] = field.get('value')
+    return namedtuple(item.get('name') or 'Results', names)(**fields)
+
+
+def parse_results_object_fast(res_id, vsp_instance=None):
+    """Fast live parser: fetch the recursive ResultsMgr graph once."""
+    tree, parsed = parse_results_tree(res_id)
+    return _tree_result(res_id, parsed), tree, parsed
 
 
 class _Vec3d:
