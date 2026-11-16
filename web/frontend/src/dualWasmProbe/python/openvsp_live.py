@@ -361,9 +361,9 @@ def GetBinaryResults(result_id, data_name, index=0):
 
 
 def GetDoubleResults(result_id, data_name, index=0):
-    if _RESULT_PARSE_CACHE is not None and GetResultsType(result_id, data_name) != DOUBLE_DATA:
-        return []
-    return GetBinaryResults(result_id, data_name, index)
+    # Keep the existing chunked path until binary reads have bounded chunking
+    # and match the native getter's wrong-type and missing-field semantics.
+    return _values(result_id, data_name, index, DOUBLE_DATA)
 
 
 def GetStringResults(result_id, data_name, index=0):

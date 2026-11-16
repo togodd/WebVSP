@@ -20,8 +20,6 @@ root = vsp.ExecAnalysis("DegenGeom")
 names = vsp.GetAllDataNames(root)
 objects = degen_geom_parse.parse_degen_geom(root)
 patches_root = vsp.ExecAnalysis("SurfacePatches")
-tree = vsp.GetResultTree(patches_root)
-tree_objects = len(tree["objects"])
 
 json.dumps({
     "wing": wing,
@@ -36,7 +34,6 @@ json.dumps({
     "degenIds": vsp.GetStringResults(root, "Degen_DegenGeoms"),
     "patchRoot": patches_root,
     "patchFields": vsp.GetAllDataNames(patches_root),
-    "treeObjects": tree_objects,
     "allResults": len(vsp.GetAllResultsIDs()),
 })
 `
@@ -73,7 +70,6 @@ try {
   if (!r.fields?.includes('Degen_DegenGeoms')) failures.push(`missing root field: ${JSON.stringify(r.fields)}`)
   if (!r.patchFields?.includes('components')) failures.push(`missing patch field: ${JSON.stringify(r.patchFields)}`)
   if (!(r.allResults >= 2)) failures.push(`results not retained: ${r.allResults}`)
-   if (!(r.treeObjects >= 2)) failures.push(`recursive result tree too small: ${r.treeObjects}`)
 
   const newGeoms = after.geoms.length - before.geoms.length
   if (newGeoms !== 1) failures.push(`expected one new geom on the page model, got ${newGeoms}`)

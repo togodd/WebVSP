@@ -252,12 +252,8 @@ async function run(mode: 'read' | 'modeling' | 'script' | 'console', script?: st
         }
         if (op === 'live_analysis_run') return live('liveAnalysisRun', text('analysis'))
         if (op === 'live_results_ids') return live('liveResultsIds')
-        if (op === 'live_result_tree') return live('liveResultTree', text('result_id'))
-        if (op === 'live_result_binary_field') {
-          const index = Number(args.index ?? 0)
-          if (!Number.isSafeInteger(index) || index < 0 || index > 2147483647) throw new WasmEngineError(400, 'Invalid result index', 'not_written')
-          return live('liveResultBinaryField', text('result_id'), text('name'), index)
-        }
+        if (op === 'live_result_tree') throw new WasmEngineError(400, 'Result tree batching is disabled until bounded and lossless', 'not_written')
+        if (op === 'live_result_binary_field') throw new WasmEngineError(400, 'Binary result fields are disabled until bounded', 'not_written')
         if (op === 'live_result_names') return live('liveResultNames', text('result_id'))
         if (op === 'live_result_name') return live('liveResultName', text('result_id'))
         if (op === 'live_result_num_data') return live('liveResultNumData', text('result_id'), text('name'))
