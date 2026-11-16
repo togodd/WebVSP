@@ -71,7 +71,10 @@ except Exception as exc:
     assert 'timed out' in str(exc)
 else:
     raise AssertionError('Timeout was not reported')
-# A new buffer prevents a delayed reply to the previous request contaminating this one.
+# The timed-out buffer is discarded; the delayed reply arrives while another
+# same-capacity request is in flight and must not contaminate its response.
+assert call('ping_slow') == 'ok'
+# A buffer from that completed response can then be reused repeatedly.
 assert call('ping_slow') == 'ok'
 json.dumps({'wingId': wing['id'], 'nameUnique': wing['nameUnique'], 'byId': by_id, 'byName': by_name,
             'fileReply': file_reply, 'repeatedCalls': True, 'timeoutChecked': True,
