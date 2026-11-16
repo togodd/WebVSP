@@ -10,6 +10,7 @@ crash or out-of-memory in the analysis takes the page session with it.
 """
 import json
 import sys
+import struct
 from collections import namedtuple
 
 from sync_bridge import request
@@ -329,8 +330,40 @@ def GetIntResults(result_id, data_name, index=0):
     return _values(result_id, data_name, index, INT_DATA)
 
 
+def GetBinaryResults(result_id, data_name, index=0):
+    """Read a numeric field as a versioned binary record, preserving NaN/Inf."""
+    raw = request('live_result_binary_field', json.dumps({'result_id': result_id, 'name': data_name, 'index': index}))
+    if isinstance(raw, str):
+        response = json.loads(raw)
+        raise OpenVSPError((response.get('error') or {}).get('message', 'Binary result failed'))
+    data = bytes(raw.to_py() if hasattr(raw, 'to_py') else raw)
+    if len(data) < 12 or data[:4] != b'VRB1':
+        raise OpenVSPError('Invalid binary result header')
+    kind, rows = struct.unpack_from('<II', data, 4)
+    pos = 12
+    result = []
+    if kind not in (INT_DATA, INT_MATRIX_DATA, DOUBLE_DATA, DOUBLE_MATRIX_DATA, VEC3D_DATA):
+        raise OpenVSPError('Unsupported binary result type')
+    fmt = 'i' if kind in (INT_DATA, INT_MATRIX_DATA) else 'd'
+    item_size = 4 if fmt == 'i' else 8
+    for _ in range(rows):
+        if pos + 4 > len(data):
+            raise OpenVSPError('Truncated binary result')
+        count = struct.unpack_from('<I', data, pos)[0]
+        pos += 4
+        if count > (len(data) - pos) // item_size:
+            raise OpenVSPError('Truncated binary result values')
+        result.append(list(struct.unpack_from('<%d%s' % (count, fmt), data, pos)))
+        pos += count * item_size
+    if pos != len(data):
+        raise OpenVSPError('Unexpected trailing binary result data')
+    return result[0] if kind in (INT_DATA, DOUBLE_DATA) and result else result
+
+
 def GetDoubleResults(result_id, data_name, index=0):
-    return _values(result_id, data_name, index, DOUBLE_DATA)
+    if _RESULT_PARSE_CACHE is not None and GetResultsType(result_id, data_name) != DOUBLE_DATA:
+        return []
+    return GetBinaryResults(result_id, data_name, index)
 
 
 def GetStringResults(result_id, data_name, index=0):
@@ -374,7 +407,7 @@ def parse_results_object_fast(res_id, vsp_instance=None):
     return _tree_result(res_id, parsed), tree, parsed
 
 
-def parse_surface_patches_fast(export_set, remove_degenerate=True):
+def parse_surface_patches_fast(export_set, remove_degenerate=True, vsp_instance=None):
     """SurfacePatches helper using one recursive result-tree request."""
     import numpy as np
     from surface_patches import SurfaceComponent, Surface, SurfacePatch

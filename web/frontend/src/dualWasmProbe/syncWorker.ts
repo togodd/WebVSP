@@ -52,7 +52,7 @@ function getBridgeStats(reset = false): BridgeStats {
   return snapshot
 }
 
-function request(op: string, args: string): string {
+function request(op: string, args: string): string | Uint8Array {
   const capacity = op.startsWith('live_result') || op.startsWith('results_') ? RESULTS_BYTES : MAX_BYTES
   // A fresh buffer per request: a delayed reply to an earlier request can never
   // land in the one this request is waiting on.
@@ -72,12 +72,15 @@ function request(op: string, args: string): string {
     throw new Error('Synchronous probe request timed out; do not retry a dispatched write')
   }
   if (Atomics.load(control, 0) !== 1) throw new Error('Invalid synchronous probe response')
-  const size = Atomics.load(control, 1)
-  if (size < 0 || size > capacity) throw new Error('Invalid response size')
+  const signedSize = Atomics.load(control, 1)
+  const size = Math.abs(signedSize)
+  if (size > capacity) throw new Error('Invalid response size')
   bridgeStats.responseBytes += size
   stat.bytes += size
+  const copy = Uint8Array.from(new Uint8Array(buffer, RESPONSE_HEADER_BYTES, size))
+  if (signedSize < 0) return copy
   // TextDecoder rejects shared-backed views in Chromium; copy into an ordinary buffer.
-  return new TextDecoder('utf-8', { fatal: true }).decode(Uint8Array.from(new Uint8Array(buffer, RESPONSE_HEADER_BYTES, size)))
+  return new TextDecoder('utf-8', { fatal: true }).decode(copy)
 }
 
 async function setupLive(pyodide: PyodideInterface): Promise<void> {

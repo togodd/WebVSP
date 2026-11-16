@@ -59,7 +59,7 @@ vsp.SetAnalysisInputDefaults("DegenGeom")
 vsp.SetIntAnalysisInput("DegenGeom", "Set", [vsp.SET_ALL])
 root = vsp.ExecAnalysis("DegenGeom")
 (vsp.GetParmValByID(pid), len(degen_geom_parse.parse_degen_geom(root)))`)
-  if (r.error || !r.value.includes('15.0') || !r.value.includes('2')) failures.push(`analysis failed: ${JSON.stringify(r)}`)
+  if (r.error || !/^\(15(?:\.0)?, 2\)$/.test(r.value.trim())) failures.push(`analysis failed: ${JSON.stringify(r)}`)
 
   // stdout capture and error reporting.
   r = await run('print("hello console")\n1 + 1')

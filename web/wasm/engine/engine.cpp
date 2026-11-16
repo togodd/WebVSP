@@ -1173,6 +1173,54 @@ string LiveTreeValue( const NameValData *data )
     }
 }
 
+// Encode one numeric field in a bounded, little-endian binary record:
+// magic "VRB1", type, row count, each row's element count, then values.
+// Ragged matrices retain their row lengths and IEEE-754 NaN/Inf bits.
+vector< uint8_t > LiveBinaryField( const NameValData *data )
+{
+    if ( !data ) return {};
+    vector< uint8_t > out = { 'V', 'R', 'B', '1' };
+    Put32( out, static_cast< uint32_t >( data->GetType() ) );
+    const int type = data->GetType();
+    if ( type == vsp::DOUBLE_DATA )
+    {
+        Put32( out, 1 );
+        Put32( out, static_cast< uint32_t >( data->GetDoubleData().size() ) );
+        PutVec( out, data->GetDoubleData() );
+    }
+    else if ( type == vsp::INT_DATA )
+    {
+        Put32( out, 1 );
+        Put32( out, static_cast< uint32_t >( data->GetIntData().size() ) );
+        PutVec( out, data->GetIntData() );
+    }
+    else if ( type == vsp::DOUBLE_MATRIX_DATA )
+    {
+        const auto &rows = data->GetDoubleMatData();
+        Put32( out, static_cast< uint32_t >( rows.size() ) );
+        for ( const auto &row : rows ) { Put32( out, static_cast< uint32_t >( row.size() ) ); PutVec( out, row ); }
+    }
+    else if ( type == vsp::INT_MATRIX_DATA )
+    {
+        const auto &rows = data->GetIntMatData();
+        Put32( out, static_cast< uint32_t >( rows.size() ) );
+        for ( const auto &row : rows ) { Put32( out, static_cast< uint32_t >( row.size() ) ); PutVec( out, row ); }
+    }
+    else if ( type == vsp::VEC3D_DATA )
+    {
+        const auto &points = data->GetVec3dData();
+        Put32( out, static_cast< uint32_t >( points.size() ) );
+        for ( const auto &p : points )
+        {
+            Put32( out, 3 );
+            vector< double > xyz = { p.x(), p.y(), p.z() };
+            PutVec( out, xyz );
+        }
+    }
+    else return {};
+    return out;
+}
+
 void LiveTreeAppend( const string &id, std::set< string > &seen, string &out )
 {
     if ( id.empty() || seen.count( id ) ) return;
@@ -2680,6 +2728,23 @@ void RunImpl( const Job &j )
         if ( TakeParmErrors( true ) != "" ) return Result( j.id, "Invalid result field or index", "" );
         return Result( j.id, "", "{\"type\":" + std::to_string( type ) + ",\"rows\":" + std::to_string( rows ) +
                                  ",\"cols\":" + std::to_string( cols ) + ",\"total\":" + std::to_string( total ) + "}" );
+    }
+    if ( j.op == "liveResultBinaryField" )
+    {
+        Results *result = ResultsMgrSingleton::getInstance().FindResultsPtr( j.a );
+        if ( !result ) return Result( j.id, "Unknown result ID", "" );
+        if ( !std::isfinite( j.value ) || j.value < 0 || j.value > 2147483647 || std::floor( j.value ) != j.value )
+            return Result( j.id, "Invalid result index", "" );
+        const string &field = j.b;
+        const int index = static_cast< int >( j.value );
+        NameValData *data = result->FindPtr( field, index );
+        vector< uint8_t > bytes = LiveBinaryField( data );
+        if ( bytes.empty() ) return Result( j.id, "Unsupported binary result field", "" );
+        {
+            std::lock_guard< std::mutex > lock( g_Mutex );
+            g_Binary[j.id] = std::move( bytes );
+        }
+        return Result( j.id, "", "", true );
     }
     if ( j.op == "liveResultValues" )
     {

@@ -253,6 +253,11 @@ async function run(mode: 'read' | 'modeling' | 'script' | 'console', script?: st
         if (op === 'live_analysis_run') return live('liveAnalysisRun', text('analysis'))
         if (op === 'live_results_ids') return live('liveResultsIds')
         if (op === 'live_result_tree') return live('liveResultTree', text('result_id'))
+        if (op === 'live_result_binary_field') {
+          const index = Number(args.index ?? 0)
+          if (!Number.isSafeInteger(index) || index < 0 || index > 2147483647) throw new WasmEngineError(400, 'Invalid result index', 'not_written')
+          return live('liveResultBinaryField', text('result_id'), text('name'), index)
+        }
         if (op === 'live_result_names') return live('liveResultNames', text('result_id'))
         if (op === 'live_result_name') return live('liveResultName', text('result_id'))
         if (op === 'live_result_num_data') return live('liveResultNumData', text('result_id'), text('name'))
@@ -357,6 +362,7 @@ async function run(mode: 'read' | 'modeling' | 'script' | 'console', script?: st
       }
       void (async () => {
         let response: unknown
+        let binaryResponse: ArrayBuffer | undefined
         try {
           if (active || poisoned) throw new WasmEngineError(400, 'A previous request is unresolved or timed out; do not retry dispatched operations', 'not_written')
           active = true
@@ -364,7 +370,9 @@ async function run(mode: 'read' | 'modeling' | 'script' | 'console', script?: st
           try {
             const args = JSON.parse(msg.args ?? '{}') as Record<string, unknown>
             if (!args || typeof args !== 'object' || Array.isArray(args)) throw new Error('Invalid arguments')
-            response = { ok: true, value: await dispatch(msg.op ?? '', args) }
+            const value = await dispatch(msg.op ?? '', args)
+            if (msg.op === 'live_result_binary_field' && value instanceof ArrayBuffer) binaryResponse = value
+            response = { ok: true, value }
           } finally { active = false }
         } catch (error) {
           const write = SYNC_API.some((entry) => entry.operation === msg.op && entry.write)
@@ -376,7 +384,16 @@ async function run(mode: 'read' | 'modeling' | 'script' | 'console', script?: st
         const control = new Int32Array(buffer, 0, 2)
         let bytes: Uint8Array
         try {
-          bytes = encodeResponse(response, write, currentWriteIssued, capacity)
+          if (binaryResponse && binaryResponse.byteLength <= capacity) {
+            bytes = new Uint8Array(binaryResponse)
+            // A negative length distinguishes the binary payload from UTF-8 JSON.
+            new Uint8Array(buffer, RESPONSE_HEADER_BYTES).set(bytes)
+            Atomics.store(control, 1, -bytes.length)
+            Atomics.store(control, 0, 1)
+            Atomics.notify(control, 0)
+            return
+          }
+          bytes = binaryResponse ? new TextEncoder().encode(responseTooLarge(false, false, capacity)) : encodeResponse(response, write, currentWriteIssued, capacity)
           new Uint8Array(buffer, RESPONSE_HEADER_BYTES).set(bytes)
         } catch (error) {
           // Never leave the waiting Python thread without an answer.
