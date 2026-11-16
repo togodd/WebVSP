@@ -1,5 +1,6 @@
 import { create } from 'zustand'
 import { resetSession, runInConsole, type ConsoleRun } from '../dualWasmProbe/pythonConsole'
+import { autoSyncWorkspace } from '../api/pythonWorkspace'
 
 export interface ConsoleEntry {
   id: number
@@ -71,6 +72,7 @@ export const useConsole = create<ConsoleState>((set, get) => ({
       busy: false,
       entries: [...s.entries, { id: nextEntry++, code, ...result, ms: Math.round(performance.now() - started) }].slice(-100),
     }))
+    void autoSyncWorkspace()
   },
   clear: () => set({ entries: [] }),
   restart: () => { resetSession(); set({ entries: [], busy: false }) },

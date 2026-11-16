@@ -94,6 +94,9 @@ function load(): Promise<VspModule> {
     const url = new URL(`${import.meta.env.BASE_URL}wasm/vsp.js`, window.location.href).href
     const { default: createVspModule } = await import(/* @vite-ignore */ url)
     const vsp = (await createVspModule()) as VspModule
+    // Python-relative file paths live here; create it once so scripts can write
+    // before a workspace folder is mounted.
+    vsp.FS.mkdirTree('/work')
     const tick = () => {
       try {
         drain(vsp)
@@ -671,6 +674,51 @@ async function deliver(f: LinkedFile, bytes: Uint8Array<ArrayBuffer>) {
   a.download = f.name
   a.click()
   setTimeout(() => URL.revokeObjectURL(a.href), 10000)
+}
+
+/** Engine file-system helpers used by the Python workspace (see pythonWorkspace.ts). */
+export async function engineWriteFile(path: string, bytes: Uint8Array): Promise<void> {
+  const vsp = await load()
+  const dir = path.slice(0, path.lastIndexOf('/')) || '/'
+  vsp.FS.mkdirTree(dir)
+  vsp.FS.writeFile(path, new Uint8Array(bytes))
+}
+
+export interface EngineFileInfo { path: string; name: string; size: number; mtime: number }
+
+/** List ordinary files below a directory of the engine file system. */
+export async function engineListFiles(root: string): Promise<EngineFileInfo[]> {
+  const vsp = await load()
+  const out: EngineFileInfo[] = []
+  const walk = (dir: string) => {
+    if (!vsp.FS.analyzePath(dir).exists) return
+    for (const name of vsp.FS.readdir(dir)) {
+      if (name === '.' || name === '..') continue
+      const path = `${dir === '/' ? '' : dir}/${name}`
+      const st = vsp.FS.stat(path)
+      if (vsp.FS.isFile(st.mode)) out.push({ path, name, size: st.size, mtime: st.mtime.getTime() })
+      else walk(path)
+    }
+  }
+  walk(root)
+  return out
+}
+
+export async function engineStatFile(path: string): Promise<{ size: number; mtime: number } | null> {
+  const vsp = await load()
+  if (!vsp.FS.analyzePath(path).exists) return null
+  const st = vsp.FS.stat(path)
+  return { size: st.size, mtime: st.mtime.getTime() }
+}
+
+/** Make an engine file stand for a browser file (auto write-back through watchLinked). */
+export async function linkEngineFile(path: string, handle: FileSystemFileHandle | null, name: string): Promise<void> {
+  const vsp = await load()
+  link(vsp, path, handle, name)
+}
+
+export function isEnginePathLinked(path: string): boolean {
+  return linked.has(path)
 }
 
 // ------------------------------------------------------- Python file I/O bridge

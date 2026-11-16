@@ -21,7 +21,7 @@ const LIVE_WRITES = new Set([
 ])
 // File operations also mutate the session: ReadVSPFile replaces the model and
 // WriteVSPFile renames it, so both carry write-outcome semantics.
-const FILE_OPS = new Set(['read_file', 'write_file'])
+const FILE_OPS = new Set(['read_file', 'write_file', 'import_file', 'export_file', 'set_vsp_file_name', 'clear_model'])
 const isWrite = (op: string) => LIVE_WRITES.has(op) || FILE_OPS.has(op)
 
 function responseTooLarge(write: boolean, issued: boolean, capacity: number): string {
@@ -111,13 +111,35 @@ async function run(mode: 'script' | 'console', script?: string): Promise<unknown
         return op === 'geom_name' ? geom.name : geom.type
       }
       if (op === 'geom_parm_ids') return syncProbeEngineCall('geomParmIDs', textArg('geom_id'))
-      if (op === 'read_file' || op === 'write_file') {
-        const path = textArg('path')
+      if (FILE_OPS.has(op)) {
         if (finished || poisoned) throw new WasmEngineError(400, 'Probe stopped', 'not_written')
         dispatchedWrite = true
         currentWriteIssued = true
-        return syncProbeEngineCall(op === 'read_file' ? 'readFile' : 'writeFile', path)
+        if (op === 'clear_model') return syncProbeEngineCall('newModel')
+        const path = textArg('path')
+        if (op === 'read_file') return syncProbeEngineCall('readFile', path)
+        if (op === 'write_file') return syncProbeEngineCall('writeFile', path)
+        if (op === 'set_vsp_file_name') return syncProbeEngineCall('setVspFileName', path)
+        if (op === 'import_file') {
+          const fileType = args.file_type
+          if (typeof fileType !== 'number' || !Number.isSafeInteger(fileType) || fileType < 0 || fileType > 8) {
+            throw new WasmEngineError(400, 'Invalid import type', 'not_written')
+          }
+          return syncProbeEngineCall('importFile', path, String(fileType))
+        }
+        if (op === 'export_file') {
+          const fileType = args.file_type
+          const set = args.set
+          if (typeof fileType !== 'number' || !Number.isSafeInteger(fileType) || fileType < 0 || fileType > 26) {
+            throw new WasmEngineError(400, 'Invalid export type', 'not_written')
+          }
+          if (typeof set !== 'number' || !Number.isSafeInteger(set)) {
+            throw new WasmEngineError(400, 'Invalid export set', 'not_written')
+          }
+          return syncProbeEngineCall('exportFile', path, String(fileType), set)
+        }
       }
+      if (op === 'get_vsp_file_name') return syncProbeEngineCall('getVspFileName')
       if (op.startsWith('live_')) {
         const live = (engineOp: string, a = '', b = '', value = 0) => {
           if (isWrite(op)) {

@@ -570,6 +570,12 @@ input:focus, select:focus, textarea:focus, button:focus-visible {
   flex: none; height: 24px; padding: 0 10px; font-size: 12px;
 }
 /* ------------------------------------------------------------ Python console */
+.py-console-workspace {
+  flex: none; display: flex; align-items: center; gap: 6px; flex-wrap: wrap; padding: 4px 8px;
+  background: var(--bg-2); border-bottom: 1px solid var(--line); font-size: 11px;
+}
+.py-console-workspace button { height: 20px; padding: 0 6px; font-size: 11px; }
+
 .py-console {
   position: absolute; left: 0; top: 0; z-index: 45; display: flex; flex-direction: column;
   background: var(--bg-1); border: 1px solid var(--line-strong); border-radius: 6px;

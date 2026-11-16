@@ -22,6 +22,12 @@ if (new URLSearchParams(window.location.search).get('dualWasmProbe') === '1') {
     return btoa(binary)
   }
   const base64ToBytes = (text: string) => Uint8Array.from(atob(text), (c) => c.charCodeAt(0))
+  void import('./api/pythonWorkspace').then(({ mountTestWorkspace }) => {
+    ;(window as unknown as Record<string, unknown>).__webvspWorkspaceTest = {
+      mount: (files: { name: string; base64: string }[]) =>
+        mountTestWorkspace(files.map((f) => ({ name: f.name, bytes: base64ToBytes(f.base64) }))),
+    }
+  })
   void import('./api/wasmEngine').then(({ putEngineFile, readEngineFile, setNextEngineFile, setCaptureEngineSave, takeSavedEngineFile }) => {
     ;(window as unknown as Record<string, unknown>).__webvspFileIO = {
       put: (name: string, base64: string) => putEngineFile(name, base64ToBytes(base64)),

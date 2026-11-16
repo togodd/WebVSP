@@ -4,6 +4,9 @@
 按钮、`window.__runPython` 和脚本模式。Python 运行在持久 Pyodide worker 中，`openvsp` 调用经同步桥交给
 页面的 OpenVSP 引擎线程，直接读写**当前页面模型**。
 
+文件 API 通过“Python 工作区”工作：控制台里挂载一个文件夹（或添加文件），页面把内容镜像到引擎文件系统
+的 `/work`；Python 的同步文件调用只操作 `/work` 与其它引擎路径，磁盘读写、文件选择器和下载仍由页面负责。
+
 原先的隔离分析窗口（顶栏 **Geometry analysis**）及其一次性 WASM/Pyodide 分析链、早期用于验证桥接的固定
 诊断均已删除；它们的结论压缩在文末“历史结论”中。
 
@@ -99,7 +102,7 @@ WebVSP 自己编写的 Python 文件在 `python/` 顶层：`openvsp_live.py`（�
 | `GetIntResults`/`GetDoubleResults`/`GetStringResults`/`GetDoubleMatResults`/`GetVec3dResults` | ✅ | `Vec3d` 只提供 `x()/y()/z()` |
 | `parse_results_object`、`GetResultSnapshotCapabilities`、`GetResultSnapshots` | ✅ | 见“运行机制与限制” |
 | `GetResultTree`、`parse_results_tree`、`parse_results_object_fast`、`parse_surface_patches_fast` | 🚫 | 递归结果树被固定拒绝 |
-| `ReadVSPFile`、`WriteVSPFile` | 🟨 | 原型已接通（见“文件 I/O 原型”）；路径必须是引擎 MEMFS 中的路径，且需要页面先放入/取出字节 |
+| `ReadVSPFile`、`WriteVSPFile`、`ExportFile`、`ImportFile`、`SetVSP3FileName`、`GetVSPFileName`、`ClearVSPModel` | ✅ | 同步语义，操作引擎文件系统；相对路径解析到 `/work`（见“Python 工作区与文件 API”）。`ExportFile` 只支持原生默认可选参数；本构建无 STEP 导出 |
 | `SetGeomName`、`GetGeomParent`、`SetParmValUpdate` | ❌ | 未桥接；引擎/页面已有可用数据或操作，缺少路由与守卫（见下节）。`GetGeomType` 不是原生接口，只有 `GetGeomTypeName`/`GetGeomTypes` |
 
 ### 上游 helper 模块
@@ -156,30 +159,37 @@ WebVSP 自己编写的 Python 文件在 `python/` 顶层：`openvsp_live.py`（�
 | 进程（`subprocess`） | ❌ Pyodide 报 `OSError: emscripten does not support processes` |
 | 文件系统 | 🟨 Pyodide 内存 FS，与页面模型/宿主机磁盘不自动互通 |
 
-### 文件 I/O 原型（最小闭环）
+### Python 工作区与文件 API
 
-用现有 `readFile`/`writeFile` 引擎操作 + 页面文件选择器/下载，已经打通一条最小链路：
+7 个同步文件 API 已复刻；浏览器侧的异步工作全部由页面承担：
 
-```python
-import openvsp as vsp, webvsp_files
+| API | 行为 |
+| --- | --- |
+| `ReadVSPFile(name)` | 清空模型并从引擎文件系统读取 `.vsp3`，成功后把模型文件名设为该路径 |
+| `WriteVSPFile(name, set=SET_ALL)` | 按 Save As 语义写整个模型并设置模型文件名 |
+| `ExportFile(name, set=SET_ALL, type=EXPORT_STL, ...)` | 导出几何；仅支持原生默认可选参数，STEP 未编译 |
+| `ImportFile(name, type=IMPORT_STL, parent='')` | 导入文件并返回几何 ID；不支持指定父几何 |
+| `SetVSP3FileName(name)` / `GetVSPFileName()` | 只改/读模型文件名，不写文件 |
+| `ClearVSPModel()` | 清空几何与结果 |
 
-path = await webvsp_files.open_into_engine()   # 页面选文件 → 引擎 MEMFS，返回路径
-vsp.ReadVSPFile(path)                          # 同步读取，模型被替换
+**路径规则**：`/...` 绝对路径直接使用；相对路径（含反斜杠）解析到 `/work`，`..` 一律拒绝，不能跳出工作区。
+`GetVSPFileName()` 返回绝对引擎路径，可直接喂回 `ReadVSPFile`。
 
-vsp.WriteVSPFile('/home/web_user/out.vsp3')    # 写入引擎 MEMFS，并像原生一样设置模型文件名
-await webvsp_files.save_from_engine('/home/web_user/out.vsp3', 'out.vsp3')
-```
+**工作区**（控制台标题栏下方一行）：
 
-- `open_into_engine`/`save_from_engine` 是 `await` 的 JS 桥；控制台用 `runPythonAsync`，所以支持顶层
-  `await`。普通同步脚本不能调用它们。
-- `ReadVSPFile`/`WriteVSPFile` 是同步门面，引擎侧复用已有的 `readFile`/`writeFile` op：读会清空并替换模型，
-  写会像原生一样设置模型文件名。
-- 路径是**引擎 MEMFS** 路径（通常 `/home/web_user/...`），不是用户磁盘路径；文件选择器、保存对话框与下载
-  仍由页面负责，Python 只拿路径。
-- 原型边界：`ExportFile`/`ImportFile`/`ClearVSPModel`/`SetVSP3FileName`/`GetVSPFileName` 未提供；Python 写入
-  的路径没有绑定磁盘句柄，之后用 GUI Save 不会自动写回磁盘；保存对话框被拒绝时退回下载。
-- 测试：`node scripts/file-io-browser-check.mjs`（需要 `CHROMIUM_PATH`、`WEBVSP_URL`），覆盖
-  Python 写→页面读、页面写→Python 读、以及 `await` 打开/保存三条路径。
+- **选择文件夹**：`showDirectoryPicker` 递归读取（≤200 个文件、≤64 MiB、深度 8），写入 `/work` 并逐个
+  绑定文件句柄；之后 OpenVSP/Python 对这些文件的写入由现有 watcher 自动回写磁盘。
+- **添加文件**：没有目录选择器的浏览器（或只想加几个文件）用多选文件；同样进入 `/work`。
+- **同步**：把 Python 新建、尚未绑定的文件写回文件夹；没有文件夹或只读权限时退回下载。
+- 只读权限、超限、取消都会在状态行提示；挂载后外部对文件夹的修改不会被监听，重新挂载即可。
+- 控制台每次运行结束会自动同步已挂载的文件夹。
+
+**边界**：路径是引擎 MEMFS 路径而非宿主机路径，选择器/下载必须由页面发起，所以 Python 侧不能用相对路径
+之外的任意磁盘路径；`ExportFile` 的 `thin_set`/`use_mode`/`modeID` 等高级参数不支持；导出、导入与保存的
+大文件仍受浏览器内存与 WASM 内存上限约束。
+
+**测试**：`python3 scripts/test-live-files.py`（路径与参数规则）、
+`node scripts/file-io-browser-check.mjs`（真实浏览器：读/写/导出/导入/改名/清空 + 同步）。
 
 ### 未桥接接口的堵点与影响
 
@@ -230,6 +240,7 @@ await webvsp_files.save_from_engine('/home/web_user/out.vsp3', 'out.vsp3')
 | 控制台错误/超时语义 | `python3 scripts/test-live-errors.py` |
 | 二进制与字符串协议 | `python3 scripts/test-live-binary.py`、`python3 scripts/test-live-strings.py` |
 | 批量快照 | `python3 scripts/test-live-result-batch.py` |
+| 文件 API 路径/参数 | `python3 scripts/test-live-files.py` |
 | 上游模块数值 | `python3 scripts/test-native-atmosphere.py`、`test-native-uberlogging.py`、`test-native-wt-util.py` |
 | 源码一致性 | `node scripts/check-native-modules.mjs` |
 | 真实浏览器（先构建并启动预览） | `console-smoke.mjs`、`live-analysis-smoke.mjs`、`scipy-console-browser-check.mjs`、`delete-clone-browser-check.mjs`、`live-binary-browser-check.mjs`、`file-io-browser-check.mjs` |

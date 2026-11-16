@@ -1,9 +1,9 @@
-// Minimal closed-loop test for the Python file-I/O bridge.
+// Product check for the Python file APIs and the workspace bridge.
 //   CHROMIUM_PATH=... WEBVSP_URL=http://127.0.0.1:4173/ node scripts/file-io-browser-check.mjs
 //
-// A: Python writes a model into the engine FS -> the page can read the bytes.
-// B: the page puts bytes into the engine FS -> Python ReadVSPFile loads them.
-// C: Python awaits the page picker/save helpers (open_into_engine/save_from_engine).
+// Covers ReadVSPFile, WriteVSPFile, ExportFile, ImportFile, SetVSP3FileName,
+// GetVSPFileName, ClearVSPModel, relative paths in /work, the console workspace
+// row, and writing new files back to the page on "同步".
 import { chromium } from 'playwright-core'
 import assert from 'node:assert/strict'
 
@@ -22,66 +22,89 @@ try {
   url.searchParams.set('dualWasmProbe', '1')
   await page.goto(url.href)
   await page.waitForSelector('[data-ready="1"]', { timeout: 120_000 })
-  await page.waitForFunction(() => typeof window.__runPython === 'function' && typeof window.__webvspFileIO === 'object', null, { timeout: 120_000 })
+  await page.waitForFunction(() => typeof window.__runPython === 'function' && typeof window.__webvspWorkspaceTest === 'object' && typeof window.__webvspFileIO === 'object', null, { timeout: 120_000 })
 
   const runPython = async (code) => {
     const result = await page.evaluate((c) => window.__runPython(c), code)
     return typeof result === 'string' ? JSON.parse(result) : result
   }
   const readFile = (path) => page.evaluate((p) => window.__webvspFileIO.read(p), path)
-  const putFile = (name, base64) => page.evaluate(({ n, b }) => window.__webvspFileIO.put(n, b), { n: name, b: base64 })
-  const nextFile = (name, base64) => page.evaluate(({ n, b }) => window.__webvspFileIO.nextFile(n, b), { n: name, b: base64 })
+  const mount = (files) => page.evaluate((f) => window.__webvspWorkspaceTest.mount(f), files)
   const captureSave = (on) => page.evaluate((v) => window.__webvspFileIO.captureSave(v), on)
   const takeSaved = () => page.evaluate(() => window.__webvspFileIO.takeSaved())
-  const newModel = () => page.evaluate(() => window.__webvspEngine.request('POST', '/file/new'))
 
-  // A: Python -> engine FS -> page.
-  const a = await runPython(`
+  // Seed a model through the Python API, then mount it as the workspace.
+  const seed = await runPython(`
 import json, openvsp as vsp
 w = vsp.AddGeom('WING')
 vsp.SetParmVal(w, 'TotalSpan', 'WingGeom', 12.0)
 vsp.Update()
-vsp.WriteVSPFile('/home/web_user/py-write.vsp3')
-json.dumps({'wing': w, 'geoms': vsp.FindGeoms()})
+vsp.WriteVSPFile('/work/seed.vsp3')
+json.dumps({'wing': w, 'name': vsp.GetVSPFileName()})
 `)
-  const written = Buffer.from(await readFile('/home/web_user/py-write.vsp3'), 'base64')
-  if (!written.includes(Buffer.from('<Vsp_Geometry>'))) failures.push(`Python-written file is not an OpenVSP model: ${written.subarray(0, 80).toString('utf8')}`)
-  if (written.length < 100) failures.push(`Python-written file is too small: ${written.length}`)
+  if (!String(seed.name).startsWith('/work/')) failures.push(`seed model name: ${JSON.stringify(seed)}`)
+  const seedBytes = await readFile('/work/seed.vsp3')
+  await mount([{ name: 'in.vsp3', base64: seedBytes }])
 
-  // B: page -> engine FS -> Python.
-  await newModel()
-  await putFile('from-page.vsp3', written.toString('base64'))
-  const b = await runPython(`
+  // All seven APIs in one session; relative paths resolve in /work.
+  const r = await runPython(`
 import json, openvsp as vsp
-vsp.ReadVSPFile('/home/web_user/from-page.vsp3')
-ids = vsp.FindGeoms()
-json.dumps({'count': len(ids), 'types': [vsp.GetGeomTypeName(g) for g in ids],
-            'span': vsp.GetParmVal(ids[0], 'TotalSpan', 'WingGeom') if ids else None})
+vsp.ClearVSPModel()
+vsp.ReadVSPFile('in.vsp3')
+read_name = vsp.GetVSPFileName()
+read_count = len(vsp.FindGeoms())
+vsp.SetVSP3FileName('renamed.vsp3')
+set_name = vsp.GetVSPFileName()
+vsp.WriteVSPFile('out.vsp3')
+write_name = vsp.GetVSPFileName()
+vsp.ExportFile('out.stl', vsp.SET_ALL, vsp.EXPORT_STL)
+vsp.ClearVSPModel()
+after_clear = len(vsp.FindGeoms())
+imported = vsp.ImportFile('out.stl', vsp.IMPORT_STL)
+import_count = len(vsp.FindGeoms())
+vsp.ExportFile('new.stl', vsp.SET_ALL, vsp.EXPORT_STL)
+json.dumps({'read_name': read_name, 'read_count': read_count, 'set_name': set_name,
+            'write_name': write_name, 'after_clear': after_clear,
+            'imported': imported, 'import_count': import_count})
 `)
-  if (b.count < 1 || !b.types.some((t) => t === 'Wing' || t === 'WingGeom')) failures.push(`ReadVSPFile did not restore the model: ${JSON.stringify(b)}`)
-  if (Math.abs(Number(b.span) - 12) > 1e-9) failures.push(`Span changed after ReadVSPFile: ${JSON.stringify(b)}`)
+  if (!String(r.read_name).endsWith('/work/in.vsp3')) failures.push(`ReadVSPFile name: ${JSON.stringify(r)}`)
+  if (r.read_count < 1) failures.push(`ReadVSPFile did not load a model: ${JSON.stringify(r)}`)
+  if (String(r.set_name) !== '/work/renamed.vsp3') failures.push(`SetVSP3FileName: ${JSON.stringify(r)}`)
+  if (String(r.write_name) !== '/work/out.vsp3') failures.push(`WriteVSPFile name: ${JSON.stringify(r)}`)
+  if (r.after_clear !== 0) failures.push(`ClearVSPModel left geometry: ${JSON.stringify(r)}`)
+  if (!r.imported || r.import_count < 1) failures.push(`ImportFile failed: ${JSON.stringify(r)}`)
 
-  // C: Python awaits the page file helpers.
-  await newModel()
-  await nextFile('picked.vsp3', written.toString('base64'))
+  // ExportFile produced a real STL; the second export is a new (unlinked) file.
+  const stl = Buffer.from(await readFile('/work/out.stl'), 'base64')
+  if (stl.length < 84) failures.push(`ExportFile wrote a suspicious STL: ${stl.length} bytes`)
+  if (!stl.includes(Buffer.from('facet')) && !stl.includes(Buffer.from('solid'))) {
+    failures.push(`ExportFile output is not an ASCII STL: ${stl.subarray(0, 40).toString('utf8')}`)
+  }
+
+  // "同步" hands Python-created files back to the page (download when no folder).
   await captureSave(true)
-  const c = await runPython(`
-import json, openvsp as vsp, webvsp_files
-path = await webvsp_files.open_into_engine()
-vsp.ReadVSPFile(path)
-count = len(vsp.FindGeoms())
-vsp.WriteVSPFile('/home/web_user/py-save.vsp3')
-await webvsp_files.save_from_engine('/home/web_user/py-save.vsp3', 'py-save.vsp3')
-json.dumps({'path': path, 'count': count})
-`)
-  if (!String(c.path).startsWith('/home/web_user/')) failures.push(`Unexpected picked path: ${JSON.stringify(c)}`)
-  if (c.count < 1) failures.push(`Picked file did not load: ${JSON.stringify(c)}`)
+  await page.click('[data-testid="console-open"]')
+  await page.waitForSelector('.py-console-workspace')
+  await page.click('.py-console-workspace button:nth-of-type(3)')
+  await page.waitForTimeout(500)
   const saved = await takeSaved()
-  if (!saved || saved.name !== 'py-save.vsp3') failures.push(`save_from_engine did not capture: ${JSON.stringify(saved)}`)
-  else if (!Buffer.from(saved.base64, 'base64').includes(Buffer.from('<Vsp_Geometry>'))) failures.push(`Saved file is not an OpenVSP model: ${Buffer.from(saved.base64, 'base64').subarray(0, 80).toString('utf8')}`)
+  if (!saved) failures.push('同步 did not hand back a Python-created file')
+
+  // Relative paths may not escape the workspace.
+  const escaped = await runPython(`
+import json, openvsp as vsp
+try:
+    vsp.ReadVSPFile('../outside.vsp3')
+except ValueError as exc:
+    result = str(exc)
+else:
+    result = 'no error'
+json.dumps(result)
+`)
+  if (!String(escaped).includes('escapes')) failures.push(`workspace escape not rejected: ${JSON.stringify(escaped)}`)
 
   if (errors.length) failures.push(`page errors: ${JSON.stringify(errors.slice(0, 3))}`)
   if (external.length) failures.push(`external requests: ${JSON.stringify(external.slice(0, 3))}`)
   if (failures.length) { console.error(JSON.stringify({ failures }, null, 2)); process.exitCode = 1 }
-  else console.log('PASS Python file I/O bridge: WriteVSPFile -> page, page -> ReadVSPFile, awaited open/save')
+  else console.log('PASS Python file APIs + workspace: read/write/export/import/name/clear, sync')
 } finally { await browser.close() }

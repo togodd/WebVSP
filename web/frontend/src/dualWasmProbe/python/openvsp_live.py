@@ -36,7 +36,8 @@ _LIVE_WRITES = frozenset({
     'live_add_geom', 'live_delete_geom', 'live_update', 'live_parm_set', 'live_parm_set_by_id',
     'live_analysis_defaults', 'live_analysis_set_int', 'live_analysis_run', 'live_insert_xsec',
     'live_delete_xsec', 'live_change_xsec_shape', 'live_add_sub_surf', 'live_delete_sub_surf',
-    'live_set_set_name', 'live_set_set_flag', 'read_file', 'write_file',
+    'live_set_set_name', 'live_set_set_flag', 'read_file', 'write_file', 'import_file',
+    'export_file', 'set_vsp_file_name', 'clear_model',
 })
 
 
@@ -89,28 +90,97 @@ def Update(update_managers=True):
     return _call('live_update', update_managers=bool(update_managers))
 
 
-def ReadVSPFile(file_name):
-    """Replace the model with a file already in the engine's virtual file system.
+# ---------------------------------------------------------------- files
 
-    Use ``webvsp_files.open_into_engine()`` to let the user pick a file first; it
-    copies the bytes into that file system and returns the path to pass here.
+# Relative paths live here: the page mounts the user's chosen folder (or added
+# files) into this directory of the engine's file system.
+WORKSPACE_ROOT = '/work'
+
+SET_NONE = -1
+
+# Keep in step with APIDefines.h. EXPORT_STEP is unavailable in this build.
+EXPORT_FELISA, EXPORT_XSEC, EXPORT_STL, EXPORT_AWAVE, EXPORT_NASCART = 0, 1, 2, 3, 4
+EXPORT_POVRAY, EXPORT_CART3D, EXPORT_VSPGEOM, EXPORT_VORXSEC, EXPORT_XSECGEOM = 5, 6, 7, 8, 9
+EXPORT_GMSH, EXPORT_X3D, EXPORT_STEP, EXPORT_PLOT3D, EXPORT_IGES = 10, 11, 12, 13, 14
+EXPORT_BEM, EXPORT_DXF, EXPORT_FACET, EXPORT_SVG, EXPORT_PMARC = 15, 16, 17, 18, 19
+EXPORT_OBJ, EXPORT_SELIG_AIRFOIL, EXPORT_BEZIER_AIRFOIL = 20, 21, 22
+EXPORT_IGES_STRUCTURE, EXPORT_STEP_STRUCTURE, EXPORT_STEP_STITCH, EXPORT_IGES_STITCH = 23, 24, 25, 26
+
+IMPORT_STL, IMPORT_NASCART, IMPORT_CART3D_TRI, IMPORT_XSEC_MESH = 0, 1, 2, 3
+IMPORT_PTS, IMPORT_V2, IMPORT_BEM, IMPORT_XSEC_WIRE, IMPORT_P3D_WIRE = 4, 5, 6, 7, 8
+
+
+def _resolve_path(file_name):
+    """Absolute engine paths pass through; relative names resolve in /work.
+
+    ``..`` is rejected so a relative name cannot climb out of the workspace.
     """
-    if not isinstance(file_name, str) or not file_name:
-        raise ValueError('A file path in the engine file system is required')
-    return _call('read_file', path=file_name)
+    if not isinstance(file_name, str) or not file_name.strip():
+        raise ValueError('A file path is required')
+    text = file_name.strip()
+    if text.startswith('/'):
+        return text
+    parts = []
+    for segment in text.replace('\\', '/').split('/'):
+        if segment in ('', '.'):
+            continue
+        if segment == '..':
+            raise ValueError('Path escapes the Python workspace')
+        parts.append(segment)
+    if not parts:
+        raise ValueError('A file name is required')
+    return WORKSPACE_ROOT + '/' + '/'.join(parts)
+
+
+def ReadVSPFile(file_name):
+    """Clear the model and load a ``.vsp3`` file from the engine file system.
+
+    Relative names resolve inside the Python workspace (``/work``). Mount a
+    folder in the Python console first; ``GetVSPFileName()`` returns an absolute
+    path that always works.
+    """
+    return _call('read_file', path=_resolve_path(file_name))
 
 
 def WriteVSPFile(file_name, set=SET_ALL):
-    """Write the whole model to a path in the engine's virtual file system.
-
-    Follow with ``webvsp_files.save_from_engine(path)`` to hand the file to the
-    user. Only ``SET_ALL`` is supported, matching the live engine's behaviour.
-    """
-    if not isinstance(file_name, str) or not file_name:
-        raise ValueError('A file path in the engine file system is required')
+    """Write the whole model to a path, as Save As (also sets the model file name)."""
     if set != SET_ALL:
         raise ValueError('Only SET_ALL is supported for WriteVSPFile')
-    return _call('write_file', path=file_name)
+    return _call('write_file', path=_resolve_path(file_name))
+
+
+def ExportFile(file_name, set=SET_ALL, file_type=EXPORT_STL, subs_flag=1,
+               thin_set=SET_NONE, use_mode=False, mode_id=''):
+    """Export geometry to a path in the engine file system.
+
+    Only the native default optional arguments are supported; STEP export is not
+    built in this WebAssembly build.
+    """
+    if subs_flag != 1 or thin_set != SET_NONE or use_mode or mode_id:
+        raise ValueError('Only the default ExportFile options are supported')
+    return _call('export_file', path=_resolve_path(file_name), file_type=int(file_type), set=set)
+
+
+def ImportFile(file_name, file_type=IMPORT_STL, parent=''):
+    """Import a file into the model; returns the new Geometry ID."""
+    if parent:
+        raise ValueError('Importing under a parent geometry is not supported')
+    return _call('import_file', path=_resolve_path(file_name), file_type=int(file_type))
+
+
+def SetVSP3FileName(file_name):
+    """Set the model's file name (used by Save/Export defaults); writes nothing."""
+    return _call('set_vsp_file_name', path=_resolve_path(file_name))
+
+
+def GetVSPFileName():
+    """Return the model's current file name (an absolute engine path)."""
+    return _call('get_vsp_file_name')
+
+
+def ClearVSPModel():
+    """Remove every geometry and result from the model."""
+    return _call('clear_model')
 
 
 def FindGeoms():

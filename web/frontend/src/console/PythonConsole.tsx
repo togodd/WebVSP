@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { t } from '../i18n'
 import { useConsole } from './consoleStore'
+import { addWorkspaceFiles, chooseWorkspaceFolder, syncWorkspace, useWorkspace } from '../api/pythonWorkspace'
 
 const SNIPPETS: { label: string; code: string }[] = [
   { label: 'geoms', code: 'import openvsp as vsp\n[(g, vsp.GetGeomName(g), vsp.GetGeomTypeName(g)) for g in vsp.FindGeoms()]' },
@@ -27,6 +28,7 @@ export function PythonConsole() {
   }, [entries.length, busy])
 
   const history = useConsole((s) => s.history)
+  const workspace = useWorkspace()
   const lines = useMemo(() => entries.flatMap((e) => {
     const parts = [`>>> ${e.code.split('\n').join('\n... ')}`]
     if (e.stdout) parts.push(e.stdout)
@@ -65,6 +67,16 @@ export function PythonConsole() {
           <button className="ghost" title={t('console.restart')} onClick={restart} disabled={busy}>⟲</button>
           <button className="ghost" title={t('console.close')} onClick={close}>✕</button>
         </span>
+      </div>
+
+      <div className="py-console-workspace">
+        <span className="py-console-hint">
+          工作区：{workspace.name ? `${workspace.name}（${workspace.files} 个文件${workspace.writable ? '' : '，只读'}）` : '未挂载，相对路径指向 /work'}
+        </span>
+        <button className="ghost" disabled={workspace.busy} onClick={() => void chooseWorkspaceFolder()}>选择文件夹</button>
+        <button className="ghost" disabled={workspace.busy} onClick={() => void addWorkspaceFiles()}>添加文件</button>
+        <button className="ghost" disabled={workspace.busy} onClick={() => void syncWorkspace()}>同步</button>
+        {workspace.message && <span className="py-console-hint">{workspace.message}</span>}
       </div>
 
       <div className="py-console-snippets">

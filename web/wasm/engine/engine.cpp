@@ -3385,6 +3385,46 @@ void RunImpl( const Job &j )
         Emit( "{\"type\":\"saved\",\"fileName\":" + Quote( j.a ) + "}" );
         return Result( j.id, "", "{\"path\":" + Quote( j.a ) + "}" );
     }
+    if ( j.op == "setVspFileName" )
+    {
+        if ( j.a.empty() ) return Result( j.id, "Invalid file name", "" );
+        vsp::SetVSP3FileName( j.a );
+        string err = TakeErrors();
+        Watch( "Rename model file", false );
+        return Result( j.id, err, "null" );
+    }
+    if ( j.op == "getVspFileName" )
+    {
+        return Result( j.id, "", Quote( vsp::GetVSPFileName() ) );
+    }
+    if ( j.op == "importFile" )
+    {
+        // b = IMPORT_TYPE; parent geometry is not supported by this bridge.
+        if ( j.a.empty() || j.b.empty() ) return Result( j.id, "Invalid import request", "" );
+        int type = 0;
+        try { type = std::stoi( j.b ); } catch ( ... ) { return Result( j.id, "Invalid import type", "" ); }
+        const string id = vsp::ImportFile( j.a, type, "" );
+        string err = TakeErrors();
+        if ( err.empty() )
+        {
+            vsp::Update();
+            err = TakeErrors();
+        }
+        Watch( "Import", true );
+        return Result( j.id, err, Quote( id ) );
+    }
+    if ( j.op == "exportFile" )
+    {
+        // b = EXPORT_TYPE; value = set. Optional native arguments keep their defaults.
+        if ( j.a.empty() || j.b.empty() ) return Result( j.id, "Invalid export request", "" );
+        int type = 0;
+        try { type = std::stoi( j.b ); } catch ( ... ) { return Result( j.id, "Invalid export type", "" ); }
+        const int set = static_cast< int >( j.value );
+        const string out = vsp::ExportFile( j.a, set, type );
+        string err = TakeErrors();
+        Watch( "Export", false );
+        return Result( j.id, err, Quote( out ) );
+    }
     if ( j.op == "snapshot" )
     {
         // Autosave: write a copy of the model to a path. WriteVSPFile renames the model (and its
