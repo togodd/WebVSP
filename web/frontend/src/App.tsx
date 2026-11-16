@@ -15,8 +15,8 @@ import { useStore } from './store'
 import { Viewport } from './viewport/Viewport'
 import { ResultsSaveToast } from './viewer/ResultsSaveToast'
 import { ResultsViewer } from './viewer/ResultsViewer'
-import { PythonConsole } from './analysis/PythonConsole'
-import { useConsole } from './analysis/consoleStore'
+import { PythonConsole } from './console/PythonConsole'
+import { useConsole } from './console/consoleStore'
 import { WasmToolbar } from './WasmToolbar'
 
 /** WebVSP's source, linked from the top bar. */
@@ -122,7 +122,7 @@ export default function App() {
       {/* data-ready: OpenVSP has started (tests wait for it) */}
       <div className="topbar" data-ready={connected ? '1' : '0'}>
         <MirrorMenuBar />
-        <button className="analysis-open" onClick={() => useConsole.getState().openConsole()} data-testid="console-open">
+        <button className="console-open" onClick={() => useConsole.getState().openConsole()} data-testid="console-open">
           {t('console.open')}
         </button>
         <LanguageSwitch />
