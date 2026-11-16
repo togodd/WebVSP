@@ -37,7 +37,8 @@ _LIVE_WRITES = frozenset({
     'live_analysis_defaults', 'live_analysis_set_int', 'live_analysis_run', 'live_insert_xsec',
     'live_delete_xsec', 'live_change_xsec_shape', 'live_add_sub_surf', 'live_delete_sub_surf',
     'live_set_set_name', 'live_set_set_flag', 'read_file', 'write_file', 'import_file',
-    'export_file', 'set_vsp_file_name', 'clear_model',
+    'export_file', 'set_vsp_file_name', 'clear_model', 'live_delete_result',
+    'live_delete_all_results',
 })
 
 
@@ -363,6 +364,46 @@ def ExecAnalysis(analysis):
 
 def GetAllResultsIDs():
     return _call('live_results_ids')
+
+
+def GetAllResultsNames():
+    """Return the distinct names of results currently in the ResultsMgr."""
+    return _call('live_results_names')
+
+
+def FindResultsID(name, index=0):
+    """Return the ID of the index-th result with this name, or '' if absent."""
+    if not isinstance(name, str) or not name:
+        raise ValueError('A result name is required')
+    if type(index) is not int or index < 0:
+        raise ValueError('Result index must be a non-negative integer')
+    return _call('live_find_results_id', name=name, index=index)
+
+
+def FindLatestResultsID(name):
+    """Return the ID of the newest result with this name, or '' if absent."""
+    if not isinstance(name, str) or not name:
+        raise ValueError('A result name is required')
+    return _call('live_find_latest_results_id', name=name)
+
+
+def GetNumResults(name):
+    """Return how many results with this name are stored."""
+    if not isinstance(name, str) or not name:
+        raise ValueError('A result name is required')
+    return _call('live_num_results', name=name)
+
+
+def DeleteResult(result_id):
+    """Delete one result by ID; unknown IDs are ignored by the ResultsMgr."""
+    if not isinstance(result_id, str) or not result_id:
+        raise ValueError('A result ID is required')
+    return _call('live_delete_result', result_id=result_id)
+
+
+def DeleteAllResults():
+    """Delete every result in the ResultsMgr."""
+    return _call('live_delete_all_results')
 
 
 def GetResultSnapshotCapabilities():

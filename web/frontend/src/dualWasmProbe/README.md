@@ -97,7 +97,9 @@ WebVSP 自己编写的 Python 文件在 `python/` 顶层：`openvsp_live.py`（�
 | `GetSetNames`、`SetSetName`、`SetSetFlag` | 🟨 | 已桥接，未单独测试 |
 | `SetAnalysisInputDefaults`、`SetIntAnalysisInput`、`ExecAnalysis` | ✅ | 仅 `DegenGeom`/`SurfacePatches`，且强制全模型、不写文件、不应用 mode |
 | `SetDoubleAnalysisInput`、`SetStringAnalysisInput` 及其它分析 | ❌ | 未桥接 |
-| `GetAllResultsIDs`、`GetAllDataNames`、`GetResultsName`、`GetResultsType` | ✅ | |
+| `GetAllResultsIDs`、`GetAllResultsNames`、`GetAllDataNames`、`GetResultsName`、`GetResultsType` | ✅ | |
+| `FindResultsID(name, index=0)`、`FindLatestResultsID(name)`、`GetNumResults(name)` | ✅ | 不存在时返回 `''`/`0`，不抛异常 |
+| `DeleteResult(id)`、`DeleteAllResults()` | ✅ | 未知 ID 视为空操作；长会话可用它们控制 ResultsMgr 增长 |
 | `GetNumData`、`GetResultShape`、`GetBinaryResults` | 🟨 | 后两者是诊断用、非桌面上游接口 |
 | `GetIntResults`/`GetDoubleResults`/`GetStringResults`/`GetDoubleMatResults`/`GetVec3dResults` | ✅ | `Vec3d` 只提供 `x()/y()/z()` |
 | `parse_results_object`、`GetResultSnapshotCapabilities`、`GetResultSnapshots` | ✅ | 见“运行机制与限制” |
@@ -158,6 +160,23 @@ WebVSP 自己编写的 Python 文件在 `python/` 顶层：`openvsp_live.py`（�
 | matplotlib、pandas、f90nml、fortranformat、multiprocessing_logging、opencv、wx、VTK | ❌ 未打包 |
 | 进程（`subprocess`） | ❌ Pyodide 报 `OSError: emscripten does not support processes` |
 | 文件系统 | 🟨 Pyodide 内存 FS，与页面模型/宿主机磁盘不自动互通 |
+
+### 结果管理
+
+长会话里分析结果会一直留在 ResultsManager 中（与桌面一致），因此补了按名查找与清理：
+
+```python
+names = vsp.GetAllResultsNames()            # ['DegenGeom', ...]
+count = vsp.GetNumResults('DegenGeom')      # 同名结果数量
+first = vsp.FindResultsID('DegenGeom', 0)   # 第 index 个；不存在返回 ''
+latest = vsp.FindLatestResultsID('DegenGeom')
+vsp.DeleteResult(first)                     # 未知 ID 为空操作
+vsp.DeleteAllResults()                      # 清空
+```
+
+- 查找与计数直接读 ResultsMgr，`FindResultsID`/`FindLatestResultsID` 找不到时返回空串（原生会入队一个错误，
+  这里按空结果处理）。
+- 删除只影响 ResultsMgr，不改变几何；分析结果被删后需重新 `ExecAnalysis`。
 
 ### Python 工作区与文件 API
 
@@ -241,10 +260,11 @@ WebVSP 自己编写的 Python 文件在 `python/` 顶层：`openvsp_live.py`（�
 | 控制台错误/超时语义 | `python3 scripts/test-live-errors.py` |
 | 二进制与字符串协议 | `python3 scripts/test-live-binary.py`、`python3 scripts/test-live-strings.py` |
 | 批量快照 | `python3 scripts/test-live-result-batch.py` |
+| 结果管理 | `python3 scripts/test-live-results.py` |
 | 文件 API 路径/参数 | `python3 scripts/test-live-files.py` |
 | 上游模块数值 | `python3 scripts/test-native-atmosphere.py`、`test-native-uberlogging.py`、`test-native-wt-util.py` |
 | 源码一致性 | `node scripts/check-native-modules.mjs` |
-| 真实浏览器（先构建并启动预览） | `console-smoke.mjs`、`live-analysis-smoke.mjs`、`scipy-console-browser-check.mjs`、`delete-clone-browser-check.mjs`、`live-binary-browser-check.mjs`、`file-io-browser-check.mjs` |
+| 真实浏览器（先构建并启动预览） | `console-smoke.mjs`、`live-analysis-smoke.mjs`、`scipy-console-browser-check.mjs`、`delete-clone-browser-check.mjs`、`live-binary-browser-check.mjs`、`file-io-browser-check.mjs`、`results-browser-check.mjs` |
 
 浏览器脚本需要 `CHROMIUM_PATH` 与 `WEBVSP_URL`（默认 `http://127.0.0.1:4173/`）。`?dualWasmProbe=1`
 只注册测试入口 `__runPython`；产品入口是顶栏 **Python Console** 按钮。

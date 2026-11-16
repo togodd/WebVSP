@@ -2824,6 +2824,49 @@ void RunImpl( const Job &j )
     }
     if ( j.op == "liveResultsIds" )
         return Result( j.id, "", LiveStringArray( vsp::GetAllResultsIDs() ) );
+    if ( j.op == "liveResultsNames" )
+        return Result( j.id, "", LiveStringArray( vsp::GetAllResultsNames() ) );
+    if ( j.op == "liveFindResultsId" )
+    {
+        // a = result name, value = index into results of that name.
+        if ( j.a.empty() ) return Result( j.id, "Invalid result name", "" );
+        if ( !std::isfinite( j.value ) || j.value < 0 || std::floor( j.value ) != j.value )
+            return Result( j.id, "Invalid result index", "" );
+        const string id = vsp::FindResultsID( j.a, static_cast< int >( j.value ) );
+        TakeErrors(); // A missing name/index queues a native error; return "" instead.
+        return Result( j.id, "", Quote( id ) );
+    }
+    if ( j.op == "liveFindLatestResultsId" )
+    {
+        if ( j.a.empty() ) return Result( j.id, "Invalid result name", "" );
+        const string id = vsp::FindLatestResultsID( j.a );
+        TakeErrors(); // No result of that name is reported as "" by this bridge.
+        return Result( j.id, "", Quote( id ) );
+    }
+    if ( j.op == "liveNumResults" )
+    {
+        if ( j.a.empty() ) return Result( j.id, "Invalid result name", "" );
+        const int count = vsp::GetNumResults( j.a );
+        string err = TakeErrors();
+        return Result( j.id, err, std::to_string( count ) );
+    }
+    if ( j.op == "liveDeleteResult" )
+    {
+        if ( j.a.empty() ) return Result( j.id, "Invalid result ID", "" );
+        if ( !ResultsMgrSingleton::getInstance().FindResultsPtr( j.a ) )
+            return Result( j.id, "", "null" ); // Unknown IDs are a no-op.
+        vsp::DeleteResult( j.a );
+        string err = TakeErrors();
+        Watch( "Delete result", false );
+        return Result( j.id, err, "null" );
+    }
+    if ( j.op == "liveDeleteAllResults" )
+    {
+        vsp::DeleteAllResults();
+        string err = TakeErrors();
+        Watch( "Delete all results", false );
+        return Result( j.id, err, "null" );
+    }
     if ( j.op == "liveResultName" || j.op == "liveResultNames" )
     {
         if ( j.a.empty() || !ResultsMgrSingleton::getInstance().FindResultsPtr( j.a ) )

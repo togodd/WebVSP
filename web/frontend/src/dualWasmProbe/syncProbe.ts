@@ -225,6 +225,16 @@ async function run(mode: 'script' | 'console', script?: string): Promise<unknown
         if (op === 'live_result_num_data') return live('liveResultNumData', text('result_id'), text('name'))
         if (op === 'live_result_type') return live('liveResultType', text('result_id'), text('name'))
         if (op === 'live_results_ids') return live('liveResultsIds')
+        if (op === 'live_results_names') return live('liveResultsNames')
+        if (op === 'live_find_results_id') {
+          const index = args.index
+          if (typeof index !== 'number' || !Number.isSafeInteger(index) || index < 0) throw new WasmEngineError(400, 'Invalid result index', 'not_written')
+          return live('liveFindResultsId', text('name'), '', index)
+        }
+        if (op === 'live_find_latest_results_id') return live('liveFindLatestResultsId', text('name'))
+        if (op === 'live_num_results') return live('liveNumResults', text('name'))
+        if (op === 'live_delete_result') return live('liveDeleteResult', text('result_id'))
+        if (op === 'live_delete_all_results') return live('liveDeleteAllResults')
         if (op === 'live_result_binary_field') {
           const name = text('name')
           if (name.includes('\x1f')) throw new WasmEngineError(400, 'Invalid result field', 'not_written')
