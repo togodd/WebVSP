@@ -61,6 +61,12 @@ TARGET_LINK_OPTIONS( p1_filesystem_test PRIVATE
     -sINITIAL_MEMORY=256MB -sALLOW_MEMORY_GROWTH=1 -sMAXIMUM_MEMORY=1GB -sSTACK_SIZE=8MB
     -sEXPORTED_RUNTIME_METHODS=FS,callMain )
 
+# Phase 1 spike: EncodeXml side effects and ReadVSPFile roundtrip fidelity.
+ADD_EXECUTABLE( p1_xml_roundtrip_test EXCLUDE_FROM_ALL p1_xml_roundtrip_test.cpp p1_xml_probe.cpp )
+TARGET_INCLUDE_DIRECTORIES( p1_xml_roundtrip_test PRIVATE ${VSP_WASM_INCLUDES} )
+TARGET_LINK_LIBRARIES( p1_xml_roundtrip_test Eigen3::Eigen ${VSP_LIBRARIES_API_FIRST} )
+TARGET_LINK_OPTIONS( p1_xml_roundtrip_test PRIVATE -sENVIRONMENT=node -sALLOW_MEMORY_GROWTH=1 -sSTACK_SIZE=8MB )
+
 # The engine module the web UI loads (vsp.js + vsp.wasm), an ES module exporting a factory:
 #   const vsp = await createVspModule(); vsp.call(...); vsp.take(); vsp.FS.writeFile(...)
 # OpenVSP runs main() on its own thread (PROXY_TO_PTHREAD); the page calls in from the
@@ -76,7 +82,7 @@ IF( WEBVSP_PARM_REENTRY_TEST )
     TARGET_LINK_OPTIONS( parm_reentry_test PRIVATE -sALLOW_MEMORY_GROWTH=1 -sSTACK_SIZE=8MB )
 ENDIF()
 
-ADD_EXECUTABLE( vsp_wasm engine.cpp )
+ADD_EXECUTABLE( vsp_wasm engine.cpp p1_xml_probe.cpp )
 IF( WEBVSP_PRODUCTION_BUILD )
     TARGET_COMPILE_DEFINITIONS( vsp_wasm PRIVATE WEBVSP_PRODUCTION_BUILD )
 ENDIF()

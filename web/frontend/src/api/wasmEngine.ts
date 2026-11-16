@@ -182,7 +182,7 @@ export interface EngineModelEpoch {
 }
 
 /** Deliberately limited to operations that do not pump the GUI or replace the model. */
-export const GUARDED_OPS = ['model', 'geomTypes', 'bbox', 'origin', 'move', 'addGeom', 'geomXSecs', 'fuselageXSecShapes', 'wingXSecShapes', 'geomParmIDs', 'xsecParmIDs', 'geomParm', 'xsecParm', 'parm_value_id', 'parm_int_value_id', 'parm_name_id', 'parm_type_id', 'fuselageLength', 'geomSetParm', 'xsecSetParm', 'guardedUpdate', 'guardedSetGeomName', 'guardedDeleteGeom'] as const
+export const GUARDED_OPS = ['model', 'geomTypes', 'bbox', 'origin', 'move', 'addGeom', 'geomXSecs', 'fuselageXSecShapes', 'wingXSecShapes', 'geomParmIDs', 'xsecParmIDs', 'geomParm', 'xsecParm', 'parm_value_id', 'parm_int_value_id', 'parm_name_id', 'parm_type_id', 'fuselageLength', 'geomSetParm', 'xsecSetParm', 'guardedUpdate', 'guardedSetGeomName', 'guardedDeleteGeom', 'p1XmlProbe'] as const
 export type GuardedOp = (typeof GUARDED_OPS)[number]
 
 /** Submit against the engine's model identity, checked atomically on its owning thread. */

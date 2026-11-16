@@ -69,6 +69,7 @@
 #include "Vehicle.h"
 #include "VehicleMgr.h"
 #include "WebProcess.h"
+#include "p1_xml_probe.h"
 #include <angelscript.h>
 #include "ScriptMgr.h"
 #if defined(WEBVSP_SCRIPT_GUARD_TEST) && defined(WEBVSP_PARM_REENTRY_TEST)
@@ -1873,7 +1874,7 @@ bool GuardedOpAllowed( const string &op )
            op == "xsecParmIDs" || op == "geomParm" || op == "xsecParm" ||
            op == "parm_value_id" || op == "parm_int_value_id" || op == "parm_name_id" || op == "parm_type_id" ||
            op == "fuselageLength" || op == "geomSetParm" || op == "xsecSetParm" || op == "guardedUpdate" ||
-           op == "guardedSetGeomName" || op == "guardedDeleteGeom";
+           op == "guardedSetGeomName" || op == "guardedDeleteGeom" || op == "p1XmlProbe";
 }
 
 bool GuardedWrite( const string &op )
@@ -2165,6 +2166,19 @@ void RunImpl( const Job &j )
     if ( j.op == "advLinkGuardCheck" ) return AdvLinkGuardCheck( j.id );
     if ( j.op == "storedGeomTypesCheck" ) return StoredGeomTypesCheck( j.id );
 #endif
+    if ( j.op == "p1XmlProbe" )
+    {
+        // Diagnostic only: measures the side effects of serializing the live
+        // model. Serializes to memory; writes no file and changes no filename.
+        string body = p1probe::Report( j.value != 0 );
+        if ( body.size() > 1 && body.back() == '}' )
+        {
+            body.pop_back();
+            body += ",\"engineRev\":" + std::to_string( g_Rev ) +
+                    ",\"engineDirty\":" + ( g_Dirty ? "true" : "false" ) + "}";
+        }
+        return Result( j.id, "", body );
+    }
     if ( j.op == "model" || j.op == "modelDiscovery" )
     {
         string err;
