@@ -374,6 +374,43 @@ def parse_results_object_fast(res_id, vsp_instance=None):
     return _tree_result(res_id, parsed), tree, parsed
 
 
+def parse_surface_patches_fast(export_set, remove_degenerate=True):
+    """SurfacePatches helper using one recursive result-tree request."""
+    import numpy as np
+    from surface_patches import SurfaceComponent, Surface, SurfacePatch
+    SetIntAnalysisInput('SurfacePatches', 'Set', [export_set])
+    root = ExecAnalysis('SurfacePatches')
+    tree, objects = parse_results_tree(root)
+
+    def value(result_id, name):
+        item = objects.get(result_id)
+        if item is None:
+            raise OpenVSPError('Result tree object missing: %s' % result_id)
+        for field in item.get('fields', []):
+            if field['name'] == name:
+                return field.get('value')
+        return []
+
+    components = []
+    for comp_id in value(root, 'components'):
+        surfaces = []
+        for surf_id in value(comp_id, 'surfaces'):
+            patches = []
+            for patch_id in value(surf_id, 'patches'):
+                x = value(patch_id, 'x')
+                if remove_degenerate and (len(x) <= 1 or len(x[0]) <= 1):
+                    continue
+                patches.append(SurfacePatch(value(patch_id, 'comp_id')[0], value(patch_id, 'surf_index')[0],
+                                            value(patch_id, 'patch_index')[0], np.array(x),
+                                            np.array(value(patch_id, 'y')), np.array(value(patch_id, 'z')),
+                                            np.array(value(patch_id, 'nx')), np.array(value(patch_id, 'ny')),
+                                            np.array(value(patch_id, 'nz'))))
+            surfaces.append(Surface(value(surf_id, 'comp_id')[0], value(surf_id, 'surf_index')[0], patches))
+        if surfaces:
+            components.append(SurfaceComponent(value(comp_id, 'name')[0], value(comp_id, 'id')[0], surfaces))
+    return components
+
+
 class _Vec3d:
     def __init__(self, xyz):
         self._xyz = xyz

@@ -96,6 +96,9 @@ async function setupLive(pyodide: PyodideInterface): Promise<void> {
     'utilities/transformations.py': nativeUtilitiesTransformations,
   })) pyodide.FS.writeFile(`/sync-live/${name}`, content)
   pyodide.runPython("import sys\nif '/sync-live' not in sys.path: sys.path.insert(0, '/sync-live')")
+  // Keep the bundled helper byte-identical to OpenVSP; select the fast facade
+  // implementation when this live runtime imports it.
+  pyodide.runPython("import surface_patches, openvsp\nsurface_patches.export_surface_patches = openvsp.parse_surface_patches_fast")
 }
 
 async function runConsole(pyodide: PyodideInterface, message: ConsoleMessage): Promise<void> {
