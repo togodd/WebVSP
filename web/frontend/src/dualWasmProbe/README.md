@@ -63,8 +63,10 @@ output and mode application disabled. Numeric result fields use bounded binary c
 including ragged matrices. A field can change between chunk requests; shape changes are
 detected where possible, but a same-shape concurrent modification is not an atomic snapshot.
 String fields still use JSON chunks and a single oversized response fails instead of being
-truncated. The experimental recursive tree operation remains disabled pending a bounded,
-lossless implementation.
+truncated. `parse_results_object` first requests one result object as a bounded binary
+snapshot (at most 512 KiB, 32,768 items and 1,024 fields); if it is unsupported or too
+large, it falls back to field reads. Strings are values, never inferred references, and
+no cache persists after parsing. The experimental recursive tree operation remains disabled.
 
 ## P1 current-model analysis
 

@@ -1173,6 +1173,65 @@ string LiveTreeValue( const NameValData *data )
     }
 }
 
+// VRO1 is one bounded Results object, index zero only; strings are never IDs.
+// Every length is checked before copying, including metadata and empty rows.
+vector< uint8_t > LiveBinaryObject( Results *result )
+{
+    constexpr size_t MAX_BYTES = 512 * 1024, MAX_ITEMS = 32768, MAX_FIELDS = 1024;
+    vector< uint8_t > out = { 'V', 'R', 'O', '1' };
+    size_t items = 0;
+    auto room = [&]( size_t n ) { return n <= MAX_BYTES - out.size(); };
+    auto put32 = [&]( size_t n ) { if ( n > UINT32_MAX || !room( 4 ) ) return false; Put32( out, n ); return true; };
+    auto text = [&]( const string &s ) {
+        if ( s.size() > MAX_BYTES - 4 || !room( 4 + s.size() ) ) return false;
+        Put32( out, s.size() ); out.insert( out.end(), s.begin(), s.end() ); return true;
+    };
+    auto count = [&]( size_t n ) { if ( n > MAX_ITEMS - items ) return false; items += n; return true; };
+    auto numeric = [&]( const auto &v ) {
+        if ( !count( v.size() ) || v.size() > ( MAX_BYTES - 4 ) / sizeof( v[0] ) ||
+             !room( 4 + v.size() * sizeof( v[0] ) ) ) return false;
+        Put32( out, v.size() );
+        if ( !v.empty() ) { const auto *p = reinterpret_cast< const uint8_t * >( v.data() ); out.insert( out.end(), p, p + v.size() * sizeof( v[0] ) ); }
+        return true;
+    };
+    const auto names = result->GetAllDataNames();
+    if ( names.size() > MAX_FIELDS || !text( result->GetName() ) || !put32( names.size() ) ) return {};
+    for ( const auto &name : names )
+    {
+        const NameValData *d = result->FindPtr( name, 0 );
+        if ( !d || !text( name ) || !put32( d->GetType() ) ) return {};
+        switch ( d->GetType() )
+        {
+        case vsp::INT_DATA: if ( !numeric( d->GetIntData() ) ) return {}; break;
+        case vsp::DOUBLE_DATA: if ( !numeric( d->GetDoubleData() ) ) return {}; break;
+        case vsp::STRING_DATA:
+        {
+            const auto &v = d->GetStringData();
+            if ( !count( v.size() ) || !put32( v.size() ) ) return {};
+            for ( const auto &s : v ) if ( !text( s ) ) return {};
+            break;
+        }
+        case vsp::DOUBLE_MATRIX_DATA:
+        {
+            const auto &v = d->GetDoubleMatData();
+            if ( !count( v.size() ) || !put32( v.size() ) ) return {};
+            for ( const auto &row : v ) if ( !numeric( row ) ) return {};
+            break;
+        }
+        case vsp::VEC3D_DATA:
+        {
+            const auto &v = d->GetVec3dData();
+            if ( !count( v.size() ) || v.size() > ( MAX_BYTES - 4 ) / 24 || !room( 4 + 24 * v.size() ) ) return {};
+            Put32( out, v.size() );
+            for ( const auto &p : v ) { const double xyz[] = { p.x(), p.y(), p.z() }; const auto *b = reinterpret_cast< const uint8_t * >( xyz ); out.insert( out.end(), b, b + sizeof( xyz ) ); }
+            break;
+        }
+        default: return {};
+        }
+    }
+    return out;
+}
+
 // VRB2: type, row count, row index, row length, offset, count, then
 // at most 4096 native little-endian values. Empty matrices use row == rows.
 // Reading directly from NameValData avoids an unbounded intermediate copy.
@@ -2678,6 +2737,15 @@ void RunImpl( const Job &j )
         if ( errors.GetNumTotalErrors() ) return Result( j.id, errors.PopLastError().GetErrorString(), "" );
         if ( root.empty() ) return Result( j.id, "Analysis returned no root result", "" );
         return Result( j.id, "", Quote( root ) );
+    }
+    if ( j.op == "liveResultObject" )
+    {
+        Results *result = ResultsMgrSingleton::getInstance().FindResultsPtr( j.a );
+        if ( !result ) return Result( j.id, "Unknown result ID", "" );
+        vector< uint8_t > bytes = LiveBinaryObject( result );
+        if ( bytes.empty() ) return Result( j.id, "", "null" );
+        { std::lock_guard< std::mutex > lock( g_Mutex ); g_Binary[j.id] = std::move( bytes ); }
+        return Result( j.id, "", "", true );
     }
     if ( j.op == "liveResultTree" )
     {

@@ -253,6 +253,7 @@ async function run(mode: 'read' | 'modeling' | 'script' | 'console', script?: st
         if (op === 'live_analysis_run') return live('liveAnalysisRun', text('analysis'))
         if (op === 'live_results_ids') return live('liveResultsIds')
         if (op === 'live_result_tree') throw new WasmEngineError(400, 'Result tree batching is disabled until bounded and lossless', 'not_written')
+        if (op === 'live_result_object') return live('liveResultObject', text('result_id'))
         if (op === 'live_result_binary_field') {
           const name = text('name')
           if (name.includes('\x1f')) throw new WasmEngineError(400, 'Invalid result field', 'not_written')
@@ -377,7 +378,7 @@ async function run(mode: 'read' | 'modeling' | 'script' | 'console', script?: st
             const args = JSON.parse(msg.args ?? '{}') as Record<string, unknown>
             if (!args || typeof args !== 'object' || Array.isArray(args)) throw new Error('Invalid arguments')
             const value = await dispatch(msg.op ?? '', args)
-            if (msg.op === 'live_result_binary_field' && value instanceof ArrayBuffer) binaryResponse = value
+            if ((msg.op === 'live_result_binary_field' || msg.op === 'live_result_object') && value instanceof ArrayBuffer) binaryResponse = value
             response = { ok: true, value }
           } finally { active = false }
         } catch (error) {

@@ -405,6 +405,79 @@ def GetDoubleMatResults(result_id, data_name, index=0):
     return _numeric_values(result_id, data_name, index, DOUBLE_MATRIX_DATA)
 
 
+def _batch_result_cache(res_id):
+    """Decode the bounded VRO1 snapshot, or return None for safe fallback."""
+    raw = request('live_result_object', json.dumps({'result_id': res_id}, allow_nan=False))
+    if isinstance(raw, str):
+        envelope = json.loads(raw)
+        if not envelope.get('ok'):
+            raise OpenVSPError((envelope.get('error') or {}).get('message', 'Result object read failed'))
+        return None
+    data = bytes(raw.to_py() if hasattr(raw, 'to_py') else raw)
+    try:
+        if len(data) > 512 * 1024 or data[:4] != b'VRO1':
+            return None
+        pos = 4
+        def number():
+            nonlocal pos
+            value, = struct.unpack_from('<I', data, pos)
+            pos += 4
+            return value
+        def text():
+            nonlocal pos
+            size = number()
+            if size > len(data) - pos:
+                raise ValueError('truncated string')
+            value = data[pos:pos + size].decode('utf-8')
+            pos += size
+            return value
+        def vector(fmt):
+            nonlocal pos
+            n = number()
+            size = struct.calcsize(fmt)
+            if n > 32768 or n > (len(data) - pos) // size:
+                raise ValueError('invalid vector size')
+            values = list(struct.unpack_from('<%d%s' % (n, fmt), data, pos))
+            pos += n * size
+            return values
+        name, count = text(), number()
+        if count > 1024:
+            return None
+        entry = {'names': [], 'name': name, 'types': {}, 'values': {}}
+        for _ in range(count):
+            field, kind = text(), number()
+            if field in entry['types']:
+                return None
+            if kind == INT_DATA:
+                value = vector('i')
+            elif kind == DOUBLE_DATA:
+                value = vector('d')
+            elif kind == STRING_DATA:
+                n = number()
+                if n > 32768:
+                    return None
+                value = [text() for _ in range(n)]
+            elif kind == DOUBLE_MATRIX_DATA:
+                n = number()
+                if n > 32768:
+                    return None
+                value = [vector('d') for _ in range(n)]
+            elif kind == VEC3D_DATA:
+                n = number()
+                if n > 32768 or n > (len(data) - pos) // 24:
+                    return None
+                value = [list(struct.unpack_from('<3d', data, pos + 24 * i)) for i in range(n)]
+                pos += n * 24
+            else:
+                return None
+            entry['names'].append(field)
+            entry['types'][field] = kind
+            entry['values'][(field, 0, kind)] = value
+        return entry if pos == len(data) else None
+    except (ValueError, UnicodeDecodeError, struct.error, OverflowError):
+        return None
+
+
 def parse_results_object(res_id, vsp_instance=None):
     """Desktop parser, with an operation-scoped cache that cannot go stale later."""
     import openvsp_utilities
@@ -413,6 +486,14 @@ def parse_results_object(res_id, vsp_instance=None):
     if previous is None:
         _RESULT_PARSE_CACHE = {}
     try:
+        if res_id not in _RESULT_PARSE_CACHE:
+            try:
+                entry = _batch_result_cache(res_id)
+                if entry is not None:
+                    _RESULT_PARSE_CACHE[res_id] = entry
+            except OpenVSPError:
+                # Older engines and unsupported snapshots use the original reads.
+                pass
         return openvsp_utilities.parse_results_object(res_id, sys.modules[__name__])
     finally:
         if previous is None:
