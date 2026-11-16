@@ -1,5 +1,7 @@
 # Python package stratified sampling
 
+**Historical diagnostic baseline:** this records earlier fixed-probe observations, not the current live console capability list. See [the live compatibility inventory](PYTHON_COMPATIBILITY.md) for current scope; the limitations below are dated to the sampled diagnostic.
+
 This report records a fixed browser run of [`sample-python-packages.mjs`](../../scripts/sample-python-packages.mjs) against the deployed WebVSP container. It is evidence about this pinned Pyodide/runtime setup, not a general promise that every package imports or that arbitrary Python can run in the browser.
 
 ## Sample strata

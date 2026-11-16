@@ -32,6 +32,28 @@ try {
   r = await run('len(vsp.FindGeoms()), vsp.GetGeomName(w), vsp.GetGeomTypeName(w)')
   if (r.error || !r.value.includes('1') || !r.value.includes('Wing')) failures.push(`session not persistent: ${JSON.stringify(r)}`)
 
+  // Canonical and historical upstream imports must be identical in the real worker.
+  r = await run('import openvsp.surface_patches as sp, surface_patches\nimport openvsp.degen_geom_parse as dp, degen_geom_parse\nimport openvsp.utilities as ou, openvsp_utilities\nimport utilities.uberlogging as ul\n(sp is surface_patches, dp is degen_geom_parse, ou is openvsp_utilities, ul.StyleAdapter.__name__)')
+  if (r.error || r.value.trim() !== "(True, True, True, 'StyleAdapter')") failures.push(`package imports failed: ${JSON.stringify(r)}`)
+
+  // Original utility uses the worker's virtual filesystem, never host files.
+  r = await run(`import tempfile, pathlib
+import utilities.wt_util as wt
+with tempfile.TemporaryDirectory() as tmp:
+    root = pathlib.Path(tmp)
+    (root / 'a.txt').write_text('alpha\\n')
+    (root / 'b.txt').write_text('beta\\n')
+    wt.merge_files([str(root / 'a.txt'), str(root / 'b.txt')], str(root / 'merged'))
+    assert (root / 'merged').read_text() == 'alpha\\nbeta\\n'
+    assert pathlib.Path(wt.archive_file(str(root / 'merged'), 'v1')).read_text() == 'alpha\\nbeta\\n'
+    wt.archive(str(root), 'v2')
+    assert (root / 'v2' / 'ver').read_text() == 'v2'
+    wt.remove_files(str(root / '*.txt'))
+    wt.remove_file(str(root / 'merged'))
+    assert not (root / 'a.txt').exists() and not (root / 'merged').exists()
+int(wt.find_nearest([0, 2, 4], 3.9))`)
+  if (r.error || r.value.trim() !== '2') failures.push(`wt_util virtual filesystem failed: ${JSON.stringify(r)}`)
+
   // XSec API.
   r = await run('s = vsp.GetXSecSurfIDs(w)[0]\nxs = vsp.GetXSecIDs(s)\nlen(xs), [vsp.GetXSecShape(i) for i in xs]')
   if (r.error || !r.value.includes('2')) failures.push(`XSec read failed: ${JSON.stringify(r)}`)

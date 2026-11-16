@@ -1,5 +1,7 @@
 # Dual WASM diagnostic
 
+For the live console module inventory and support boundaries, see [Python compatibility](PYTHON_COMPATIBILITY.md). The following fixed diagnostic is separate from the live Python console described below.
+
 This is a fixed proof of concept, not a Python console or MCP server. With a WebVSP page open at `/?dualWasmProbe=1`, the browser console can run `await window.__runDualWasmProbe()`. It loads pinned Pyodide in a worker and runs the built-in `python/smoke.py`, which imports the bundled `openvsp_wasm` package. The script creates and selects a wing, discovers its parameters, changes its top-level `XForm/X_Rel_Location` by 2, reads it back, and checks error propagation. **It modifies the current model.** Each call adds another wing. Do not run it on work you need to preserve.
 
 The page's OpenVSP WASM remains the sole model owner. The Pyodide worker is terminated after completion or failure. A timeout or transport failure after write dispatch is ambiguous: inspect the model and do not automatically retry. The bridge does not accept caller-provided Python or expose arbitrary OpenVSP methods. A worker is not a security sandbox for untrusted Python. Engine writes use a model-identity guard, not a transaction or protection against concurrent edits in the same model; selection refresh is a separate GUI operation.
@@ -28,6 +30,30 @@ calls go straight to the page's engine thread: `AddGeom`, `SetParmVal(geom, name
 `GetVec3dResults` and `parse_results_object`. The original `degen_geom_parse` and
 `surface_patches` helpers run unmodified on those results, so existing scripts are the
 target, not a new API.
+
+Bundled upstream modules are available under both their desktop and historical import
+names: `openvsp.surface_patches`, `openvsp.degen_geom_parse`, `openvsp.utilities`, the
+top-level `surface_patches`/`degen_geom_parse`/`openvsp_utilities` aliases, and the
+reviewed helpers `openvsp.export_surface_patches`, `openvsp.parse_degen_geom` and
+`openvsp.get_wing_reference_quantities`. Aliases are the same module objects, not copies;
+the live facade's optimized `parse_results_object` is never replaced. `utilities` also
+ships the original `units`, `transformations`, `files`, `uberlogging`, `wt_util`,
+`atmosphere` and `simple_rotor_calcs` sources. Module-level imports run on load; a few of
+their functions have desktop-only file, plot or process paths, so importability is not a
+promise for every function. See [Python compatibility](PYTHON_COMPATIBILITY.md).
+
+`utilities.atmosphere` and `utilities.simple_rotor_calcs` need SciPy. The vendored SciPy
+wheel is ~14 MB, so it is installed on demand instead of in every session: before a console
+command runs, its code is scanned for static `import`/`from ... import` statements naming
+`scipy` or those two modules, and only then is the wheel installed from the same origin and
+executed. The scan takes well under a millisecond and does not execute user code. A dynamic
+import (`importlib.import_module`, `__import__`, `exec`) is not detected: it fails with a
+message that says SciPy is loading in the background, and rerunning the command then works.
+Measured on the maintainer's machine against the local preview server, a cold SciPy install
+inside an already-booted worker took about 1.1 s, and the first `import scipy` afterwards
+about 1.5 s; commands that never mention SciPy do not pay either cost. The wheel is an
+unmodified Pyodide 314.0.8 build pinned by the Pyodide lock and SHA-256; `copy-pyodide.mjs`
+also verifies its exact `numpy` dependency closure.
 
 ```js
 await window.__runPython(`

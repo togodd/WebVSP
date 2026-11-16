@@ -15,6 +15,11 @@ import nativeUtilitiesInit from './python/native/utilities/__init__.py?raw'
 import nativeUtilitiesFiles from './python/native/utilities/files.py?raw'
 import nativeUtilitiesUnits from './python/native/utilities/units.py?raw'
 import nativeUtilitiesTransformations from './python/native/utilities/transformations.py?raw'
+import nativeUtilitiesUberlogging from './python/native/utilities/uberlogging.py?raw'
+import nativeUtilitiesWtUtil from './python/native/utilities/wt_util.py?raw'
+import nativeUtilitiesAtmosphere from './python/native/utilities/atmosphere.py?raw'
+import nativeUtilitiesRotor from './python/native/utilities/simple_rotor_calcs.py?raw'
+import liveImports from './python/live_imports.py?raw'
 
 const scope = self as unknown as DedicatedWorkerGlobalScope
 const MAX_BYTES = 64 * 1024
@@ -103,8 +108,61 @@ async function setupLive(pyodide: PyodideInterface): Promise<void> {
     'utilities/files.py': nativeUtilitiesFiles,
     'utilities/units.py': nativeUtilitiesUnits,
     'utilities/transformations.py': nativeUtilitiesTransformations,
+    'utilities/uberlogging.py': nativeUtilitiesUberlogging,
+    'utilities/wt_util.py': nativeUtilitiesWtUtil,
+    'utilities/atmosphere.py': nativeUtilitiesAtmosphere,
+    'utilities/simple_rotor_calcs.py': nativeUtilitiesRotor,
   })) pyodide.FS.writeFile(`/sync-live/${name}`, content)
   pyodide.runPython("import sys\nif '/sync-live' not in sys.path: sys.path.insert(0, '/sync-live')")
+  pyodide.runPython(liveImports)
+}
+
+// SciPy is a ~14 MB wheel, so it is installed on demand rather than in every
+// session. The trigger is a static scan of the submitted code for modules that
+// need it: ordinary `import`/`from ... import` statements are detected exactly;
+// a dynamic import (importlib, __import__, exec) is not, and reports guidance.
+const SCIPY_MODULES = ['scipy', 'utilities.atmosphere', 'utilities.simple_rotor_calcs']
+const SCIPY_PRELUDE = `
+import ast
+
+def _webvsp_scipy_roots(source):
+    try:
+        tree = ast.parse(source)
+    except SyntaxError:
+        return set()
+    roots = set()
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            for alias in node.names:
+                roots.add(alias.name)
+                roots.add(alias.name.split('.')[0])
+        elif isinstance(node, ast.ImportFrom) and node.level == 0 and node.module:
+            parts = node.module.split('.')
+            roots.add(node.module)
+            roots.add(parts[0] if len(parts) == 1 else parts[0] + '.' + parts[1])
+            for alias in node.names:
+                roots.add(node.module + '.' + alias.name)
+    return roots
+
+bool(_webvsp_scipy_roots(code) & set(${JSON.stringify(SCIPY_MODULES)}))
+`
+
+let scipyInstall: Promise<void> | null = null
+
+/** Install the vendored SciPy wheel once; both the console and script modes share it. */
+function ensureScipy(pyodide: PyodideInterface): Promise<void> {
+  if (!scipyInstall) scipyInstall = pyodide.loadPackage(['scipy'], { checkIntegrity: true }).then(() => undefined)
+  return scipyInstall
+}
+
+async function codeNeedsScipy(pyodide: PyodideInterface, code: string): Promise<boolean> {
+  const scope = pyodide.runPython('{}')
+  try {
+    scope.set('code', code)
+    return (await pyodide.runPythonAsync(SCIPY_PRELUDE, { globals: scope })) === true
+  } finally {
+    scope.destroy()
+  }
 }
 
 async function runConsole(pyodide: PyodideInterface, message: ConsoleMessage): Promise<void> {
@@ -113,6 +171,7 @@ async function runConsole(pyodide: PyodideInterface, message: ConsoleMessage): P
   const started = performance.now()
   if (message.profile) resetBridgeStats()
   try {
+    if (await codeNeedsScipy(pyodide, message.code ?? '')) await ensureScipy(pyodide)
     pyodide.setStdout({ batched: (text) => out.push(text) })
     pyodide.setStderr({ batched: (text) => out.push(text) })
     const value = await pyodide.runPythonAsync(message.code ?? '')
@@ -123,7 +182,15 @@ async function runConsole(pyodide: PyodideInterface, message: ConsoleMessage): P
     scope.postMessage({ type: 'result', id, ok: true, value: text, stdout: out.join('\n'), profile })
   } catch (error) {
     const profile: RunProfile | undefined = message.profile ? { ...getBridgeStats(), elapsedMs: performance.now() - started } : undefined
-    scope.postMessage({ type: 'result', id, ok: false, error: error instanceof Error ? error.message : String(error), stdout: out.join('\n'), profile })
+    let text = error instanceof Error ? error.message : String(error)
+    // A dynamic import bypassed the static scan: install SciPy now so a retry can succeed.
+    if (/No module named 'scipy'/.test(text)) {
+      void ensureScipy(pyodide).catch(() => undefined)
+      text += "\n(utilities.atmosphere and utilities.simple_rotor_calcs need SciPy. It is installed " +
+        'automatically for a static import; this dynamic import was not detected, so SciPy is now ' +
+        'loading in the background — rerun the command when it finishes.)'
+    }
+    scope.postMessage({ type: 'result', id, ok: false, error: text, stdout: out.join('\n'), profile })
   }
 }
 
@@ -154,6 +221,10 @@ scope.onmessage = (event: MessageEvent<ConsoleMessage>) => {
       pyodide.FS.writeFile('/sync-probe/utilities/files.py', nativeUtilitiesFiles)
       pyodide.FS.writeFile('/sync-probe/utilities/units.py', nativeUtilitiesUnits)
       pyodide.FS.writeFile('/sync-probe/utilities/transformations.py', nativeUtilitiesTransformations)
+      pyodide.FS.writeFile('/sync-probe/utilities/uberlogging.py', nativeUtilitiesUberlogging)
+      pyodide.FS.writeFile('/sync-probe/utilities/wt_util.py', nativeUtilitiesWtUtil)
+      pyodide.FS.writeFile('/sync-probe/utilities/atmosphere.py', nativeUtilitiesAtmosphere)
+      pyodide.FS.writeFile('/sync-probe/utilities/simple_rotor_calcs.py', nativeUtilitiesRotor)
     }
     if (event.data.mode === 'console') {
       await setupLive(pyodide)
@@ -166,7 +237,9 @@ scope.onmessage = (event: MessageEvent<ConsoleMessage>) => {
     }
     if (event.data.mode === 'script') {
       await setupLive(pyodide)
-      const value = await pyodide.runPythonAsync(event.data.script ?? '')
+      const script = event.data.script ?? ''
+      if (await codeNeedsScipy(pyodide, script)) await ensureScipy(pyodide)
+      const value = await pyodide.runPythonAsync(script)
       let text: string
       try { text = JSON.stringify(value) } catch { text = String(value) }
       scope.postMessage({ type: 'done', value: text })

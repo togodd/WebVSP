@@ -17,6 +17,10 @@ for src, dst in [
     ('utilities/utilities/__init__.py', 'utilities/__init__.py'),
     ('utilities/utilities/files.py', 'utilities/files.py'),
     ('utilities/utilities/units.py', 'utilities/units.py'),
+    ('utilities/utilities/uberlogging.py', 'utilities/uberlogging.py'),
+    ('utilities/utilities/wt_util.py', 'utilities/wt_util.py'),
+    ('utilities/utilities/atmosphere.py', 'utilities/atmosphere.py'),
+    ('utilities/utilities/simple_rotor_calcs.py', 'utilities/simple_rotor_calcs.py'),
     ('utilities/utilities/transformations.py', 'utilities/transformations.py'),
 ]:
     source = root / 'src/python_api/packages' / src

@@ -13,6 +13,11 @@ for (const [original, bundled] of [
   ['utilities/utilities/__init__.py', 'utilities/__init__.py'],
   ['utilities/utilities/files.py', 'utilities/files.py'],
   ['utilities/utilities/units.py', 'utilities/units.py'],
+  ['utilities/utilities/uberlogging.py', 'utilities/uberlogging.py'],
+  ['utilities/utilities/wt_util.py', 'utilities/wt_util.py'],
+  ['utilities/utilities/atmosphere.py', 'utilities/atmosphere.py'],
+  ['utilities/utilities/simple_rotor_calcs.py', 'utilities/simple_rotor_calcs.py'],
+  ['utilities/utilities/wt_util.py', 'utilities/wt_util.py'],
   ['utilities/utilities/transformations.py', 'utilities/transformations.py'],
 ]) {
   const a = await readFile(resolve(source, original))

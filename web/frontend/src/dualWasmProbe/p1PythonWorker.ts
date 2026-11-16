@@ -10,6 +10,8 @@ import degenModule from './python/native/degen_geom/degen_geom.py?raw'
 import utilitiesInit from './python/native/utilities/__init__.py?raw'
 import utilitiesFiles from './python/native/utilities/files.py?raw'
 import utilitiesUnits from './python/native/utilities/units.py?raw'
+import utilitiesUberlogging from './python/native/utilities/uberlogging.py?raw'
+import utilitiesWtUtil from './python/native/utilities/wt_util.py?raw'
 import utilitiesTransforms from './python/native/utilities/transformations.py?raw'
 import p1Analysis from './python/p1_analysis.py?raw'
 import p1Smoke from './python/p1_smoke.py?raw'
@@ -40,6 +42,7 @@ scope.onmessage = ({ data }: MessageEvent<{ base: string; model: string; snapsho
       'degen_geom/__init__.py': degenInit, 'degen_geom/degen_geom.py': degenModule,
       'utilities/__init__.py': utilitiesInit, 'utilities/files.py': utilitiesFiles,
       'utilities/units.py': utilitiesUnits, 'utilities/transformations.py': utilitiesTransforms,
+      'utilities/uberlogging.py': utilitiesUberlogging, 'utilities/wt_util.py': utilitiesWtUtil,
       'p1_analysis.py': p1Analysis,
     })) pyodide.FS.writeFile(`/p1-probe/${name}`, content)
     pyodide.runPython("import sys; sys.path.insert(0, '/p1-probe')")
