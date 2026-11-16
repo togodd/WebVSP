@@ -11,7 +11,7 @@ const header = await readFile(path.join(apiDir, 'VSP_Geom_API.h'), 'utf8')
 const swig = await readFile(path.join(apiDir, 'vsp_common.i'), 'utf8')
 if (!swig.includes('%include "VSP_Geom_API.h"')) throw new Error('SWIG header inclusion changed')
 const doc = JSON.parse(await readFile(descriptor, 'utf8'))
-if (doc.version !== 2 || !Array.isArray(doc.apis) || !doc.apis.length) throw new Error('Invalid descriptor version or API list')
+if (doc.version !== 3 || !Array.isArray(doc.apis) || !doc.apis.length) throw new Error('Invalid descriptor version or API list')
 const names = new Set(), ops = new Set()
 const ident = /^[A-Za-z_][A-Za-z0-9_]*$/
 const reserved = new Set(['False', 'None', 'True', 'and', 'as', 'assert', 'async', 'await', 'break', 'class', 'continue', 'def', 'del', 'elif', 'else', 'except', 'finally', 'for', 'from', 'global', 'if', 'import', 'in', 'is', 'lambda', 'nonlocal', 'not', 'or', 'pass', 'raise', 'return', 'try', 'while', 'with', 'yield'])
@@ -22,9 +22,11 @@ for (const a of doc.apis) {
   if (!pythonIdent(a.name) || !/^[a-z][a-z0-9_]*$/.test(a.operation) || names.has(a.name) || ops.has(a.operation)) throw new Error('Invalid or duplicate API name/operation')
   names.add(a.name); ops.add(a.operation)
   if (a.status !== 'experimental' || typeof a.write !== 'boolean' || !['model_check', 'guarded_read', 'guarded_write'].includes(a.epoch) || (a.write !== (a.epoch === 'guarded_write'))) throw new Error(`Invalid guard metadata for ${a.name}`)
-  if (!['string', 'string_array', 'number', 'null'].includes(a.returns) || !a.scope || !a.errors || !Array.isArray(a.tests) || !a.tests.length || !Array.isArray(a.arguments)) throw new Error(`Incomplete API metadata for ${a.name}`)
-  const declarations = [...header.matchAll(new RegExp(`\\bextern\\s+[^;{}]*\\b${a.name}\\s*\\([^;{}]*\\)\\s*;`, 'g'))].map((m) => normalize(m[0]))
-  if (declarations.filter((v) => v === normalize(a.native)).length !== 1) throw new Error(`Reviewed native overload missing or changed: ${a.name}`)
+  if (!['string', 'string_array', 'number', 'integer', 'number_array', 'string_array', 'matrix', 'vec3d_array', 'null'].includes(a.returns) || !a.scope || !a.errors || !Array.isArray(a.tests) || !a.tests.length || !Array.isArray(a.arguments)) throw new Error(`Incomplete API metadata for ${a.name}`)
+  const declarations = [...header.matchAll(new RegExp(`\\bextern\\s+[^;{}]*\\b${a.nativeName ?? a.name}\\s*\\([^;{}]*\\)\\s*;`, 'g'))].map((m) => normalize(m[0]))
+  const diagnosticOnly = typeof a.native === 'string' && a.native.startsWith('diagnostic-only ')
+  if (!diagnosticOnly && declarations.filter((v) => v === normalize(a.native)).length !== 1) throw new Error(`Reviewed native overload missing or changed: ${a.name}`)
+  if (diagnosticOnly && !a.native.startsWith('diagnostic-only ')) throw new Error(`Invalid diagnostic-only declaration for ${a.name}`)
   const args = new Set(), wires = new Set(); let hasDefault = false
   for (const arg of a.arguments) {
     if (!pythonIdent(arg.name) || !pythonIdent(arg.wire) || args.has(arg.name) || wires.has(arg.wire) || !['string', 'number', 'integer', 'boolean'].includes(arg.type)) throw new Error(`Invalid argument in ${a.name}`)

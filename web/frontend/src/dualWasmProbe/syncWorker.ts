@@ -13,10 +13,11 @@ import nativeUtilitiesTransformations from './python/native/utilities/transforma
 
 const scope = self as unknown as DedicatedWorkerGlobalScope
 const MAX_BYTES = 64 * 1024
+const RESPONSE_HEADER_BYTES = 8
 let nextId = 0
 
 function request(op: string, args: string): string {
-  const buffer = new SharedArrayBuffer(8 + MAX_BYTES)
+  const buffer = new SharedArrayBuffer(RESPONSE_HEADER_BYTES + MAX_BYTES)
   const control = new Int32Array(buffer, 0, 2)
   scope.postMessage({ type: 'request', id: ++nextId, op, args, buffer })
   const state = Atomics.wait(control, 0, 0, op === 'timeout_test' || op === 'timeout_real_test' ? 20 : 60_000)
@@ -28,7 +29,7 @@ function request(op: string, args: string): string {
   const size = Atomics.load(control, 1)
   if (size < 0 || size > MAX_BYTES) throw new Error('Invalid response size')
   // TextDecoder rejects shared-backed views in Chromium; copy into an ordinary buffer.
-  return new TextDecoder('utf-8', { fatal: true }).decode(Uint8Array.from(new Uint8Array(buffer, 8, size)))
+  return new TextDecoder('utf-8', { fatal: true }).decode(Uint8Array.from(new Uint8Array(buffer, RESPONSE_HEADER_BYTES, size)))
 }
 
 scope.onmessage = (event: MessageEvent<{ assets: string; mode: 'read' | 'modeling' }>) => {

@@ -1,5 +1,5 @@
 {
-  "version": 2,
+  "version": 3,
   "apis": [
     {
       "name": "AddGeom",
@@ -90,6 +90,150 @@
       "returns": "null", "write": true, "epoch": "guarded_write", "status": "experimental",
       "scope": "Only Update(True); earlier setters already update.",
       "errors": "OpenVSPError; dispatched write may have unknown outcome.", "tests": ["host_mapping", "browser_modeling"]
+    },
+    {
+      "name": "GetGeomParmIDs",
+      "native": "extern std::vector<std::string> GetGeomParmIDs( const std::string & geom_id );",
+      "operation": "geom_parm_ids",
+      "arguments": [{"name":"geom_id","wire":"geom_id","type":"string"}],
+      "returns": "string_array", "write": false, "epoch": "guarded_read", "status": "experimental",
+      "scope": "Current-model geometry owner only; returns its linkable parameter IDs including reviewed nested containers.",
+      "errors": "OpenVSPError with owner-scoped validation.", "tests": ["host_mapping", "browser_read"]
+    },
+    {
+      "name": "GetParmValByID",
+      "nativeName": "GetParmVal",
+      "native": "extern double GetParmVal( const std::string & parm_id );",
+      "operation": "parm_value_id",
+      "arguments": [{"name":"parm_id","wire":"parm_id","type":"string"}],
+      "returns": "number", "write": false, "epoch": "guarded_read", "status": "experimental",
+      "scope": "Only a linkable parameter ID owned by the current geometry or XSec; native global ParmMgr lookup is not exposed.",
+      "errors": "OpenVSPError with owner-scoped validation rather than native fallback values.", "tests": ["host_mapping", "browser_read"]
+    },
+    {
+      "name": "GetIntParmVal",
+      "native": "extern int GetIntParmVal( const std::string & parm_id );",
+      "operation": "parm_int_value_id",
+      "arguments": [{"name":"parm_id","wire":"parm_id","type":"string"}],
+      "returns": "integer", "write": false, "epoch": "guarded_read", "status": "experimental",
+      "scope": "Owner-scoped linkable parameter ID; preserves native (int)(value + 0.5) conversion.",
+      "errors": "OpenVSPError with owner-scoped validation.", "tests": ["host_mapping", "browser_read"]
+    },
+    {
+      "name": "GetParmName",
+      "native": "extern std::string GetParmName( const std::string & parm_id );",
+      "operation": "parm_name_id",
+      "arguments": [{"name":"parm_id","wire":"parm_id","type":"string"}],
+      "returns": "string", "write": false, "epoch": "guarded_read", "status": "experimental",
+      "scope": "Owner-scoped linkable parameter ID.",
+      "errors": "OpenVSPError with owner-scoped validation.", "tests": ["host_mapping", "browser_read"]
+    },
+    {
+      "name": "GetParmType",
+      "native": "extern int GetParmType( const std::string & parm_id );",
+      "operation": "parm_type_id",
+      "arguments": [{"name":"parm_id","wire":"parm_id","type":"string"}],
+      "returns": "integer", "write": false, "epoch": "guarded_read", "status": "experimental",
+      "scope": "Owner-scoped linkable parameter ID.",
+      "errors": "OpenVSPError with owner-scoped validation.", "tests": ["host_mapping", "browser_read"]
+    },
+    {
+      "name": "ResultsFixtureOpen",
+      "native": "diagnostic-only ResultsMgr::CreateResults fixture",
+      "operation": "results_fixture_open",
+      "arguments": [],
+      "returns": "string", "write": false, "epoch": "model_check", "status": "experimental",
+      "scope": "One opaque, short-lived diagnostic lease; creates no geometry and cleans up by explicit close or TTL.",
+      "errors": "OpenVSPError; only the fixed result fields are accessible.", "tests": ["browser_results"]
+    },
+    {
+      "name": "ResultsFixtureGetAllDataNames",
+      "nativeName": "GetAllDataNames",
+      "native": "extern std::vector<std::string> GetAllDataNames( const std::string & results_id );",
+      "operation": "results_fixture_data_names",
+      "arguments": [{"name":"fixture_token","wire":"fixture_token","type":"string"}],
+      "returns": "string_array", "write": false, "epoch": "model_check", "status": "experimental",
+      "scope": "Fixed opaque fixture token only; bounded field list.",
+      "errors": "OpenVSPError; result IDs never cross the browser bridge.", "tests": ["browser_results"]
+    },
+    {
+      "name": "ResultsFixtureGetResultsName",
+      "nativeName": "GetResultsName",
+      "native": "extern std::string GetResultsName(const std::string & results_id );",
+      "operation": "results_fixture_name",
+      "arguments": [{"name":"fixture_token","wire":"fixture_token","type":"string"}],
+      "returns": "string", "write": false, "epoch": "model_check", "status": "experimental",
+      "scope": "Fixed namedtuple-safe result name through opaque token.",
+      "errors": "OpenVSPError; expired leases are rejected.", "tests": ["browser_results"]
+    },
+    {
+      "name": "ResultsFixtureGetType",
+      "nativeName": "GetResultsType",
+      "native": "extern int GetResultsType( const std::string & results_id, const std::string & data_name );",
+      "operation": "results_fixture_type",
+      "arguments": [{"name":"fixture_token","wire":"fixture_token","type":"string"},{"name":"data_name","wire":"data_name","type":"string"}],
+      "returns": "integer", "write": false, "epoch": "model_check", "status": "experimental",
+      "scope": "Fixed fields only; returns native RES_DATA_TYPE values.",
+      "errors": "OpenVSPError; invalid fields do not expose native fallback vectors.", "tests": ["browser_results"]
+    },
+    {
+      "name": "ResultsFixtureGetInt",
+      "nativeName": "GetIntResults",
+      "native": "extern const std::vector< int > & GetIntResults( const std::string & id, const std::string & name, int index = 0 );",
+      "operation": "results_fixture_int",
+      "arguments": [{"name":"fixture_token","wire":"fixture_token","type":"string"},{"name":"data_name","wire":"data_name","type":"string"},{"name":"index","wire":"index","type":"integer","default":0}],
+      "returns": "number_array", "write": false, "epoch": "model_check", "status": "experimental",
+      "scope": "Fixed int field, bounded index/vector.",
+      "errors": "OpenVSPError; deep-copies const references on the engine thread.", "tests": ["browser_results"]
+    },
+    {
+      "name": "ResultsFixtureGetDouble",
+      "nativeName": "GetDoubleResults",
+      "native": "extern const std::vector< double > & GetDoubleResults( const std::string & id, const std::string & name, int index = 0 );",
+      "operation": "results_fixture_double",
+      "arguments": [{"name":"fixture_token","wire":"fixture_token","type":"string"},{"name":"data_name","wire":"data_name","type":"string"},{"name":"index","wire":"index","type":"integer","default":0}],
+      "returns": "number_array", "write": false, "epoch": "model_check", "status": "experimental",
+      "scope": "Fixed double field, bounded index/vector.",
+      "errors": "OpenVSPError; deep-copies const references on the engine thread.", "tests": ["browser_results"]
+    },
+    {
+      "name": "ResultsFixtureGetString",
+      "nativeName": "GetStringResults",
+      "native": "extern const std::vector<std::string> & GetStringResults( const std::string & id, const std::string & name, int index = 0 );",
+      "operation": "results_fixture_string",
+      "arguments": [{"name":"fixture_token","wire":"fixture_token","type":"string"},{"name":"data_name","wire":"data_name","type":"string"},{"name":"index","wire":"index","type":"integer","default":0}],
+      "returns": "string_array", "write": false, "epoch": "model_check", "status": "experimental",
+      "scope": "Fixed string field, bounded UTF-8-compatible payload.",
+      "errors": "OpenVSPError; deep-copies const references on the engine thread.", "tests": ["browser_results"]
+    },
+    {
+      "name": "ResultsFixtureGetMatrix",
+      "nativeName": "GetDoubleMatResults",
+      "native": "extern const std::vector< std::vector< double > > & GetDoubleMatResults( const std::string & id, const std::string & name, int index = 0 );",
+      "operation": "results_fixture_matrix",
+      "arguments": [{"name":"fixture_token","wire":"fixture_token","type":"string"},{"name":"data_name","wire":"data_name","type":"string"},{"name":"index","wire":"index","type":"integer","default":0}],
+      "returns": "matrix", "write": false, "epoch": "model_check", "status": "experimental",
+      "scope": "Fixed double matrix field, max 16x16.",
+      "errors": "OpenVSPError; deep-copies nested const references on the engine thread.", "tests": ["browser_results"]
+    },
+    {
+      "name": "ResultsFixtureGetVec3d",
+      "nativeName": "GetVec3dResults",
+      "native": "extern const std::vector< vec3d > & GetVec3dResults( const std::string & id, const std::string & name, int index = 0 );",
+      "operation": "results_fixture_vec3d",
+      "arguments": [{"name":"fixture_token","wire":"fixture_token","type":"string"},{"name":"data_name","wire":"data_name","type":"string"},{"name":"index","wire":"index","type":"integer","default":0}],
+      "returns": "vec3d_array", "write": false, "epoch": "model_check", "status": "experimental",
+      "scope": "Fixed vec3d field, bounded vector.",
+      "errors": "OpenVSPError; deep-copies const references on the engine thread.", "tests": ["browser_results"]
+    },
+    {
+      "name": "ResultsFixtureClose",
+      "native": "diagnostic-only ResultsMgr::DeleteResult cleanup",
+      "operation": "results_fixture_close",
+      "arguments": [{"name":"fixture_token","wire":"fixture_token","type":"string"}],
+      "returns": "null", "write": false, "epoch": "model_check", "status": "experimental",
+      "scope": "Closes only the current fixture lease; never deletes unrelated ResultsMgr objects.",
+      "errors": "OpenVSPError; close is explicit and TTL remains the worker-loss fallback.", "tests": ["browser_results"]
     }
   ]
 }

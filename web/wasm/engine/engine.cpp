@@ -58,6 +58,7 @@
 #endif
 
 #include "VSP_Geom_API.h"
+#include "ResultsMgr.h"
 #include "APIErrorMgr.h"
 #include "error_drain.h"
 #include "AdvLinkMgr.h"
@@ -912,6 +913,142 @@ void Result( int id, const string &error, const string &value_json, bool binary 
     }
 }
 
+// The fixed results diagnostic owns a short-lived ResultsMgr object on the engine
+// thread.  The token is deliberately opaque: the native ResultsMgr ID never crosses
+// the bridge, and only the fixed fields below can be queried.  The expiry is also the
+// cleanup path when a Pyodide worker dies without running Python finally blocks.
+struct SyncResultsFixtureState
+{
+    string token;
+    string result_id;
+    uint64_t serial = 0;
+    std::chrono::steady_clock::time_point expires;
+};
+SyncResultsFixtureState g_SyncResultsFixture;
+
+void ClearSyncResultsFixture()
+{
+    if ( !g_SyncResultsFixture.result_id.empty() )
+        ResultsMgrSingleton::getInstance().DeleteResult( g_SyncResultsFixture.result_id );
+    g_SyncResultsFixture.token.clear();
+    g_SyncResultsFixture.result_id.clear();
+    g_SyncResultsFixture.expires = std::chrono::steady_clock::time_point();
+}
+
+void ExpireSyncResultsFixture()
+{
+    if ( !g_SyncResultsFixture.token.empty() && std::chrono::steady_clock::now() >= g_SyncResultsFixture.expires )
+        ClearSyncResultsFixture();
+}
+
+string IntArrayJson( const vector< int > &values )
+{
+    string out = "[";
+    if ( values.size() > 64 ) return string();
+    for ( size_t i = 0; i < values.size(); ++i ) out += ( i ? "," : "" ) + std::to_string( values[i] );
+    return out + "]";
+}
+
+string DoubleArrayJson( const vector< double > &values )
+{
+    string out = "[";
+    if ( values.size() > 64 ) return string();
+    for ( size_t i = 0; i < values.size(); ++i )
+    {
+        if ( !std::isfinite( values[i] ) ) return string();
+        out += ( i ? "," : "" ) + Num( values[i] );
+    }
+    return out + "]";
+}
+
+string DoubleMatrixJson( const vector< vector< double > > &values )
+{
+    if ( values.size() > 16 ) return string();
+    string out = "[";
+    for ( size_t r = 0; r < values.size(); ++r )
+    {
+        if ( values[r].size() > 16 ) return string();
+        string row = DoubleArrayJson( values[r] );
+        if ( row.empty() ) return string();
+        out += ( r ? "," : "" ) + row;
+    }
+    return out + "]";
+}
+
+string Vec3dArrayJson( const vector< vec3d > &values )
+{
+    if ( values.size() > 64 ) return string();
+    string out = "[";
+    for ( size_t i = 0; i < values.size(); ++i )
+    {
+        if ( !std::isfinite( values[i].x() ) || !std::isfinite( values[i].y() ) || !std::isfinite( values[i].z() ) ) return string();
+        out += ( i ? "," : "" ) + string( "[" ) + Num( values[i].x() ) + "," + Num( values[i].y() ) + "," + Num( values[i].z() ) + "]";
+    }
+    return out + "]";
+}
+
+bool SyncFixtureField( const string &name )
+{
+    return name == "Int_Value" || name == "String_Value" || name == "Double_Value" ||
+           name == "Double_Matrix" || name == "Vec3d_Value";
+}
+
+bool SyncFixtureToken( const string &token, string &result_id )
+{
+    ExpireSyncResultsFixture();
+    if ( token.empty() || token != g_SyncResultsFixture.token ) return false;
+    result_id = g_SyncResultsFixture.result_id;
+    return !result_id.empty();
+}
+
+vector< string > SplitFixtureCommand( const string &command )
+{
+    vector< string > parts;
+    size_t start = 0;
+    while ( start <= command.size() )
+    {
+        size_t end = command.find( ':', start );
+        parts.push_back( command.substr( start, end == string::npos ? string::npos : end - start ) );
+        if ( end == string::npos ) break;
+        start = end + 1;
+    }
+    return parts;
+}
+
+bool SyncFixtureData( const string &token, string &result_id, string &err )
+{
+    if ( !SyncFixtureToken( token, result_id ) )
+    {
+        err = "Results fixture is missing or expired";
+        return false;
+    }
+    if ( !ResultsMgrSingleton::getInstance().ValidResultsID( result_id ) )
+    {
+        err = "Results fixture was deleted";
+        ClearSyncResultsFixture();
+        return false;
+    }
+    return true;
+}
+
+bool SyncFixtureFieldName( const string &name )
+{
+    return SyncFixtureField( name ) && name.size() <= 64;
+}
+
+bool SyncFixtureError( string &err )
+{
+    err = TakeErrors();
+    return !err.empty();
+}
+
+string SyncFixtureStringArray( const vector< string > &values )
+{
+    if ( values.size() > 8 ) return string();
+    for ( const string &value : values ) if ( value.size() > 64 ) return string();
+    return StrArray( values );
+}
+
 vector< string > SplitCsv( const string &s )
 {
     vector< string > out;
@@ -1734,6 +1871,7 @@ bool GuardedOpAllowed( const string &op )
     return op == "model" || op == "geomTypes" || op == "bbox" || op == "origin" || op == "move" ||
            op == "addGeom" || op == "geomXSecs" || op == "fuselageXSecShapes" || op == "wingXSecShapes" || op == "geomParmIDs" ||
            op == "xsecParmIDs" || op == "geomParm" || op == "xsecParm" ||
+           op == "parm_value_id" || op == "parm_int_value_id" || op == "parm_name_id" || op == "parm_type_id" ||
            op == "fuselageLength" || op == "geomSetParm" || op == "xsecSetParm" || op == "guardedUpdate" ||
            op == "guardedSetGeomName" || op == "guardedDeleteGeom";
 }
@@ -1881,7 +2019,8 @@ void RunImpl( const Job &j )
         return Result( j.id, "", "{\"protocol\":\"webvsp-modeling\",\"version\":1,\"operations\":["
             "\"modelDiscovery\",\"model\",\"geomTypes\",\"bbox\",\"origin\",\"geomXSecs\","
             "\"fuselageXSecShapes\",\"wingXSecShapes\",\"geomParmIDs\",\"xsecParmIDs\","
-            "\"geomParm\",\"xsecParm\",\"fuselageLength\",\"guardedEpochV1\"]}" );
+            "\"geomParm\",\"xsecParm\",\"parm_value_id\",\"parm_int_value_id\",\"parm_name_id\",\"parm_type_id\","
+            "\"fuselageLength\",\"guardedEpochV1\"]}" );
     TakeErrors();
 #ifdef WEBVSP_SCRIPT_GUARD_TEST
     if ( j.op == "protocolErrorStackProbe" )
@@ -2161,6 +2300,137 @@ void RunImpl( const Job &j )
             return Result( j.id, "Parm is not linkable for the requested owner: " + j.b, "" );
         if ( !ParmMetadata( j.b, json, err, j.guarded ) ) return Result( j.id, err, "" );
         return Result( j.id, "", json );
+    }
+    if ( j.op == "parm_value_id" || j.op == "parm_int_value_id" || j.op == "parm_name_id" || j.op == "parm_type_id" )
+    {
+        vector< string > geoms = vsp::FindGeoms();
+        string err;
+        if ( !TakeParmErrors( true ).empty() ) return Result( j.id, "Could not enumerate current model geometries", "" );
+        bool owner_found = false;
+        for ( const string &geom : geoms )
+        {
+            vector< string > ids;
+            if ( !ParmIDs( false, geom, ids, err, nullptr ) ) return Result( j.id, err, "" );
+            if ( std::find( ids.begin(), ids.end(), j.a ) != ids.end() ) { owner_found = true; break; }
+        }
+        if ( !owner_found )
+        {
+            vector< string > xsecs;
+            for ( const string &geom : geoms )
+            {
+                string xsec_json;
+                bool found = false;
+                if ( !GeomXSecs( geom, xsec_json, found, "", err, true ) ) return Result( j.id, err, "" );
+                vector< string > surfaces = vsp::GetXSecSurfIDVec( geom );
+                if ( !TakeParmErrors( true ).empty() ) return Result( j.id, "Could not enumerate XSec surfaces", "" );
+                for ( const string &surface : surfaces )
+                {
+                    int count = vsp::GetNumXSec( surface );
+                    if ( !TakeParmErrors( true ).empty() ) return Result( j.id, "Could not enumerate XSecs", "" );
+                    for ( int i = 0; i < count; ++i ) xsecs.push_back( vsp::GetXSec( surface, i ) );
+                }
+            }
+            for ( const string &xsec : xsecs )
+            {
+                vector< string > ids;
+                if ( !ParmIDs( true, xsec, ids, err, nullptr ) ) return Result( j.id, err, "" );
+                if ( std::find( ids.begin(), ids.end(), j.a ) != ids.end() ) { owner_found = true; break; }
+            }
+        }
+        if ( !owner_found ) return Result( j.id, "Parameter is not owned by the current model", "" );
+        if ( j.op == "parm_value_id" )
+        {
+            double value = vsp::GetParmVal( j.a );
+            if ( !( err = TakeParmErrors( true ) ).empty() ) return Result( j.id, err, "" );
+            return Result( j.id, "", Num( value ) );
+        }
+        if ( j.op == "parm_int_value_id" )
+        {
+            int value = vsp::GetIntParmVal( j.a );
+            if ( !( err = TakeParmErrors( true ) ).empty() ) return Result( j.id, err, "" );
+            return Result( j.id, "", std::to_string( value ) );
+        }
+        if ( j.op == "parm_name_id" )
+        {
+            string value = vsp::GetParmName( j.a );
+            if ( !( err = TakeParmErrors( true ) ).empty() ) return Result( j.id, err, "" );
+            return Result( j.id, "", Quote( value ) );
+        }
+        int value = vsp::GetParmType( j.a );
+        if ( !( err = TakeParmErrors( true ) ).empty() ) return Result( j.id, err, "" );
+        return Result( j.id, "", std::to_string( value ) );
+    }
+    if ( j.op == "results_fixture_open" )
+    {
+        ExpireSyncResultsFixture();
+        if ( !g_SyncResultsFixture.token.empty() ) return Result( j.id, "A results fixture is already active", "" );
+        ResultsMgrSingleton &mgr = ResultsMgrSingleton::getInstance();
+        Results *results = mgr.CreateResults( "WebVSP_ResultsFixture", "Fixed diagnostic ResultsMgr fixture" );
+        if ( !results ) return Result( j.id, "Could not create results fixture", "" );
+        const string result_id = results->GetID();
+        results->Add( new NameValData( "Int_Value", vector< int >( 1, 42 ), "fixture integer" ) );
+        results->Add( new NameValData( "String_Value", vector< string >( 1, "fixture" ), "fixture string" ) );
+        results->Add( new NameValData( "Double_Value", vector< double >( 1, 3.25 ), "fixture double" ) );
+        results->Add( new NameValData( "Double_Matrix", vector< vector< double > >{ { 1.0, 2.0, 3.0 }, { 4.0, 5.0, 6.0 } }, "fixture matrix" ) );
+        results->Add( new NameValData( "Vec3d_Value", vector< vec3d >( 1, vec3d( 1.0, 2.0, 3.0 ) ), "fixture vector" ) );
+        ++g_SyncResultsFixture.serial;
+        g_SyncResultsFixture.token = "fixture-" + std::to_string( g_SyncResultsFixture.serial );
+        g_SyncResultsFixture.result_id = result_id;
+        g_SyncResultsFixture.expires = std::chrono::steady_clock::now() + std::chrono::seconds( 30 );
+        return Result( j.id, "", Quote( g_SyncResultsFixture.token ) );
+    }
+    if ( j.op == "results_fixture_close" )
+    {
+        string result_id, err;
+        if ( !SyncFixtureData( j.a, result_id, err ) ) return Result( j.id, err, "" );
+        ClearSyncResultsFixture();
+        return Result( j.id, "", "null" );
+    }
+    if ( j.op == "results_fixture_data_names" || j.op == "results_fixture_name" || j.op == "results_fixture_type" ||
+         j.op == "results_fixture_int" || j.op == "results_fixture_double" || j.op == "results_fixture_string" ||
+         j.op == "results_fixture_matrix" || j.op == "results_fixture_vec3d" )
+    {
+        string result_id, err;
+        if ( !SyncFixtureData( j.a, result_id, err ) ) return Result( j.id, err, "" );
+        ResultsMgrSingleton &mgr = ResultsMgrSingleton::getInstance();
+        if ( j.op == "results_fixture_name" ) return Result( j.id, "", Quote( vsp::GetResultsName( result_id ) ) );
+        if ( j.op == "results_fixture_data_names" ) return Result( j.id, "", SyncFixtureStringArray( vsp::GetAllDataNames( result_id ) ) );
+        if ( j.b.empty() || !SyncFixtureFieldName( j.b ) ) return Result( j.id, "Unknown results fixture field", "" );
+        if ( j.op == "results_fixture_type" )
+        {
+            int type = vsp::GetResultsType( result_id, j.b );
+            if ( !TakeParmErrors( true ).empty() ) return Result( j.id, "Unknown results fixture field", "" );
+            return Result( j.id, "", std::to_string( type ) );
+        }
+        int index = static_cast< int >( j.value );
+        if ( index < 0 || index > 3 ) return Result( j.id, "Results fixture index out of range", "" );
+        if ( j.op == "results_fixture_int" )
+        {
+            vector< int > values = vsp::GetIntResults( result_id, j.b, index );
+            if ( !TakeParmErrors( true ).empty() ) return Result( j.id, "Invalid integer result field or index", "" );
+            return Result( j.id, "", IntArrayJson( values ) );
+        }
+        if ( j.op == "results_fixture_double" )
+        {
+            vector< double > values = vsp::GetDoubleResults( result_id, j.b, index );
+            if ( !TakeParmErrors( true ).empty() ) return Result( j.id, "Invalid double result field or index", "" );
+            return Result( j.id, "", DoubleArrayJson( values ) );
+        }
+        if ( j.op == "results_fixture_string" )
+        {
+            vector< string > values = vsp::GetStringResults( result_id, j.b, index );
+            if ( !TakeParmErrors( true ).empty() ) return Result( j.id, "Invalid string result field or index", "" );
+            return Result( j.id, "", SyncFixtureStringArray( values ) );
+        }
+        if ( j.op == "results_fixture_matrix" )
+        {
+            vector< vector< double > > values = vsp::GetDoubleMatResults( result_id, j.b, index );
+            if ( !TakeParmErrors( true ).empty() ) return Result( j.id, "Invalid matrix result field or index", "" );
+            return Result( j.id, "", DoubleMatrixJson( values ) );
+        }
+        vector< vec3d > values = vsp::GetVec3dResults( result_id, j.b, index );
+        if ( !TakeParmErrors( true ).empty() ) return Result( j.id, "Invalid vec3d result field or index", "" );
+        return Result( j.id, "", Vec3dArrayJson( values ) );
     }
     if ( j.op == "geomTypes" )
     {
@@ -2643,6 +2913,7 @@ int main()
             }
             Run( j );
         }
+        ExpireSyncResultsFixture();
         if ( g_Gui )
         {
             vsp::MirrorPump( 0.005 );

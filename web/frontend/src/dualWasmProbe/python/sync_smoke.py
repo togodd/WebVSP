@@ -19,6 +19,13 @@ assert np.allclose(transformations.TransMatrix().mat, np.eye(4))
 assert native.genX3d.__defaults__[1] == native.export_airfoils.__defaults__[0] == 0
 
 wing = call('setup')
+parm_ids = vsp.GetGeomParmIDs(wing['id'])
+assert parm_ids and len(set(parm_ids)) == len(parm_ids)
+parm_id = parm_ids[0]
+assert isinstance(vsp.GetParmValByID(parm_id), float)
+assert isinstance(vsp.GetIntParmVal(parm_id), int)
+assert isinstance(vsp.GetParmName(parm_id), str)
+assert isinstance(vsp.GetParmType(parm_id), int)
 by_id = get_wing_reference_quantities(wing_id=wing['id'])
 by_name = get_wing_reference_quantities(wing_name=wing['name']) if wing['nameUnique'] else None
 assert by_name is None or by_name == by_id
@@ -36,6 +43,24 @@ except RuntimeError:
     pass
 else:
     raise AssertionError('Unknown parameter was accepted')
+
+fixture = vsp.ResultsFixtureOpen()
+try:
+    assert vsp.GetResultsName(fixture) == 'WebVSP_ResultsFixture'
+    assert vsp.GetAllDataNames(fixture) == ['Double_Matrix', 'Double_Value', 'Int_Value', 'String_Value', 'Vec3d_Value']
+    assert vsp.GetResultsType(fixture, 'Int_Value') == vsp.INT_DATA
+    assert vsp.GetResultsType(fixture, 'String_Value') == vsp.STRING_DATA
+    assert vsp.GetResultsType(fixture, 'Double_Value') == vsp.DOUBLE_DATA
+    assert vsp.GetResultsType(fixture, 'Double_Matrix') == vsp.DOUBLE_MATRIX_DATA
+    assert vsp.GetResultsType(fixture, 'Vec3d_Value') == vsp.VEC3D_DATA
+    parsed = native.parse_results_object(fixture)
+    assert parsed.Int_Value == [42]
+    assert parsed.String_Value == ['fixture']
+    assert parsed.Double_Value == [3.25]
+    assert parsed.Double_Matrix == [[1.0, 2.0, 3.0], [4.0, 5.0, 6.0]]
+    assert parsed.Vec3d_Value == [[1.0, 2.0, 3.0]]
+finally:
+    vsp.ResultsFixtureClose(fixture)
 
 # This is an explicit transfer, NOT a transparent replacement for Python open().
 file_reply = call('file_roundtrip', text='python-to-openvsp\n')

@@ -154,6 +154,11 @@ async function call(op: string, a = '', b = '', value = 0): Promise<unknown> {
   return submitPending(pending, id, () => vsp.call(id, op, a, b, value))
 }
 
+/** Fixed diagnostic engine operation; not a general native API surface. */
+export function syncProbeEngineCall(op: string, a = '', b = '', value = 0): Promise<unknown> {
+  return call(op, a, b, value)
+}
+
 /** Internal discovery snapshot: no epoch required, but serializer errors are fatal. */
 export async function discoverModel<T = unknown>(signal: AbortSignal): Promise<T> {
   return facadeSubmit(signal, load, readyPromise, (vsp) => {
@@ -177,7 +182,7 @@ export interface EngineModelEpoch {
 }
 
 /** Deliberately limited to operations that do not pump the GUI or replace the model. */
-export const GUARDED_OPS = ['model', 'geomTypes', 'bbox', 'origin', 'move', 'addGeom', 'geomXSecs', 'fuselageXSecShapes', 'wingXSecShapes', 'geomParmIDs', 'xsecParmIDs', 'geomParm', 'xsecParm', 'fuselageLength', 'geomSetParm', 'xsecSetParm', 'guardedUpdate', 'guardedSetGeomName', 'guardedDeleteGeom'] as const
+export const GUARDED_OPS = ['model', 'geomTypes', 'bbox', 'origin', 'move', 'addGeom', 'geomXSecs', 'fuselageXSecShapes', 'wingXSecShapes', 'geomParmIDs', 'xsecParmIDs', 'geomParm', 'xsecParm', 'parm_value_id', 'parm_int_value_id', 'parm_name_id', 'parm_type_id', 'fuselageLength', 'geomSetParm', 'xsecSetParm', 'guardedUpdate', 'guardedSetGeomName', 'guardedDeleteGeom'] as const
 export type GuardedOp = (typeof GUARDED_OPS)[number]
 
 /** Submit against the engine's model identity, checked atomically on its owning thread. */

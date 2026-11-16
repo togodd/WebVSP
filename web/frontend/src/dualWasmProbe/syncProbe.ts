@@ -1,9 +1,21 @@
-import { callGuarded, syncProbeFileExperiment, wasmRequest, WasmEngineError } from '../api/wasmEngine'
+import { callGuarded, syncProbeEngineCall, syncProbeFileExperiment, wasmRequest, WasmEngineError } from '../api/wasmEngine'
 import { SYNC_API } from './syncApi.generated'
 
 type Geom = { id: string; name: string; type: string }
 type Model = { geoms: Geom[]; modelEpoch: string; modelEpochValid: boolean }
 const MAX_BYTES = 64 * 1024
+const RESPONSE_HEADER_BYTES = 8
+
+function responseTooLarge(write: boolean, issued: boolean): string {
+  return JSON.stringify({ ok: false, error: { message: 'Synchronous response exceeds 65536-byte limit', code: 'RESPONSE_TOO_LARGE', ...(write ? { outcome: issued ? 'unknown' : 'not_written' } : {}) } })
+}
+function encodeResponse(response: unknown, write: boolean, issued: boolean): Uint8Array {
+  const encoded = new TextEncoder().encode(JSON.stringify(response))
+  if (encoded.length <= MAX_BYTES) return encoded
+  const fallback = new TextEncoder().encode(responseTooLarge(write, issued))
+  if (fallback.length > MAX_BYTES) throw new Error('Response overflow fallback exceeds transport limit')
+  return fallback
+}
 
 /** Fixed, read-only opt-in diagnostic. */
 export function runSyncProbe(): Promise<unknown> { return run('read') }
@@ -153,6 +165,28 @@ async function run(mode: 'read' | 'modeling'): Promise<unknown> {
         }
         return p.value
       }
+      if (op === 'geom_parm_ids') {
+        if (typeof args.geom_id !== 'string' || !args.geom_id) throw new WasmEngineError(400, 'Geometry ID is required', 'not_written')
+        await model()
+        return callGuarded('geomParmIDs', args.geom_id, '', 0, epoch!)
+      }
+      if (op === 'parm_value_id' || op === 'parm_int_value_id' || op === 'parm_name_id' || op === 'parm_type_id') {
+        if (typeof args.parm_id !== 'string' || !args.parm_id) throw new WasmEngineError(400, 'Parameter ID is required', 'not_written')
+        await model()
+        if (finished || poisoned) throw new WasmEngineError(400, 'Probe stopped', 'not_written')
+        const engineOp: 'parm_value_id' | 'parm_int_value_id' | 'parm_name_id' | 'parm_type_id' = op === 'parm_value_id' ? 'parm_value_id' : op === 'parm_int_value_id' ? 'parm_int_value_id' : op === 'parm_name_id' ? 'parm_name_id' : 'parm_type_id'
+        return callGuarded(engineOp, args.parm_id, '', 0, epoch!)
+      }
+      if (op === 'results_fixture_open') return syncProbeEngineCall('results_fixture_open')
+      if (op === 'results_fixture_close') return syncProbeEngineCall('results_fixture_close', String(args.fixture_token ?? ''))
+      if (op === 'results_fixture_data_names') return syncProbeEngineCall('results_fixture_data_names', String(args.fixture_token ?? ''))
+      if (op === 'results_fixture_name') return syncProbeEngineCall('results_fixture_name', String(args.fixture_token ?? ''))
+      if (op === 'results_fixture_type') return syncProbeEngineCall('results_fixture_type', String(args.fixture_token ?? ''), String(args.data_name ?? ''))
+      if (op === 'results_fixture_int') return syncProbeEngineCall('results_fixture_int', String(args.fixture_token ?? ''), String(args.data_name ?? ''), Number(args.index ?? 0))
+      if (op === 'results_fixture_double') return syncProbeEngineCall('results_fixture_double', String(args.fixture_token ?? ''), String(args.data_name ?? ''), Number(args.index ?? 0))
+      if (op === 'results_fixture_string') return syncProbeEngineCall('results_fixture_string', String(args.fixture_token ?? ''), String(args.data_name ?? ''), Number(args.index ?? 0))
+      if (op === 'results_fixture_matrix') return syncProbeEngineCall('results_fixture_matrix', String(args.fixture_token ?? ''), String(args.data_name ?? ''), Number(args.index ?? 0))
+      if (op === 'results_fixture_vec3d') return syncProbeEngineCall('results_fixture_vec3d', String(args.fixture_token ?? ''), String(args.data_name ?? ''), Number(args.index ?? 0))
       if (op === 'file_roundtrip') {
         if (args.text !== 'python-to-openvsp\n') throw new Error('Unsupported file content')
         return syncProbeFileExperiment(args.text)
@@ -169,12 +203,12 @@ async function run(mode: 'read' | 'modeling'): Promise<unknown> {
       }
       if (msg.type === 'failed') return finish(new Error(msg.error ?? 'Sync worker failed'))
       if (msg.type === 'abandon') { poisoned = true; return }
-      if (msg.type !== 'request' || !(msg.buffer instanceof SharedArrayBuffer) || msg.buffer.byteLength !== 8 + MAX_BYTES) return finish(new Error('Invalid sync request'))
+      if (msg.type !== 'request' || !(msg.buffer instanceof SharedArrayBuffer) || msg.buffer.byteLength !== RESPONSE_HEADER_BYTES + MAX_BYTES) return finish(new Error('Invalid sync request'))
       const buffer = msg.buffer
       if (msg.op === 'timeout_test') {
         setTimeout(() => {
           const bytes = new TextEncoder().encode('{"ok":true,"value":"late"}')
-          new Uint8Array(buffer, 8).set(bytes)
+          new Uint8Array(buffer, RESPONSE_HEADER_BYTES).set(bytes)
           const control = new Int32Array(buffer, 0, 2)
           Atomics.store(control, 1, bytes.length)
           Atomics.store(control, 0, 1)
@@ -199,9 +233,9 @@ async function run(mode: 'read' | 'modeling'): Promise<unknown> {
           response = { ok: false, error: { message: error instanceof Error ? error.message : String(error), ...details } }
         }
         if (finished) return
-        let bytes = new TextEncoder().encode(JSON.stringify(response))
-        if (bytes.length > MAX_BYTES) bytes = new TextEncoder().encode(JSON.stringify({ ok: false, error: 'Response exceeds buffer limit' }))
-        new Uint8Array(buffer, 8).set(bytes)
+        const write = SYNC_API.some((entry) => entry.operation === (msg.op ?? '') && entry.write)
+        const bytes = encodeResponse(response, write, currentWriteIssued)
+        new Uint8Array(buffer, RESPONSE_HEADER_BYTES).set(bytes)
         const control = new Int32Array(buffer, 0, 2)
         Atomics.store(control, 1, bytes.length)
         Atomics.store(control, 0, 1)

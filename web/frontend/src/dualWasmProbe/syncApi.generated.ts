@@ -156,5 +156,239 @@ export const SYNC_API = [
     "returns": "null",
     "write": true,
     "epoch": "guarded_write"
+  },
+  {
+    "name": "GetGeomParmIDs",
+    "operation": "geom_parm_ids",
+    "arguments": [
+      {
+        "wire": "geom_id",
+        "type": "string"
+      }
+    ],
+    "returns": "string_array",
+    "write": false,
+    "epoch": "guarded_read"
+  },
+  {
+    "name": "GetParmValByID",
+    "operation": "parm_value_id",
+    "arguments": [
+      {
+        "wire": "parm_id",
+        "type": "string"
+      }
+    ],
+    "returns": "number",
+    "write": false,
+    "epoch": "guarded_read"
+  },
+  {
+    "name": "GetIntParmVal",
+    "operation": "parm_int_value_id",
+    "arguments": [
+      {
+        "wire": "parm_id",
+        "type": "string"
+      }
+    ],
+    "returns": "integer",
+    "write": false,
+    "epoch": "guarded_read"
+  },
+  {
+    "name": "GetParmName",
+    "operation": "parm_name_id",
+    "arguments": [
+      {
+        "wire": "parm_id",
+        "type": "string"
+      }
+    ],
+    "returns": "string",
+    "write": false,
+    "epoch": "guarded_read"
+  },
+  {
+    "name": "GetParmType",
+    "operation": "parm_type_id",
+    "arguments": [
+      {
+        "wire": "parm_id",
+        "type": "string"
+      }
+    ],
+    "returns": "integer",
+    "write": false,
+    "epoch": "guarded_read"
+  },
+  {
+    "name": "ResultsFixtureOpen",
+    "operation": "results_fixture_open",
+    "arguments": [],
+    "returns": "string",
+    "write": false,
+    "epoch": "model_check"
+  },
+  {
+    "name": "ResultsFixtureGetAllDataNames",
+    "operation": "results_fixture_data_names",
+    "arguments": [
+      {
+        "wire": "fixture_token",
+        "type": "string"
+      }
+    ],
+    "returns": "string_array",
+    "write": false,
+    "epoch": "model_check"
+  },
+  {
+    "name": "ResultsFixtureGetResultsName",
+    "operation": "results_fixture_name",
+    "arguments": [
+      {
+        "wire": "fixture_token",
+        "type": "string"
+      }
+    ],
+    "returns": "string",
+    "write": false,
+    "epoch": "model_check"
+  },
+  {
+    "name": "ResultsFixtureGetType",
+    "operation": "results_fixture_type",
+    "arguments": [
+      {
+        "wire": "fixture_token",
+        "type": "string"
+      },
+      {
+        "wire": "data_name",
+        "type": "string"
+      }
+    ],
+    "returns": "integer",
+    "write": false,
+    "epoch": "model_check"
+  },
+  {
+    "name": "ResultsFixtureGetInt",
+    "operation": "results_fixture_int",
+    "arguments": [
+      {
+        "wire": "fixture_token",
+        "type": "string"
+      },
+      {
+        "wire": "data_name",
+        "type": "string"
+      },
+      {
+        "wire": "index",
+        "type": "integer"
+      }
+    ],
+    "returns": "number_array",
+    "write": false,
+    "epoch": "model_check"
+  },
+  {
+    "name": "ResultsFixtureGetDouble",
+    "operation": "results_fixture_double",
+    "arguments": [
+      {
+        "wire": "fixture_token",
+        "type": "string"
+      },
+      {
+        "wire": "data_name",
+        "type": "string"
+      },
+      {
+        "wire": "index",
+        "type": "integer"
+      }
+    ],
+    "returns": "number_array",
+    "write": false,
+    "epoch": "model_check"
+  },
+  {
+    "name": "ResultsFixtureGetString",
+    "operation": "results_fixture_string",
+    "arguments": [
+      {
+        "wire": "fixture_token",
+        "type": "string"
+      },
+      {
+        "wire": "data_name",
+        "type": "string"
+      },
+      {
+        "wire": "index",
+        "type": "integer"
+      }
+    ],
+    "returns": "string_array",
+    "write": false,
+    "epoch": "model_check"
+  },
+  {
+    "name": "ResultsFixtureGetMatrix",
+    "operation": "results_fixture_matrix",
+    "arguments": [
+      {
+        "wire": "fixture_token",
+        "type": "string"
+      },
+      {
+        "wire": "data_name",
+        "type": "string"
+      },
+      {
+        "wire": "index",
+        "type": "integer"
+      }
+    ],
+    "returns": "matrix",
+    "write": false,
+    "epoch": "model_check"
+  },
+  {
+    "name": "ResultsFixtureGetVec3d",
+    "operation": "results_fixture_vec3d",
+    "arguments": [
+      {
+        "wire": "fixture_token",
+        "type": "string"
+      },
+      {
+        "wire": "data_name",
+        "type": "string"
+      },
+      {
+        "wire": "index",
+        "type": "integer"
+      }
+    ],
+    "returns": "vec3d_array",
+    "write": false,
+    "epoch": "model_check"
+  },
+  {
+    "name": "ResultsFixtureClose",
+    "operation": "results_fixture_close",
+    "arguments": [
+      {
+        "wire": "fixture_token",
+        "type": "string"
+      }
+    ],
+    "returns": "null",
+    "write": false,
+    "epoch": "model_check"
   }
 ] as const

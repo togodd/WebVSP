@@ -42,4 +42,64 @@ def Update(update_managers=True):
     return _call('update', update_managers=update_managers)
 
 
+def GetGeomParmIDs(geom_id):
+    return _call('geom_parm_ids', geom_id=geom_id)
+
+
+def GetParmValByID(parm_id):
+    return _call('parm_value_id', parm_id=parm_id)
+
+
+def GetIntParmVal(parm_id):
+    return _call('parm_int_value_id', parm_id=parm_id)
+
+
+def GetParmName(parm_id):
+    return _call('parm_name_id', parm_id=parm_id)
+
+
+def GetParmType(parm_id):
+    return _call('parm_type_id', parm_id=parm_id)
+
+
+def ResultsFixtureOpen():
+    return _call('results_fixture_open')
+
+
+def ResultsFixtureGetAllDataNames(fixture_token):
+    return _call('results_fixture_data_names', fixture_token=fixture_token)
+
+
+def ResultsFixtureGetResultsName(fixture_token):
+    return _call('results_fixture_name', fixture_token=fixture_token)
+
+
+def ResultsFixtureGetType(fixture_token, data_name):
+    return _call('results_fixture_type', fixture_token=fixture_token, data_name=data_name)
+
+
+def ResultsFixtureGetInt(fixture_token, data_name, index=0):
+    return _call('results_fixture_int', fixture_token=fixture_token, data_name=data_name, index=index)
+
+
+def ResultsFixtureGetDouble(fixture_token, data_name, index=0):
+    return _call('results_fixture_double', fixture_token=fixture_token, data_name=data_name, index=index)
+
+
+def ResultsFixtureGetString(fixture_token, data_name, index=0):
+    return _call('results_fixture_string', fixture_token=fixture_token, data_name=data_name, index=index)
+
+
+def ResultsFixtureGetMatrix(fixture_token, data_name, index=0):
+    return _call('results_fixture_matrix', fixture_token=fixture_token, data_name=data_name, index=index)
+
+
+def ResultsFixtureGetVec3d(fixture_token, data_name, index=0):
+    return _call('results_fixture_vec3d', fixture_token=fixture_token, data_name=data_name, index=index)
+
+
+def ResultsFixtureClose(fixture_token):
+    return _call('results_fixture_close', fixture_token=fixture_token)
+
+
 _WRITE_OPERATIONS = frozenset(["add_geom","set_geom_name","delete_geom","set_parm","update"])
