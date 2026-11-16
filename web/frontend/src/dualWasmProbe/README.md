@@ -108,7 +108,7 @@ WebVSP 自己编写的 Python 文件在 `python/` 顶层：`openvsp_live.py`（�
 | `FindResultsID(name, index=0)`、`FindLatestResultsID(name)`、`GetNumResults(name)` | ✅ | 不存在时返回 `''`/`0`，不抛异常 |
 | `DeleteResult(id)`、`DeleteAllResults()` | ✅ | 未知 ID 视为空操作；长会话可用它们控制 ResultsMgr 增长 |
 | `GetNumData`、`GetResultShape`、`GetBinaryResults` | 🟨 | 后两者是诊断用、非桌面上游接口 |
-| `GetIntResults`/`GetDoubleResults`/`GetStringResults`/`GetDoubleMatResults`/`GetVec3dResults` | ✅ | `Vec3d` 只提供 `x()/y()/z()` |
+| `GetIntResults`/`GetDoubleResults`/`GetStringResults`/`GetDoubleMatResults`/`GetVec3dResults` | ✅ | `Vec3d` 提供 `x()/y()/z()`，`repr` 形如 `vec3d(1.0, 2.0, 3.0)` |
 | `parse_results_object`、`GetResultSnapshotCapabilities`、`GetResultSnapshots` | ✅ | 见“运行机制与限制” |
 | `GetResultTree`、`parse_results_tree`、`parse_results_object_fast`、`parse_surface_patches_fast` | 🚫 | 递归结果树被固定拒绝 |
 | `ReadVSPFile`、`WriteVSPFile`、`ExportFile`、`ImportFile`、`SetVSP3FileName`、`GetVSPFileName`、`ClearVSPModel` | ✅ | 同步语义，操作引擎文件系统；相对路径解析到 `/work`（见“Python 工作区与文件 API”）。`ExportFile` 只支持原生默认可选参数；本构建无 STEP 导出 |

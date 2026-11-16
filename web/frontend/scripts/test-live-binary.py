@@ -50,6 +50,7 @@ class BinaryResultsTest(unittest.TestCase):
         self.rows = [[1, 2, 3]]
         p = vsp.GetVec3dResults('r', 'f')[0]
         self.assertEqual((p.x(), p.y(), p.z()), (1, 2, 3))
+        self.assertEqual(repr(p), 'vec3d(1.0, 2.0, 3.0)')
 
     def test_wrong_type_and_invalid_payload(self):
         self.assertEqual(vsp.GetIntResults('r', 'f'), [])

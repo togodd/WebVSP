@@ -919,6 +919,9 @@ class _Vec3d:
     def y(self): return self._xyz[1]
     def z(self): return self._xyz[2]
 
+    def __repr__(self):
+        return 'vec3d(%r, %r, %r)' % (self._xyz[0], self._xyz[1], self._xyz[2])
+
 
 def GetVec3dResults(result_id, data_name, index=0):
     return [_Vec3d(p) for p in _numeric_values(result_id, data_name, index, VEC3D_DATA)]
