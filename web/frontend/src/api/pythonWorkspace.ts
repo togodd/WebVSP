@@ -53,21 +53,22 @@ async function ensureWritable(handle: FileSystemDirectoryHandle): Promise<boolea
 interface Walked { path: string; name: string; handle: FileSystemFileHandle }
 
 /** Depth-first listing of a directory, bounded in count and depth. */
-async function walkDirectory(root: FileSystemDirectoryHandle): Promise<Walked[]> {
+async function walkDirectory(root: FileSystemDirectoryHandle): Promise<{ files: Walked[]; countLimited: boolean; depthLimited: boolean }> {
   const out: Walked[] = []
+  let countLimited = false
+  let depthLimited = false
   const walk = async (dir: FileSystemDirectoryHandle, prefix: string, depth: number) => {
-    if (depth > MAX_DEPTH) return
-    // File System Access: entries() yields [name, handle]; values() yields handles only.
     const entries = (dir as unknown as { entries(): AsyncIterable<[string, FileSystemHandle]> }).entries()
-    for await (const entry of entries) {
-      if (out.length >= MAX_FILES) return
-      const [name, handle] = entry
+    for await (const [name, handle] of entries) {
+      if (depth > MAX_DEPTH) { depthLimited = true; return }
       if (handle.kind === 'directory') await walk(handle as FileSystemDirectoryHandle, `${prefix}${name}/`, depth + 1)
+      else if (out.length >= MAX_FILES) { countLimited = true; return }
       else out.push({ path: `${prefix}${name}`, name, handle: handle as FileSystemFileHandle })
+      if (countLimited) return
     }
   }
   await walk(root, '', 0)
-  return out
+  return { files: out, countLimited, depthLimited }
 }
 
 async function ensureSubdirectory(path: string): Promise<FileSystemDirectoryHandle> {
@@ -94,16 +95,18 @@ export async function mountWorkspaceHandle(handle: FileSystemDirectoryHandle): P
   const walked = await walkDirectory(handle)
   let bytes = 0
   let written = 0
-  for (const item of walked) {
+  let sizeLimited = false
+  for (const item of walked.files) {
     const file = await item.handle.getFile()
-    if (bytes + file.size > MAX_BYTES) break
+    if (bytes + file.size > MAX_BYTES) { sizeLimited = true; break }
     const data = new Uint8Array(await file.arrayBuffer())
     bytes += data.length
     await engineWriteFile(`${WORKSPACE_ROOT}/${item.path}`, data)
     await linkEngineFile(`${WORKSPACE_ROOT}/${item.path}`, item.handle, item.name)
     written += 1
   }
-  set({ name: handle.name, writable, files: written, busy: false, message: written < walked.length ? '超出大小/数量上限，部分文件未载入' : '' })
+  const limits = [walked.countLimited && '数量', walked.depthLimited && '深度', sizeLimited && '大小'].filter(Boolean)
+  set({ name: handle.name, writable, files: written, busy: false, message: limits.length ? `超出${limits.join('、')}上限，部分文件未载入` : '' })
   return written
 }
 
@@ -140,7 +143,7 @@ export async function addWorkspaceFiles(): Promise<void> {
       await linkEngineFile(path, item.handle, item.name)
       written += 1
     }
-    set({ files: useWorkspace.getState().files + written, busy: false, message: `已暂存 ${written} 个文件；用 vsp.ReadVSPFile('文件名') 载入模型` })
+    set({ files: useWorkspace.getState().files + written, busy: false, message: `已暂存 ${written} 个文件${written < picked.length ? '；超出大小上限，部分文件未载入' : ''}；用 vsp.ReadVSPFile('文件名') 载入模型` })
   } catch (error) {
     set({ busy: false, message: `添加文件失败：${message(error)}` })
   }

@@ -4,9 +4,9 @@ Scripts import this as ``openvsp`` and call it the way they call the desktop
 module: ``ExecAnalysis``, result getters, ``SetParmVal(geom, name, group, value)``.
 Everything runs on the page's own OpenVSP model and engine thread.
 
-Differences from the desktop module are deliberate and documented: file output
-from analyses is disabled, the analysis always covers the whole model, and a
-crash or out-of-memory in the analysis takes the page session with it.
+Differences from the desktop module are deliberate: analysis input and output
+handling depends on the analysis policy, and a crash or out-of-memory in an
+analysis takes the page session with it.
 """
 import json
 import sys
@@ -26,6 +26,16 @@ INT_DATA, DOUBLE_DATA, STRING_DATA, VEC3D_DATA, INT_MATRIX_DATA, DOUBLE_MATRIX_D
 # Keep in step with APIDefines.h PARM_TYPE.
 PARM_DOUBLE_TYPE, PARM_INT_TYPE, PARM_BOOL_TYPE, PARM_FRACTION_TYPE = 0, 1, 2, 3
 PARM_LIMITED_INT_TYPE, PARM_NOTEQ_TYPE, PARM_POWER_INT_TYPE = 4, 5, 6
+
+# Keep in step with APIDefines.h XSEC_CRV_TYPE and SUBSURF_TYPE.
+XS_UNDEFINED = -1
+(XS_POINT, XS_CIRCLE, XS_ELLIPSE, XS_SUPER_ELLIPSE, XS_ROUNDED_RECTANGLE,
+ XS_GENERAL_FUSE, XS_FILE_FUSE, XS_FOUR_SERIES, XS_SIX_SERIES, XS_BICONVEX,
+ XS_WEDGE, XS_EDIT_CURVE, XS_FILE_AIRFOIL, XS_CST_AIRFOIL, XS_VKT_AIRFOIL,
+ XS_FOUR_DIGIT_MOD, XS_FIVE_DIGIT, XS_FIVE_DIGIT_MOD, XS_ONE_SIX_SERIES,
+ XS_AC25_773, XS_NUM_TYPES) = range(21)
+(SS_LINE, SS_RECTANGLE, SS_ELLIPSE, SS_CONTROL, SS_LINE_ARRAY, SS_FINITE_LINE,
+ SS_XSEC_CURVE, SS_INTERSECT, SS_NUM_TYPES) = range(9)
 
 
 class OpenVSPError(RuntimeError):
@@ -324,16 +334,21 @@ def SetParmVal(geom_id, name, group, value):
 
 # ---------------------------------------------------------------- XSec / subsurface
 
-XS_FOUR_SERIES, XS_SIX_SERIES, XS_BICONVEX, XS_WEDGE, XS_ELLIPSE, XS_FILE_AIRFOIL = 0, 1, 2, 3, 4, 6
-SS_RECTANGLE, SS_ELLIPSE, SS_CONTROL, SS_LINE, SS_FINITE_LINE = 0, 1, 2, 3, 4
-
-
 def GetNumXSecSurfs(geom_id):
     return len(_call('live_xsec_surfs', geom_id=geom_id))
 
 
+def _indexed_id(ids, index):
+    # OpenVSP indices are nonnegative, unlike Python sequence indices.
+    import operator
+    index = operator.index(index)
+    if index < 0:
+        raise IndexError('OpenVSP index out of range')
+    return ids[index]
+
+
 def GetXSecSurf(geom_id, index):
-    return _call('live_xsec_surfs', geom_id=geom_id)[index]
+    return _indexed_id(_call('live_xsec_surfs', geom_id=geom_id), index)
 
 
 def GetXSecSurfIDs(geom_id):
@@ -345,7 +360,7 @@ def GetNumXSec(xsec_surf_id):
 
 
 def GetXSec(xsec_surf_id, index):
-    return _call('live_xsecs', xsec_surf_id=xsec_surf_id)[index]
+    return _indexed_id(_call('live_xsecs', xsec_surf_id=xsec_surf_id), index)
 
 
 def GetXSecIDs(xsec_surf_id):
@@ -391,7 +406,7 @@ def GetNumSubSurf(geom_id):
 
 
 def GetSubSurf(geom_id, index):
-    return GetSubSurfIDVec(geom_id)[index]
+    return _indexed_id(GetSubSurfIDVec(geom_id), index)
 
 
 def AddSubSurf(geom_id, type, surfindex=0):

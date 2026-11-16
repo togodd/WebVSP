@@ -5,7 +5,7 @@
 页面的 OpenVSP 引擎线程，直接读写**当前页面模型**。
 
 文件 API 通过“Python 工作区”工作：控制台里挂载一个文件夹（或添加文件），页面把内容镜像到引擎文件系统
-的 `/work`；Python 的同步文件调用只操作 `/work` 与其它引擎路径，磁盘读写、文件选择器和下载仍由页面负责。
+的 `/work`；Python 的同步文件调用操作引擎路径，磁盘读写、文件选择器和下载仍由页面负责。
 
 原先的隔离分析窗口（顶栏 **Geometry analysis**）及其一次性 WASM/Pyodide 分析链、早期用于验证桥接的固定
 诊断均已删除；它们的结论压缩在文末“历史结论”中。
@@ -59,9 +59,9 @@ WebVSP 自己编写的 Python 文件在 `python/` 顶层：`openvsp_live.py`（�
   超时**不会取消**已派发的引擎工作，不要自动重试。
 - 分析执行期间引擎线程被占用，GUI 镜像与 3D 视图停止刷新，也没有取消机制；分析 OOM 或断言会连同未保存的
   修改一起结束整个页面会话。这是你本人页面里的任意 Python，不是安全沙箱。
-- 分析白名单只有 `DegenGeom` 与 `SurfacePatches`。`SetIntAnalysisInput` 只接受单个整数、`index=0`，且只允许
-  `Set`、`WriteCSVFlag`、`WriteMFileFlag`、`UseModeFlag`；运行时强制 `Set=SET_ALL`、关闭文件输出与 mode，
-  所以调用方设置的 `Set` 会被覆盖。分析结果留在页面 ResultsManager 中，后续调用仍可读取。
+- 可执行的分析白名单为 `DegenGeom`、`SurfacePatches`、`MassProp` 和 `CompGeom`；`ListAnalysis()` 列出的是
+  引擎知道的全部分析，不代表全部可执行。`SetIntAnalysisInput` 只接受单个整数、`index=0`，并校验输入类型。
+  前两种分析强制全模型；后两种尊重调用方的集合。执行策略会禁用 mode 和相关文件输出，分析结果留在 ResultsManager。
 - 数值字段用有界二进制分块，保留 IEEE NaN/±Inf 与不规则矩阵；字符串按最多 4096 UTF-8 字节分块，支持超过
   响应缓冲区的单个字符串。同一字段可能在不同分块之间变化，形状变化能被发现，但同形状并发修改不是原子快照。
 - `parse_results_object` 先取单对象有界快照（≤512 KiB、32,768 items、1,024 字段），不支持或超限时退回逐字段
@@ -73,10 +73,27 @@ WebVSP 自己编写的 Python 文件在 `python/` 顶层：`openvsp_live.py`（�
   无法扫描，会提示并在后台安装，重跑即可。本机实测：安装约 1.1 秒，首次 `import scipy` 约 1.5 秒，不使用
   SciPy 的命令不承担这些开销。
 
+## 与桌面 Python API 的对照与路线
+
+对照范围是下方现有清单，而非全部上游 API。桌面包的入口从 SWIG 生成的 `vsp` 导入原生接口，再导入 Python
+helper（[上游入口](../../../../src/python_api/packages/openvsp/openvsp/__init__.py)、[构建定义](../../../../src/python_api/CMakeLists.txt)）；浏览器使用
+[门面](python/openvsp_live.py) 和[引擎操作](../../../wasm/engine/engine.cpp)。同名不意味着重载、错误或副作用完全相同。
+
+| 类别 | 代表接口及证据边界 |
+| --- | --- |
+| 原生函数形状 | `AddGeom`、`SetParmVal`、`GetNumXSec`、`ExecAnalysis`、`GetNumData` 可与[原生声明](../../../../src/geom_api/VSP_Geom_API.h)对照；门面只桥接其中一部分，例如 `SetParmVal` 仅四参数形式，而原生另有按 ID 重载。测试范围逐项见下表，不等于桌面语义全面一致。 |
+| 浏览器扩展 | `GetParmInfo`/`GetParmInfoByName`、`GetParmValByID`/`SetParmValByID`、`GetXSecSurfIDs`/`GetXSecIDs`、`GetResultShape`/`GetBinaryResults`、`GetResultSnapshotCapabilities`/`GetResultSnapshots` 是门面提供的便利或诊断接口，不能当作桌面原生同名 API；例如原生截面列表使用 `GetXSecSurfIDVec`。批量快照有明确大小和一致性边界，见上文。 |
+| 明确不支持或受限 | `SetDoubleAnalysisInput`、`SetStringAnalysisInput` 未桥接；`ExecAnalysis` 仅开放四种分析，`ListAnalysis` 并非可执行清单。文件 API 使用引擎虚拟文件系统，`WriteVSPFile` 只接受 `SET_ALL`，导入父几何及 STEP 导出不支持；超时不取消任务。递归结果树接口主动拒绝。细节见下方清单和文件 API。 |
+| 未验证 | 已桥接但未单独测试的截面、子表面及集合接口，以及 `get_wing_reference_quantities`、`get_propeller_thrust_vectors` 等 helper，不能由源码存在或依赖已测推断为可用。主机测试可能使用模拟桥；真实浏览器脚本的证据仅覆盖各自场景，见[几何测试](../../scripts/test-live-geometry.py)及文末测试表。 |
+
+**路线（按风险递进）**：先为已有但未单测接口补主机参数/错误测试与真实浏览器模型测试，对照桌面返回值、
+重载和副作用；再按脚本需求补低副作用的原生查询与参数重载，逐项实现门面、桥和引擎并验证。分析与文件能力
+须先约定输入、输出、工作区和副作用，再逐项做桌面对照及超时/失败测试；涉及外部进程、取消或长任务的能力
+须另设计异步生命周期，不因 `ListAnalysis` 可发现就开放。每一步仅把实际测试的场景标为已验证，不给出覆盖率。
+
 ## 兼容性清单
 
-标记：**✅** 已实现并有自动测试；**🟨** 已实现但未单独测试；**🚫** 存在但被桥接层禁用；**❌** 未实现
-（调用得到 `AttributeError`/`NameError`）。逐项“验证”指本目录测试脚本，见文末。
+标记：**✅** 已实现且有相关自动测试（只覆盖所测场景）；**🟨** 已实现但未单独测试；**🚫** 存在但被桥接层禁用；**❌** 未实现或所需依赖未打包。测试命令见文末；不同测试的主机模拟与浏览器证据不可互换。
 
 ### `openvsp` 门面（`python/openvsp_live.py`）
 
@@ -84,12 +101,12 @@ WebVSP 自己编写的 Python 文件在 `python/` 顶层：`openvsp_live.py`（�
 | --- | --- | --- |
 | `OpenVSPError`、`get_instance()` | ✅ | 错误带 `outcome`/`actual`/`code`；只接受本模块，第二实例直接 `ValueError` |
 | `SET_ALL`、数据类型常量、`CLONE_DELETE_*` | ✅ | `SET_ALL=0` 构建时与 `APIDefines.h` 校验 |
-| `XS_*`、`SS_*` 常量 | 🟨 | 只写死一小部分，不是完整枚举 |
+| `XS_*`、`SS_*` 常量 | ✅ | 覆盖原生 `XSEC_CRV_TYPE`、`SUBSURF_TYPE`；构建前对照 `APIDefines.h`，计数哨兵不是可创建的类型 |
 | `AddGeom`、`DeleteGeom`、`Update`、`FindGeoms`、`FindGeom` | ✅ | `DeleteGeom` 支持三种克隆策略；`Update` 参数被忽略，始终完整更新 |
 | `FindGeoms`、`FindGeom`、`GetGeomName`、`GetGeomTypeName` | ✅ | 直接读引擎线程，改名后同一段脚本内即可见 |
 | `GetGeomParent`、`GetGeomChildren`、`SetGeomName` | ✅ | 顶层父级是 `'NONE'`；自命名（Clone 等）拒绝改名 |
 | `GetGeomParmIDs` | ✅ | |
-| `GetParmVal`、`SetParmVal` | ✅ | `GetParmVal` 支持单参数重载；`SetParmVal` 不触发更新 |
+| `GetParmVal`、`SetParmVal` | ✅ | `GetParmVal` 支持单参数重载；`SetParmVal` 只支持四参数形式且不触发更新，按 ID 设置用 `SetParmValByID` |
 | `GetParmInfo`、`GetParmInfoByName`、`GetParmValByID`、`SetParmValByID` | ✅ | `GetParmInfo` 另含 `active`、`lower`、`upper`、`groupName` |
 | `GetParmType`、`GetParmLowerLimit`/`UpperLimit`、`GetParmActiveFlag` | ✅ | 限制为 `None` 表示无界 |
 | `FindParm`、`GetParmName`、`GetParmGroupName`、`GetParmDisplayGroupName` | ✅ | `FindParm`/`GetParmVal` 用内部组名；显示组名见 `GetParmDisplayGroupName` |
@@ -128,7 +145,8 @@ WebVSP 自己编写的 Python 文件在 `python/` 顶层：`openvsp_live.py`（�
 | `convert_vec3d_array_to_list_matrix`、`convert_double_tuple_to_list_matrix` | ✅ | 纯转换 |
 | `get_wing_reference_quantities` | 🟨 | 依赖的 `FindGeom`/`GetParmVal` 已测；函数本身未在控制台单独运行 |
 | `get_propeller_thrust_vectors`、`get_single_propeller_info` | 🟨 | 需要含 Prop 的 DegenGeom，未在浏览器专门验证 |
-| `plot_propeller_info`、`set_3d_axis_equal`、`run_degen_geom`、`genX3d`、`export_airfoils` | ❌ | matplotlib，或需要 `GetSetIndex`/`ClearVSPModel`/`ReadVSPFile`/`ExportFile` |
+| `plot_propeller_info`、`set_3d_axis_equal` | ❌ | 需要 matplotlib |
+| `run_degen_geom`、`genX3d`、`export_airfoils` | 🟨 | 部分依赖的文件/集合 API 已桥接，但上游 helper 的文件系统和其余依赖尚未完整验证，不能视为可用 |
 
 ### `utilities` 包
 
@@ -206,16 +224,24 @@ vsp.GetDoubleResults(root, 'Total_Wet_Vol')
   需要恢复时自行清理：
 
   ```python
-  mesh = [g for g in vsp.FindGeoms() if vsp.GetGeomTypeName(g) == 'Mesh']
-  for g in mesh: vsp.DeleteGeom(g)              # 只删本次新增的 Mesh
-  vsp.SetSetFlag(wing_id, vsp.SET_SHOWN, True)  # 恢复显示
+  # 必须在 ExecAnalysis('CompGeom') 之前记录；原有 Mesh 不应被删除。
+  before = set(vsp.FindGeoms())
+  shown = {g: vsp.GetSetFlag(g, vsp.SET_SHOWN) for g in before}
+  root = vsp.ExecAnalysis('CompGeom')
+  created = set(vsp.FindGeoms()) - before
+  for g in created:
+      if vsp.GetGeomTypeName(g) == 'Mesh':
+          vsp.DeleteGeom(g)  # 仅在确认需要清理后删除本次新增的 Mesh
+  for g, was_shown in shown.items():
+      vsp.SetSetFlag(g, vsp.SET_SHOWN, was_shown)
+  # 活动几何也会改变，此示例不恢复选择状态。
   ```
 
 - 大模型上 CompGeom 可能较慢（布尔/求交），仍受同步桥 60 秒与无取消约束。
 
 ### 分析扩展（MassProp）
 
-分析白名单从写死的两个名字扩展为 `DegenGeom`、`SurfacePatches`、`MassProp`：
+目前支持 `DegenGeom`、`SurfacePatches`、`MassProp` 和 `CompGeom`：
 
 ```python
 vsp.ListAnalysis()                     # 引擎知道的全部分析名
@@ -296,20 +322,21 @@ vsp.DeleteAllResults()                      # 清空
 
 **工作区**（控制台标题栏下方一行）：
 
-- **选择文件夹**：`showDirectoryPicker` 递归读取（≤200 个文件、≤64 MiB、深度 8），写入 `/work` 并逐个
-  绑定文件句柄；之后 OpenVSP/Python 对这些文件的写入由现有 watcher 自动回写磁盘。
-- **添加文件**：没有目录选择器的浏览器（或只想加几个文件）用多选文件；同样进入 `/work`。它只**暂存**文件，
-  不会替换当前模型；要载入模型请运行 `vsp.ReadVSPFile('文件名')`，或继续用顶栏 **File → Open**。
-- **同步**：把 Python 新建、尚未绑定的文件写回文件夹；没有文件夹或只读权限时退回下载。
-- 只读权限、超限、取消都会在状态行提示；挂载后外部对文件夹的修改不会被监听，重新挂载即可。
-- 控制台每次运行结束会自动同步已挂载的文件夹。
+- **选择文件夹**：递归读取并绑定文件（最多 200 个文件、64 MiB、深度 8）；超限时提示部分文件未载入。
+  被绑定文件的引擎写入由 watcher 回写磁盘。
+- **添加文件**：暂存到 `/work`，不会自动载入模型；用 `vsp.ReadVSPFile('文件名')` 载入。
+- **同步**：将尚未绑定的文件写回所选文件夹；无文件夹或只读时使用下载。控制台运行结束后也会自动同步。
+- 该功能面向单用户、单文件夹使用，不隔离多工作区或检测其他程序的并发修改；切换文件夹不会清空 `/work`。
+  写入可能覆盖同名文件，建议重要模型留备份。未关联磁盘的内存文件在刷新或崩溃后丢失。
+- 也可用 `import webvsp_files` 后执行 `await webvsp_files.save_from_engine('/work/文件名')` 显式导出；
+  已链接文件可能直接写回，未链接文件可能弹保存选择器或回退下载，请确认实际保存。
 
 **边界**：路径是引擎 MEMFS 路径而非宿主机路径，选择器/下载必须由页面发起，所以 Python 侧不能用相对路径
 之外的任意磁盘路径；`ExportFile` 的 `thin_set`/`use_mode`/`modeID` 等高级参数不支持；导出、导入与保存的
 大文件仍受浏览器内存与 WASM 内存上限约束。
 
-**测试**：`python3 scripts/test-live-files.py`（路径与参数规则）、
-`node scripts/file-io-browser-check.mjs`（真实浏览器：读/写/导出/导入/改名/清空 + 同步）。
+**测试**：`python3 scripts/test-live-files.py` 覆盖路径与参数规则；`node scripts/file-io-browser-check.mjs`
+覆盖真实浏览器中的文件 API 与同步。
 
 ### 未桥接接口的堵点与影响
 
@@ -318,9 +345,9 @@ vsp.DeleteAllResults()                      # 清空
 - **`GetGeomType(id)`**：**原生 API 里没有这个函数**，只有 `GetGeomTypes()`（类型名列表）和
   `GetGeomTypeName(id)`（已支持）。所以它不是缺口，不应为“补齐”去臆造一个数字类型码。
 - **`SetDoubleAnalysisInput`、`SetStringAnalysisInput` 与其它分析**：门面里没有这两个函数（调用即
-  `AttributeError`）；引擎的分析 op 也把分析名限定为 `DegenGeom`/`SurfacePatches`，其它名字返回
-  `Unknown analysis`，int 输入只认四个固定名字。这是**策略性白名单**，不是缺少一个 setter：
-  `CompGeom`/CFD/FEA/VSPAERO 系列会按 vehicle 导出设置写文件（浏览器只有 MEMFS，写出来也拿不到）；
+  `AttributeError`）；引擎的分析 op 仅允许 `DegenGeom`、`SurfacePatches`、`MassProp`、`CompGeom`，其它名字返回
+  `Unknown analysis`。int 输入按分析声明的类型校验。这是**策略性白名单**，不是缺少一个 setter：
+  CFD/FEA/VSPAERO 等可能按 vehicle 导出设置写文件；
   `VSPAEROSinglePoint` 还会启动求解器（页面 worker，异步，`ExecAnalysis` 立即返回）；`ParasiteDrag`
   需要 string + 多个 double 输入，并且会写 CSV、改导出路径；大模型上的时长也可能超过同步桥 60 秒上限。
   真要支持需按分析逐项定义：允许的输入类型与名字、文件输出策略（禁写或重定向到 MEMFS 并清理）、超时/
@@ -333,7 +360,7 @@ vsp.DeleteAllResults()                      # 清空
 2. 缺引擎操作：每个 API 需要 `engine.cpp` 的 op + `syncProbe.ts` 路由。
 3. 桌面进程：Pyodide 无进程，VSPAERO 由页面 worker 承担，不经 Python。
 4. 文件边界：浏览器选择器与虚拟 FS 不能替代桌面任意路径读写。
-5. 分析白名单与副作用：只开放两种分析，且强制全模型、不写文件、不应用 mode。
+5. 分析白名单与副作用：只开放四种分析；集合、文件输出和 mode 策略按分析区分。
 6. 绘图/重依赖未打包：matplotlib、pandas、f90nml、fortranformat 等。
 7. 上游自身缺陷：`files.RunManager` 的 `collections.Iterable`、`atmosphere` 整数 dtype 截断与 0 m 求根越界；保持源码原样，只记录不修改。
 8. 实验路径主动禁用：递归结果树无法证明有界且无损。
@@ -348,15 +375,17 @@ vsp.DeleteAllResults()                      # 清空
 | 批量快照 | `python3 scripts/test-live-result-batch.py` |
 | 结果管理 | `python3 scripts/test-live-results.py` |
 | 参数元数据 | `python3 scripts/test-live-params.py` |
-| 几何层级/改名 | `python3 scripts/test-live-geometry.py` |
+| 几何层级/改名、原生 XS/SS 枚举对照 | `python3 scripts/test-live-geometry.py` |
 | 分析发现 | `python3 scripts/test-live-analysis.py` |
 | 文件 API 路径/参数 | `python3 scripts/test-live-files.py` |
 | 上游模块数值 | `python3 scripts/test-native-atmosphere.py`、`test-native-uberlogging.py`、`test-native-wt-util.py` |
 | 源码一致性 | `node scripts/check-native-modules.mjs` |
-| 真实浏览器（先构建并启动预览） | `console-smoke.mjs`、`live-analysis-smoke.mjs`、`scipy-console-browser-check.mjs`、`delete-clone-browser-check.mjs`、`live-binary-browser-check.mjs`、`file-io-browser-check.mjs`、`results-browser-check.mjs`、`params-browser-check.mjs`、`geometry-browser-check.mjs`、`analysis-browser-check.mjs`、`compgeom-browser-check.mjs` |
+| 真实浏览器（先构建并启动预览） | `console-smoke.mjs`、`live-analysis-smoke.mjs`、`scipy-console-browser-check.mjs`、`delete-clone-browser-check.mjs`、`live-binary-browser-check.mjs`、`results-browser-check.mjs`、`params-browser-check.mjs`、`geometry-browser-check.mjs`、`analysis-browser-check.mjs`、`compgeom-browser-check.mjs` |
 
-浏览器脚本需要 `CHROMIUM_PATH` 与 `WEBVSP_URL`（默认 `http://127.0.0.1:4173/`）。`?dualWasmProbe=1`
-只注册测试入口 `__runPython`；产品入口是顶栏 **Python Console** 按钮。
+上表浏览器脚本需要 `CHROMIUM_PATH` 与 `WEBVSP_URL`（默认 `http://127.0.0.1:4173/`）。
+`src/dualWasmProbe/xsec-subsurf-wasm-check.mjs` 使用 `WEBVSP_TEST_CHROMIUM` 和 `WEBVSP_TEST_PAGE`，
+须指向隔离测试页面及匹配的 WASM；它覆盖原生类型、错误及 Python 控制台桥接。
+`?dualWasmProbe=1` 只注册测试入口 `__runPython`；产品入口是顶栏 **Python Console** 按钮。
 
 测试证据窄于“完整包兼容”：模块安装成功不代表其中每个函数都在浏览器验证过，未标 ✅ 的接口按“可能失败”对待。
 

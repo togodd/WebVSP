@@ -207,22 +207,25 @@ async function run(mode: 'script' | 'console', script?: string): Promise<unknown
         if (op === 'live_xsecs') return live('liveXSecs', text('xsec_surf_id'))
         if (op === 'live_xsec_shape') return live('liveXSecShape', text('xsec_id'))
         if (op === 'live_xsec_parm_ids') return live('liveXSecParmIDs', text('xsec_id'))
+        const int32 = (key: string, fallback?: number): number => {
+          const value = args[key] === undefined ? fallback : args[key]
+          if (typeof value !== 'number' || !Number.isInteger(value) || value < -0x80000000 || value > 0x7fffffff) {
+            throw new WasmEngineError(400, `Invalid ${key}`, 'not_written')
+          }
+          return value
+        }
         if (op === 'live_insert_xsec') {
-          if (typeof args.index !== 'number' || typeof args.shape !== 'number') throw new WasmEngineError(400, 'Invalid XSec index or shape', 'not_written')
-          return live('liveInsertXSec', text('geom_id'), String(args.shape), args.index)
+          return live('liveInsertXSec', text('geom_id'), String(int32('shape')), int32('index'))
         }
         if (op === 'live_delete_xsec') {
-          if (typeof args.index !== 'number') throw new WasmEngineError(400, 'Invalid XSec index', 'not_written')
-          return live('liveDeleteXSec', text('xsec_surf_id'), '', args.index)
+          return live('liveDeleteXSec', text('xsec_surf_id'), '', int32('index'))
         }
         if (op === 'live_change_xsec_shape') {
-          if (typeof args.shape !== 'number') throw new WasmEngineError(400, 'Invalid XSec shape', 'not_written')
-          return live('liveChangeXSecShape', text('xsec_id'), String(args.shape))
+          return live('liveChangeXSecShape', text('xsec_id'), String(int32('shape')))
         }
         if (op === 'live_sub_surfs') return live('liveSubSurfs', text('geom_id'))
         if (op === 'live_add_sub_surf') {
-          if (typeof args.type !== 'number') throw new WasmEngineError(400, 'Invalid subsurface type', 'not_written')
-          return live('liveAddSubSurf', text('geom_id'), String(args.type), Number(args.surf_index ?? 0))
+          return live('liveAddSubSurf', text('geom_id'), String(int32('type')), int32('surf_index', 0))
         }
         if (op === 'live_delete_sub_surf') return live('liveDeleteSubSurf', text('geom_id'), text('sub_id'))
         if (op === 'live_num_sets') return live('liveNumSets')

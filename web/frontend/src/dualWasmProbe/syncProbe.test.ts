@@ -69,6 +69,33 @@ describe('live write bridge', () => {
     expect(engine.call).not.toHaveBeenCalled()
     worker.onmessage({ data: { type: 'done', value: 'null' } } as MessageEvent)
   })
+  it('validates XSec and subsurface integer arguments before dispatch', async () => {
+    void runSyncScript('')
+    const worker = FakeWorker.instance
+    engine.call.mockResolvedValue(null)
+    const cases: [string, Record<string, unknown>, string][] = [
+      ['live_insert_xsec', { geom_id: 'g', index: 0, shape: 1 }, 'index'],
+      ['live_insert_xsec', { geom_id: 'g', index: 0, shape: 1 }, 'shape'],
+      ['live_delete_xsec', { xsec_surf_id: 'g', index: 0 }, 'index'],
+      ['live_change_xsec_shape', { xsec_id: 'x', shape: 1 }, 'shape'],
+      ['live_add_sub_surf', { geom_id: 'g', type: 1, surf_index: 0 }, 'type'],
+      ['live_add_sub_surf', { geom_id: 'g', type: 1, surf_index: 0 }, 'surf_index'],
+    ]
+    for (const [op, args, key] of cases) {
+      for (const value of [1.5, 1e21, -2147483649, 2147483648, '1', null, true]) {
+        expect((await worker.request(op, { ...args, [key]: value })).error.outcome).toBe('not_written')
+      }
+    }
+    expect(engine.call).not.toHaveBeenCalled()
+    for (const [op, args, key] of cases) {
+      for (const value of [-2147483648, 2147483647]) {
+        expect((await worker.request(op, { ...args, [key]: value })).ok).toBe(true)
+      }
+    }
+    expect((await worker.request('live_add_sub_surf', { geom_id: 'g', type: 1 })).ok).toBe(true)
+    expect(engine.call).toHaveBeenLastCalledWith('liveAddSubSurf', 'g', '1', 0)
+    worker.onmessage({ data: { type: 'done', value: 'null' } } as MessageEvent)
+  })
   it('refuses a later write after a timed-out request is abandoned', async () => {
     void runSyncScript('')
     const worker = FakeWorker.instance

@@ -3061,47 +3061,103 @@ void RunImpl( const Job &j )
     {
         vector< string > out;
         const int n = vsp::GetNumXSecSurfs( j.a );
-        for ( int i = 0; i < n; ++i ) out.push_back( vsp::GetXSecSurf( j.a, i ) );
+        string err = TakeParmErrors( true );
+        if ( !err.empty() ) return Result( j.id, err, "" );
+        for ( int i = 0; i < n; ++i )
+        {
+            string id = vsp::GetXSecSurf( j.a, i );
+            err = TakeParmErrors( true );
+            if ( !err.empty() ) return Result( j.id, err, "" );
+            out.push_back( id );
+        }
         return Result( j.id, "", LiveStringArray( out ) );
     }
     if ( j.op == "liveXSecs" )
     {
         vector< string > out;
         const int n = vsp::GetNumXSec( j.a );
-        for ( int i = 0; i < n; ++i ) out.push_back( vsp::GetXSec( j.a, i ) );
+        string err = TakeParmErrors( true );
+        if ( !err.empty() ) return Result( j.id, err, "" );
+        for ( int i = 0; i < n; ++i )
+        {
+            string id = vsp::GetXSec( j.a, i );
+            err = TakeParmErrors( true );
+            if ( !err.empty() ) return Result( j.id, err, "" );
+            out.push_back( id );
+        }
         return Result( j.id, "", LiveStringArray( out ) );
     }
     if ( j.op == "liveXSecShape" )
-        return Result( j.id, "", std::to_string( vsp::GetXSecShape( j.a ) ) );
+    {
+        const int shape = vsp::GetXSecShape( j.a );
+        const string err = TakeParmErrors( true );
+        return Result( j.id, err, std::to_string( shape ) );
+    }
     if ( j.op == "liveXSecParmIDs" )
-        return Result( j.id, "", LiveStringArray( vsp::GetXSecParmIDs( j.a ) ) );
+    {
+        const auto ids = vsp::GetXSecParmIDs( j.a );
+        const string err = TakeParmErrors( true );
+        return Result( j.id, err, LiveStringArray( ids ) );
+    }
+    // Check both transport representations before converting or calling OpenVSP.
+    // stoi alone accepts prefixes such as "1.5" and "1e3".
+    const auto live_int_value = []( double value ) {
+        return std::isfinite( value ) && std::trunc( value ) == value &&
+               value >= std::numeric_limits< int >::min() && value <= std::numeric_limits< int >::max();
+    };
+    const auto live_int_text = []( const string &text, int &value ) {
+        size_t i = 0;
+        if ( !text.empty() && ( text[0] == '-' || text[0] == '+' ) ) i = 1;
+        if ( i == text.size() ) return false;
+        for ( ; i < text.size(); ++i ) if ( text[i] < '0' || text[i] > '9' ) return false;
+        try { value = std::stoi( text ); return true; } catch ( ... ) { return false; }
+    };
     if ( j.op == "liveInsertXSec" )
     {
-        vsp::InsertXSec( j.a, static_cast< int >( j.value ), std::stoi( j.b ) );
-        return Result( j.id, "", "null" );
+        int shape;
+        if ( !live_int_value( j.value ) || !live_int_text( j.b, shape ) ) return Result( j.id, "Invalid XSec index or shape", "" );
+        vsp::InsertXSec( j.a, static_cast< int >( j.value ), shape );
+        return Result( j.id, TakeParmErrors( true ), "null" );
     }
     if ( j.op == "liveDeleteXSec" )
     {
+        if ( !live_int_value( j.value ) ) return Result( j.id, "Invalid XSec index", "" );
         vsp::CutXSec( j.a, static_cast< int >( j.value ) );
-        return Result( j.id, "", "null" );
+        return Result( j.id, TakeParmErrors( true ), "null" );
     }
     if ( j.op == "liveChangeXSecShape" )
     {
-        vsp::ChangeXSecShapeByID( j.a, std::stoi( j.b ) );
-        return Result( j.id, "", "null" );
+        int shape;
+        if ( !live_int_text( j.b, shape ) ) return Result( j.id, "Invalid XSec shape", "" );
+        vsp::ChangeXSecShapeByID( j.a, shape );
+        return Result( j.id, TakeParmErrors( true ), "null" );
     }
     if ( j.op == "liveSubSurfs" )
-        return Result( j.id, "", LiveStringArray( vsp::GetSubSurfIDVec( j.a ) ) );
+    {
+        const auto ids = vsp::GetSubSurfIDVec( j.a );
+        const string err = TakeParmErrors( true );
+        return Result( j.id, err, LiveStringArray( ids ) );
+    }
+    if ( j.op == "liveSubSurfType" )
+    {
+        const int type = vsp::GetSubSurfType( j.a );
+        const string err = TakeParmErrors( true );
+        return Result( j.id, err, std::to_string( type ) );
+    }
     if ( j.op == "liveAddSubSurf" )
     {
-        const string id = vsp::AddSubSurf( j.a, std::stoi( j.b ), static_cast< int >( j.value ) );
+        int type;
+        if ( !live_int_value( j.value ) || !live_int_text( j.b, type ) ) return Result( j.id, "Invalid subsurface type or index", "" );
+        const string id = vsp::AddSubSurf( j.a, type, static_cast< int >( j.value ) );
+        const string err = TakeParmErrors( true );
+        if ( !err.empty() ) return Result( j.id, err, "" );
         if ( id.empty() ) return Result( j.id, "Could not add subsurface", "" );
         return Result( j.id, "", Quote( id ) );
     }
     if ( j.op == "liveDeleteSubSurf" )
     {
-        vsp::DeleteSubSurf( j.b );
-        return Result( j.id, "", "null" );
+        vsp::DeleteSubSurf( j.a, j.b );
+        return Result( j.id, TakeParmErrors( true ), "null" );
     }
     if ( j.op == "liveNumSets" )
         return Result( j.id, "", std::to_string( vsp::GetNumSets() ) );
