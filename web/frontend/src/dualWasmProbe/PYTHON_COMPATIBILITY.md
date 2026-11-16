@@ -13,9 +13,9 @@
 | 🚫 存在但已禁用 | 函数存在，但桥接层固定拒绝，调用必然失败 |
 | ❌ 未实现 | 门面/引擎里没有对应实现，调用是 `AttributeError` 或 `NameError` |
 
-“验证”指本仓库脚本：`console-smoke.mjs`、`p1-live-smoke.mjs`、`live-binary-browser-check.mjs`、
+“验证”指本仓库脚本：`console-smoke.mjs`、`live-analysis-smoke.mjs`、`live-binary-browser-check.mjs`、
 `scipy-console-browser-check.mjs`、`delete-clone-browser-check.mjs`、`test-live-*.py`、
-`test-native-*.py`、`test-p1-snapshot.py`。
+`test-native-*.py`。
 
 ---
 

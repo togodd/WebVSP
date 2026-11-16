@@ -1,15 +1,12 @@
 # 浏览器内 Python：在线控制台与隔离分析
 
-本目录只保留两条能在页面上使用的 Python 路径：
+本目录只保留一条能在页面上使用的 Python 路径：**Python 控制台（live）**，包括 `Python Console`、
+`window.__runPython` 和脚本模式。Python 运行在持久 Pyodide worker 中，`openvsp` 调用经同步桥交给页面的
+OpenVSP 引擎线程，直接读写**当前页面模型**。
 
-1. **Python 控制台（live）**：`Python Console`、`window.__runPython`、脚本模式。Python 运行在一个持久
-   Pyodide worker 中，`openvsp` 调用经同步桥交给页面的 OpenVSP 引擎线程，直接读写**当前页面模型**。
-2. **隔离的当前模型分析（P1）**：页面顶栏的 **Geometry analysis** 按钮。它把当前模型序列化成文本，
-   在一次性 WASM 实例 + 一次性 Pyodide worker 中运行原始 `DegenGeom`/`SurfacePatches` 助手，页面模型
-   不会被交给分析。
-
-早期用于验证桥接、异步绑定和受限只读门面的固定诊断（`__runDualWasmProbe`、`__runSyncWasmProbe`、
-`__runSyncModelingProbe` 及其脚本）已删除；结论保留在
+原先的隔离分析窗口（顶栏 **Geometry analysis / 几何分析**）以及配套的一次性 WASM/Pyodide 分析链已删除；
+它曾把当前模型序列化后在一次性实例里跑 `DegenGeom`/`SurfacePatches`。同样的分析现在只能在控制台里运行
+（会占用引擎线程，见下文限制）。早期用于验证桥接的固定诊断也已删除，结论保留在
 [PYTHON_PACKAGE_AUDIT.md](PYTHON_PACKAGE_AUDIT.md)、[PYTHON_PACKAGE_SAMPLING.md](PYTHON_PACKAGE_SAMPLING.md)
 和 [PYTHON_COMPATIBILITY.md](PYTHON_COMPATIBILITY.md) 中。
 
@@ -27,8 +24,7 @@ python/packages/utilities/utilities/{__init__,files,units,transformations,uberlo
 [PYTHON_COMPATIBILITY.md](PYTHON_COMPATIBILITY.md)。每个文件与上游逐字节一致，`npm run dev` / `npm run build`
 前由 `scripts/check-native-modules.mjs` 按相同相对路径校验。
 
-WebVSP 自己编写的 Python 文件留在 `python/` 顶层：`openvsp_live.py`（门面）、`live_imports.py`（导入别名）、
-`p1_analysis.py` 与 `p1_smoke.py`（隔离分析）。
+WebVSP 自己编写的 Python 文件留在 `python/` 顶层：`openvsp_live.py`（门面）、`live_imports.py`（导入别名）。
 
 ## 在线控制台
 
@@ -87,29 +83,9 @@ comps = surface_patches.export_surface_patches(vsp.SET_ALL)
 在本机预览服务上实测：worker 启动后安装 SciPy 约 1.1 秒，随后首次 `import scipy` 约 1.5 秒；不使用 SciPy 的
 命令不承担这两项开销。
 
-## 隔离的当前模型分析（P1）
-
-页面顶栏的 **Geometry analysis** 打开浮动窗口：支持范围摘要、每个分析一个选项、阶段进度、结果表
-（按几何：类型、对象数、patch 数）与失败原因。同一工作也可在控制台调用
-`await window.__runP1CurrentModelProbe()`。
-
-它分析的是**当前模型的序列化副本**，在一次性实例中运行。引擎用 `EncodeXml(SET_ALL)` 编码到内存（不写文件、
-不改文件名），隔离实例把文本读入自己的新 vehicle。支持的类型：`POD`、`FUSELAGE`、`WING`、`STACK`、`BLANK`、
-`PROP`，且必须是顶层（没有 attached 父级）；其他类型在序列化前被拒绝。
-
-等价性是校验出来的：引擎对源模型做无 ID 的规范化指纹（几何树、按显示组/名索引的参数、子曲面数量），隔离实例
-解码后做同样计算，两个指纹不一致就拒绝返回结果；两次分析之间的副本也必须一致。
-
-限制：模型文本上限 4 MiB，结果快照上限 8 MiB；每次分析都会新加载 WASM 与 Pyodide，大模型需要数十秒。超出预算
-会直接失败，不会截断。峰值原生内存与 CPU 只受 1 GiB WASM 上限和宿主超时约束。
-
-`?dualWasmProbe=1` 下还有固定的 `await window.__runP1AnalysisProbe()` 诊断：它创建固定的 `WING`/`PROP`，
-**不读取当前页面模型**，用于验证快照适配器和两个原始助手；不是通用分析 API。
-
 ## 入口与测试
 
-`?dualWasmProbe=1` 只注册两个测试入口：`__runPython`（脚本模式）与 `__runP1AnalysisProbe` /
-`__runP1CurrentModelProbe`。产品入口是控制台按钮与 Geometry analysis 按钮。
+`?dualWasmProbe=1` 只注册测试入口 `__runPython`（脚本模式）。产品入口是顶栏的 **Python Console** 按钮。
 
 | 目标 | 命令（在 `web/frontend` 下） |
 | --- | --- |
@@ -118,9 +94,7 @@ comps = surface_patches.export_surface_patches(vsp.SET_ALL)
 | 二进制与字符串协议 | `python3 scripts/test-live-binary.py`、`python3 scripts/test-live-strings.py` |
 | 批量快照 | `python3 scripts/test-live-result-batch.py` |
 | 上游模块数值 | `python3 scripts/test-native-atmosphere.py`、`test-native-uberlogging.py`、`test-native-wt-util.py` |
-| P1 快照适配器 | `python3 scripts/test-p1-snapshot.py` |
 | 源码一致性 | `node scripts/check-native-modules.mjs` |
-| 真实浏览器（需已构建并启动预览） | `console-smoke.mjs`、`scipy-console-browser-check.mjs`、`delete-clone-browser-check.mjs`、`live-binary-browser-check.mjs`、`p1-live-smoke.mjs`、`p1-current-smoke.mjs` |
+| 真实浏览器（需已构建并启动预览） | `console-smoke.mjs`、`scipy-console-browser-check.mjs`、`delete-clone-browser-check.mjs`、`live-binary-browser-check.mjs`、`live-analysis-smoke.mjs` |
 
-浏览器脚本需要 `CHROMIUM_PATH` 与 `WEBVSP_URL`（默认 `http://127.0.0.1:4173/`）。CI 另外运行
-`p1-native-smoke.mjs`（见 `.github/workflows/pages.yml`）。
+浏览器脚本需要 `CHROMIUM_PATH` 与 `WEBVSP_URL`（默认 `http://127.0.0.1:4173/`）。

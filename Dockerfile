@@ -30,7 +30,6 @@ COPY TestXSec.fxs LICENSE README.md CHANGELOG.md vspIcon.png ./
 RUN --mount=type=cache,target=/root/.cache/ccache \
     /bin/bash -c 'source /emsdk/emsdk_env.sh && pwsh -NoProfile -File web/wasm/build_wasm.ps1 -Stage vsp'
 RUN test -s web/frontend/public/wasm/vsp.wasm \
-    && test -s web/frontend/public/wasm/vsp_p1_analysis.wasm \
     && test -s web/frontend/public/wasm/vspaero.wasm \
     && test -s web/frontend/public/wasm/vsploads.wasm
 

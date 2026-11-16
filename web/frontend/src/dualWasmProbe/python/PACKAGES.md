@@ -4,7 +4,7 @@
 
 - 每个文件与上游**逐字节一致**，`scripts/check-native-modules.mjs` 在 `dev`/`build` 前按相同相对路径校验。
 - 没有出现的文件就是**未提供**的，原因见 [兼容性清单](../PYTHON_COMPATIBILITY.md)。
-- 少数 WebVSP 自己编写的文件不在这个镜像里：`../openvsp_live.py`（`openvsp` 门面）、`../live_imports.py`（导入别名）、`../p1_analysis.py`、`../p1_smoke.py`（隔离分析窗口）。
+- 少数 WebVSP 自己编写的文件不在这个镜像里：`../openvsp_live.py`（`openvsp` 门面）、`../live_imports.py`（导入别名）。
 
 ## 与上游的对应关系
 
@@ -21,5 +21,3 @@
 ## 运行时如何安装
 
 `syncWorker.ts` 把镜像复制到 Pyodide 的 `/sync-live`：`openvsp/` 下写入门面 `__init__.py` 与三个上游文件，`degen_geom/`、`utilities/` 原样复制；随后执行 `live_imports.py`，把 `openvsp.surface_patches` 等规范路径与历史顶层名指向**同一个模块对象**，并导出桌面版 `openvsp` 包顶层的 `export_surface_patches`、`parse_degen_geom`、`get_wing_reference_quantities`。
-
-`p1PythonWorker.ts` 使用同一批文件，但以 `native_*` 名称装入隔离的 `/p1-probe`，因为那里的 `openvsp` 是一个只读快照门面，不是真正的包。

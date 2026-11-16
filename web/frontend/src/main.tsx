@@ -8,14 +8,9 @@ import { installBrowserReadApi } from './modeling/browserReadApi'
 
 installBrowserReadApi()
 
-// Explicitly opted-in diagnostic entry points for the browser tests in
-// web/frontend/scripts. They are fixed scripts or user Python against the page
-// model; there is no product UI here.
+// Explicitly opted-in entry point for the browser tests in web/frontend/scripts:
+// user Python against the live page model. There is no product UI here.
 if (new URLSearchParams(window.location.search).get('dualWasmProbe') === '1') {
-  void import('./dualWasmProbe/p1Probe').then(({ runP1AnalysisProbe, runP1CurrentModelProbe }) => {
-    ;(window as unknown as Record<string, unknown>).__runP1AnalysisProbe = runP1AnalysisProbe
-    ;(window as unknown as Record<string, unknown>).__runP1CurrentModelProbe = runP1CurrentModelProbe
-  })
   void import('./dualWasmProbe/syncProbe').then(({ runSyncScript }) => {
     ;(window as unknown as Record<string, unknown>).__runPython = runSyncScript
   })

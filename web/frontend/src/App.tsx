@@ -15,10 +15,8 @@ import { useStore } from './store'
 import { Viewport } from './viewport/Viewport'
 import { ResultsSaveToast } from './viewer/ResultsSaveToast'
 import { ResultsViewer } from './viewer/ResultsViewer'
-import { CurrentModelAnalysis } from './analysis/CurrentModelAnalysis'
 import { PythonConsole } from './analysis/PythonConsole'
 import { useConsole } from './analysis/consoleStore'
-import { useAnalysis } from './analysis/store'
 import { WasmToolbar } from './WasmToolbar'
 
 /** WebVSP's source, linked from the top bar. */
@@ -124,9 +122,6 @@ export default function App() {
       {/* data-ready: OpenVSP has started (tests wait for it) */}
       <div className="topbar" data-ready={connected ? '1' : '0'}>
         <MirrorMenuBar />
-        <button className="analysis-open" onClick={() => useAnalysis.getState().openWindow()} data-testid="analysis-open">
-          {t('analysis.open')}
-        </button>
         <button className="analysis-open" onClick={() => useConsole.getState().openConsole()} data-testid="console-open">
           {t('console.open')}
         </button>
@@ -147,7 +142,6 @@ export default function App() {
           <FloatingWindow key={w.id} win={w} index={i} origin={mainWin} />
         ))}
         <ResultsViewer />
-        <CurrentModelAnalysis />
         <PythonConsole />
       </div>
       <DialogHost />

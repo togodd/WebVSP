@@ -92,14 +92,9 @@ jobs:
             pwsh -NoProfile -File web/wasm/build_wasm.ps1 -Stage fltk
           fi
           pwsh -NoProfile -File web/wasm/build_wasm.ps1 -Stage vsp
-          cmake --build build/vsp-wasm --target p1_snapshot_test p1_filesystem_test
-          node build/vsp-wasm/wasm_engine/p1_snapshot_test.js
-          node web/frontend/scripts/p1-native-smoke.mjs build/vsp-wasm/wasm_engine/p1_filesystem_test.js
-          cmake --build build/vsp-wasm --target p1_xml_roundtrip_test
-          node build/vsp-wasm/wasm_engine/p1_xml_roundtrip_test.js
           ccache --show-stats
           ls -l web/frontend/public/wasm
-          for f in vsp vsp_p1_analysis vspaero vsploads; do
+          for f in vsp vspaero vsploads; do
             test -s web/frontend/public/wasm/$f.wasm || { echo "::error::$f.wasm was not built"; exit 1; }
           done
 
@@ -138,7 +133,6 @@ jobs:
         run: |
           npm ci
           npm run build
-          node scripts/p1-native-smoke.mjs public/wasm/vsp_p1_analysis.js
 
       - uses: actions/configure-pages@v5
 
