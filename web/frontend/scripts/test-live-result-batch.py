@@ -50,6 +50,26 @@ class BatchTest(unittest.TestCase):
         vsp.request = lambda *_: b'VRM1' + u(1) + u(0) + u(0)
         with self.assertRaisesRegex(Exception, 'Invalid batch result item'):
             vsp.GetResultSnapshots(['x'])
+        for malformed in (snapshot() + b'\0', b'VRO1' + text('Sample') + u(1) + text('x') + u(5),
+                          b'VRO1' + text('Sample') + u(2) + (text('x') + u(1) + vec('i', [])) * 2):
+            vsp.request = lambda *_, p=malformed: b'VRM1' + u(1) + u(0) + u(len(p)) + p
+            with self.assertRaisesRegex(vsp.OpenVSPError, 'Malformed VRO1'):
+                vsp.GetResultSnapshots(['x'])
+
+    def test_old_engine_batch_fallback_and_errors(self):
+        def request(op, raw):
+            if op == 'live_result_objects':
+                return json.dumps({'ok': False, 'error': {'message': 'unknown request: liveResultObjects'}})
+            result_id = json.loads(raw)['result_id']
+            if result_id == 'missing':
+                return json.dumps({'ok': False, 'error': {'message': 'Unknown result ID'}})
+            if result_id == 'error':
+                return json.dumps({'ok': False, 'error': {'message': 'Engine failed'}})
+            return snapshot()
+        vsp.request = request
+        self.assertEqual([x['status'] for x in vsp.GetResultSnapshots(['ok', 'missing'], fallback=True)], ['ok', 'unknown'])
+        with self.assertRaisesRegex(vsp.OpenVSPError, 'Engine failed'):
+            vsp.GetResultSnapshots(['error'], fallback=True)
 
     def test_capabilities(self):
         vsp.request = lambda op, raw: json.dumps({'ok': True, 'value': {'max_ids': 32}})
@@ -136,6 +156,8 @@ class BatchTest(unittest.TestCase):
         for n in (0, 32768):
             data = b'VRO1' + text('Sample') + u(1) + text('x') + u(1) + vec('i', [7] * n)
             self.assertEqual(len(decode(data)['values'][('x', 0, 1)]), n)
+        over_aggregate = b'VRO1' + text('Sample') + u(2) + b''.join(text(name) + u(1) + vec('i', [7] * 20000) for name in ('a', 'b'))
+        self.assertIsNone(decode(over_aggregate))
         self.assertIsNone(decode(b'VRO1' + text('Sample') + u(1) + text('x') + u(1) + u(32769)))
 
     def test_malformed_and_unsupported_snapshots(self):
@@ -156,6 +178,7 @@ class BatchTest(unittest.TestCase):
 
     def test_fallback_and_order(self):
         for batch in (json.dumps({'ok': True, 'value': None}),
+                      json.dumps({'ok': False, 'error': {'message': 'unknown request: liveResultObjects'}}),
                       json.dumps({'ok': False, 'error': {'message': 'old engine'}}),
                       b'VRO1\0', b'VRO1' + bytes(512 * 1024),
                       b'VRO1' + text('X') + u(1025),

@@ -283,14 +283,16 @@ def GetResultSnapshots(result_ids, fallback=False):
     if isinstance(raw, str):
         envelope = json.loads(raw)
         error = envelope.get('error') or {}
-        if fallback and not envelope.get('ok') and (error.get('code') == 'UNSUPPORTED_OPERATION' or error.get('message') in ('Unsupported live operation', 'Unknown operation')):
+        if fallback and not envelope.get('ok') and (error.get('code') == 'UNSUPPORTED_OPERATION' or error.get('message') in ('Unsupported live operation', 'Unknown operation', 'unknown request: liveResultObjects')):
             out = []
             for result_id in ids:
                 try:
                     entry = _batch_result_cache(result_id)
                     out.append({'id': result_id, 'status': 'ok', 'data': entry} if entry is not None else {'id': result_id, 'status': 'over_limit_or_unsupported'})
-                except OpenVSPError:
-                    out.append({'id': result_id, 'status': 'unknown_or_error'})
+                except OpenVSPError as exc:
+                    if str(exc) != 'Unknown result ID':
+                        raise
+                    out.append({'id': result_id, 'status': 'unknown'})
             return out
         raise OpenVSPError((envelope.get('error') or {}).get('message', 'Batch result read failed'))
     data = bytes(raw.to_py() if hasattr(raw, 'to_py') else raw)
@@ -511,10 +513,16 @@ def _decode_vro1(data):
             nonlocal pos
             n = number(); size = struct.calcsize(fmt)
             if n > 32768 or n > (len(data) - pos) // size: raise ValueError('invalid vector size')
+            add_items(n)
             values = list(struct.unpack_from('<%d%s' % (n, fmt), data, pos)); pos += n * size; return values
         name, count = text(), number()
         if count > 1024: raise ValueError('too many fields')
         entry = {'names': [], 'name': name, 'types': {}, 'values': {}}
+        items = 0
+        def add_items(n):
+            nonlocal items
+            if n > 32768 - items: raise ValueError('too many aggregate items')
+            items += n
         for _ in range(count):
             field, kind = text(), number()
             if field in entry['types']: return None
@@ -523,14 +531,17 @@ def _decode_vro1(data):
             elif kind == STRING_DATA:
                 n = number()
                 if n > 32768: raise ValueError('too many values')
+                add_items(n)
                 value = [text() for _ in range(n)]
             elif kind == DOUBLE_MATRIX_DATA:
                 n = number()
                 if n > 32768: raise ValueError('too many values')
+                add_items(n)
                 value = [vector('d') for _ in range(n)]
             elif kind == VEC3D_DATA:
                 n = number()
                 if n > 32768 or n > (len(data) - pos) // 24: return None
+                add_items(n)
                 value = [list(struct.unpack_from('<3d', data, pos + 24 * i)) for i in range(n)]; pos += n * 24
             else: return None
             entry['names'].append(field); entry['types'][field] = kind; entry['values'][(field, 0, kind)] = value
