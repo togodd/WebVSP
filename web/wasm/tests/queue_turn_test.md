@@ -1,0 +1,5 @@
+# Engine queue turn regression
+
+Run `python3 web/wasm/tests/queue_turn_test.py` (Python 3 and a C++14 compiler with pthreads). The test compiles the marked queue-turn implementation directly from `engine.cpp` with a fake monotonic clock and fake jobs. It checks the 32-job limit under continuous production, FIFO and eventual draining, the 8 ms budget across job boundaries, and that a slow job finishes before yielding.
+
+This is a deterministic native unit test, **not** a browser, WebAssembly, GUI, or real concurrent-producer integration test. To validate those paths, rebuild `vsp_wasm`, hard-refresh the browser, and exercise sustained concurrent requests alongside GUI interaction and model changes; confirm all request promises settle and GUI updates continue. A single job, GUI pump, or watcher can exceed the budget: there is no preemption or hard latency guarantee. Jobs are neither coalesced nor dropped; sustained arrival faster than processing can still grow the queue without bound. The pre-existing non-GUI sleep and GUI pump remain between turns, so high queue throughput may decrease.

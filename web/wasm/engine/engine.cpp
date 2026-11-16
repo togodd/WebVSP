@@ -3478,6 +3478,29 @@ void Run( const Job &j )
 
 bool g_Gui = false;
 
+// Keep each turn bounded even when producers continuously enqueue work. The clock is
+// sampled only between jobs: an individual OpenVSP operation must run to completion.
+// BEGIN queue turn implementation (also exercised by tests/queue_turn_test.py)
+template < typename Clock >
+void DrainJobTurn()
+{
+    constexpr size_t max_jobs = 32;
+    const auto deadline = Clock::now() + std::chrono::milliseconds( 8 );
+    for ( size_t count = 0; count < max_jobs; ++count )
+    {
+        if ( count && Clock::now() >= deadline ) break;
+        Job j;
+        {
+            std::lock_guard< std::mutex > lock( g_Mutex );
+            if ( g_Jobs.empty() ) break;
+            j = std::move( g_Jobs.front() );
+            g_Jobs.pop_front();
+        }
+        Run( j );
+    }
+}
+// END queue turn implementation
+
 } // namespace
 
 //==== Engine thread ====//
@@ -3514,20 +3537,9 @@ int main()
     while ( true )
     {
         // Requests first, then let the GUI process timers/events and produce its diff.
-        while ( true )
-        {
-            Job j;
-            {
-                std::lock_guard< std::mutex > lock( g_Mutex );
-                if ( g_Jobs.empty() )
-                {
-                    break;
-                }
-                j = std::move( g_Jobs.front() );
-                g_Jobs.pop_front();
-            }
-            Run( j );
-        }
+        // DrainJobTurn preserves FIFO, never abandons a queued job, and yields after a
+        // small count/time budget so GUI/watch work cannot starve under a request flood.
+        DrainJobTurn< std::chrono::steady_clock >();
         ExpireSyncResultsFixture();
         if ( g_Gui )
         {
