@@ -23,6 +23,9 @@ _RESULT_PARSE_CACHE = None
 
 SET_ALL = 0
 INT_DATA, DOUBLE_DATA, STRING_DATA, VEC3D_DATA, INT_MATRIX_DATA, DOUBLE_MATRIX_DATA = 1, 2, 3, 4, 5, 6
+# Keep in step with APIDefines.h PARM_TYPE.
+PARM_DOUBLE_TYPE, PARM_INT_TYPE, PARM_BOOL_TYPE, PARM_FRACTION_TYPE = 0, 1, 2, 3
+PARM_LIMITED_INT_TYPE, PARM_NOTEQ_TYPE, PARM_POWER_INT_TYPE = 4, 5, 6
 
 
 class OpenVSPError(RuntimeError):
@@ -38,7 +41,7 @@ _LIVE_WRITES = frozenset({
     'live_delete_xsec', 'live_change_xsec_shape', 'live_add_sub_surf', 'live_delete_sub_surf',
     'live_set_set_name', 'live_set_set_flag', 'read_file', 'write_file', 'import_file',
     'export_file', 'set_vsp_file_name', 'clear_model', 'live_delete_result',
-    'live_delete_all_results',
+    'live_delete_all_results', 'live_parm_set_update',
 })
 
 
@@ -204,8 +207,89 @@ def GetGeomParmIDs(geom_id):
     return _call('geom_parm_ids', geom_id=geom_id)
 
 
-def GetParmVal(geom_id, name, group):
-    return _call('live_parm_get', geom_id=geom_id, key=group + '\x1f' + name)
+def _parm_id_required(parm_id, label='Parameter ID'):
+    if not isinstance(parm_id, str) or not parm_id:
+        raise ValueError(label + ' is required')
+    return parm_id
+
+
+def GetParmVal(*args):
+    """Read a parameter by ID, or by geometry/name/group (native overloads)."""
+    if len(args) == 1:
+        return _call('live_parm_value_by_id', parm_id=_parm_id_required(args[0]))
+    if len(args) == 3:
+        geom_id, name, group = args
+        return _call('live_parm_get', geom_id=geom_id, key=group + '\x1f' + name)
+    raise TypeError('GetParmVal expects (parm_id) or (geom_id, name, group)')
+
+
+def GetParmType(parm_id):
+    return _call('live_parm_type', parm_id=_parm_id_required(parm_id))
+
+
+def GetParmLowerLimit(parm_id):
+    """Lower limit, or None when the parameter is unbounded."""
+    return _call('live_parm_limits', parm_id=_parm_id_required(parm_id))['lower']
+
+
+def GetParmUpperLimit(parm_id):
+    """Upper limit, or None when the parameter is unbounded."""
+    return _call('live_parm_limits', parm_id=_parm_id_required(parm_id))['upper']
+
+
+def GetParmActiveFlag(parm_id):
+    return _call('live_parm_active', parm_id=_parm_id_required(parm_id))
+
+
+def FindParm(container_id, name, group):
+    """Return the parameter ID, or '' when not found.
+
+    ``group`` is the internal group name (see ``GetParmGroupName``); the display
+    group in ``GetParmInfo`` may differ when a suffix or alias is present.
+    """
+    if not isinstance(container_id, str) or not container_id:
+        raise ValueError('A parameter container ID is required')
+    if not isinstance(name, str) or not name or not isinstance(group, str) or not group:
+        raise ValueError('A parameter name and group are required')
+    return _call('live_parm_find', container_id=container_id, key=group + '\x1f' + name)
+
+
+def GetParmName(parm_id):
+    return _call('live_parm_name', parm_id=_parm_id_required(parm_id))
+
+
+def GetParmGroupName(parm_id):
+    """Internal group name used by FindParm/GetParmVal."""
+    return _call('live_parm_group', parm_id=_parm_id_required(parm_id))
+
+
+def GetParmDisplayGroupName(parm_id):
+    """Display group name (the ``group`` field of GetParmInfo)."""
+    return _call('live_parm_display_group', parm_id=_parm_id_required(parm_id))
+
+
+def SetParmValUpdate(*args):
+    """Set a parameter and update the model (native SetParmValUpdate overloads).
+
+    Accepts ``(parm_id, value)`` or ``(geom_id, name, group, value)``. Unlike
+    ``SetParmVal``/``SetParmValByID`` this triggers an update, and unlike the
+    engine's validated page path it does not pre-check limits or the active flag.
+    """
+    if len(args) == 2:
+        parm_id, value = args
+        parm_id = _parm_id_required(parm_id)
+    elif len(args) == 4:
+        geom_id, name, group, value = args
+        parm_id = FindParm(geom_id, name, group)
+        if not parm_id:
+            raise OpenVSPError('Parameter not found: %s/%s' % (group, name))
+    else:
+        raise TypeError('SetParmValUpdate expects (parm_id, value) or (geom_id, name, group, value)')
+    try:
+        number = float(value)
+    except (TypeError, ValueError) as exc:
+        raise ValueError('Parameter value must be a number') from exc
+    return _call('live_parm_set_update', parm_id=parm_id, value=number)
 
 
 def SetParmVal(geom_id, name, group, value):

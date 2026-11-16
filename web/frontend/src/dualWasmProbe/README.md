@@ -87,8 +87,11 @@ WebVSP 自己编写的 Python 文件在 `python/` 顶层：`openvsp_live.py`（�
 | `XS_*`、`SS_*` 常量 | 🟨 | 只写死一小部分，不是完整枚举 |
 | `AddGeom`、`DeleteGeom`、`Update`、`FindGeoms`、`FindGeom` | ✅ | `DeleteGeom` 支持三种克隆策略；`Update` 参数被忽略，始终完整更新 |
 | `GetGeomName`、`GetGeomTypeName`、`GetGeomParmIDs` | ✅ | |
-| `GetParmVal(geom,name,group)`、`SetParmVal(...)` | ✅ | 不支持桌面的单参数 `GetParmVal(parm_id)` 重载 |
-| `GetParmInfo`、`GetParmInfoByName`、`GetParmValByID`、`SetParmValByID` | ✅ | |
+| `GetParmVal`、`SetParmVal` | ✅ | `GetParmVal` 支持单参数重载；`SetParmVal` 不触发更新 |
+| `GetParmInfo`、`GetParmInfoByName`、`GetParmValByID`、`SetParmValByID` | ✅ | `GetParmInfo` 另含 `active`、`lower`、`upper`、`groupName` |
+| `GetParmType`、`GetParmLowerLimit`/`UpperLimit`、`GetParmActiveFlag` | ✅ | 限制为 `None` 表示无界 |
+| `FindParm`、`GetParmName`、`GetParmGroupName`、`GetParmDisplayGroupName` | ✅ | `FindParm`/`GetParmVal` 用内部组名；显示组名见 `GetParmDisplayGroupName` |
+| `SetParmValUpdate`（两个重载） | ✅ | 触发模型更新；不做 limits/active 预检（原生语义） |
 | `GetNumXSecSurfs`、`GetXSecSurf`、`GetXSec`、`GetXSecParmIDs`、`DeleteXSec`、`ChangeXSecShape(ByID)` | 🟨 | 已桥接，未单独测试 |
 | `GetXSecSurfIDs`、`GetNumXSec`、`GetXSecIDs`、`GetXSecShape`、`InsertXSec`、`CutXSec` | ✅ | |
 | `GetNumSubSurf`、`GetSubSurf`、`DeleteSubSurf` | 🟨 | 已桥接，未单独测试 |
@@ -160,6 +163,27 @@ WebVSP 自己编写的 Python 文件在 `python/` 顶层：`openvsp_live.py`（�
 | matplotlib、pandas、f90nml、fortranformat、multiprocessing_logging、opencv、wx、VTK | ❌ 未打包 |
 | 进程（`subprocess`） | ❌ Pyodide 报 `OSError: emscripten does not support processes` |
 | 文件系统 | 🟨 Pyodide 内存 FS，与页面模型/宿主机磁盘不自动互通 |
+
+### 参数元数据
+
+```python
+pid = vsp.FindParm(w, 'TotalSpan', 'WingGeom')   # 不存在返回 ''
+vsp.GetParmType(pid) == vsp.PARM_DOUBLE_TYPE     # 0..6，常量已提供
+vsp.GetParmLowerLimit(pid), vsp.GetParmUpperLimit(pid)  # 无界时是 None
+vsp.GetParmActiveFlag(pid)
+vsp.GetParmName(pid), vsp.GetParmGroupName(pid), vsp.GetParmDisplayGroupName(pid)
+info = vsp.GetParmInfo(pid)   # 含 active/lower/upper/groupName，可一次取齐
+
+vsp.SetParmValUpdate(pid, 14.0)                  # 按 ID
+vsp.SetParmValUpdate(w, 'TotalSpan', 'WingGeom', 16.0)  # 按几何/名/组
+```
+
+- **组名有两种**：`FindParm`、`GetParmVal(geom,name,group)`、`SetParmVal` 使用**内部组名**
+  （`GetParmGroupName`）；`GetParmInfo()['group']` 是**显示组名**（`GetParmDisplayGroupName`，用于 UI）。
+  带后缀/别名的参数两者可能不同。
+- `SetParmValUpdate` 会触发模型更新，而 `SetParmVal`/`SetParmValByID` 不会；它也不做 limits/active 预检，
+  与桌面语义一致。
+- 参数读取是逐次引擎调用，不是原子快照；修改一个参数后，别的参数的 active/limits 可能随之变化。
 
 ### 结果管理
 
@@ -261,10 +285,11 @@ vsp.DeleteAllResults()                      # 清空
 | 二进制与字符串协议 | `python3 scripts/test-live-binary.py`、`python3 scripts/test-live-strings.py` |
 | 批量快照 | `python3 scripts/test-live-result-batch.py` |
 | 结果管理 | `python3 scripts/test-live-results.py` |
+| 参数元数据 | `python3 scripts/test-live-params.py` |
 | 文件 API 路径/参数 | `python3 scripts/test-live-files.py` |
 | 上游模块数值 | `python3 scripts/test-native-atmosphere.py`、`test-native-uberlogging.py`、`test-native-wt-util.py` |
 | 源码一致性 | `node scripts/check-native-modules.mjs` |
-| 真实浏览器（先构建并启动预览） | `console-smoke.mjs`、`live-analysis-smoke.mjs`、`scipy-console-browser-check.mjs`、`delete-clone-browser-check.mjs`、`live-binary-browser-check.mjs`、`file-io-browser-check.mjs`、`results-browser-check.mjs` |
+| 真实浏览器（先构建并启动预览） | `console-smoke.mjs`、`live-analysis-smoke.mjs`、`scipy-console-browser-check.mjs`、`delete-clone-browser-check.mjs`、`live-binary-browser-check.mjs`、`file-io-browser-check.mjs`、`results-browser-check.mjs`、`params-browser-check.mjs` |
 
 浏览器脚本需要 `CHROMIUM_PATH` 与 `WEBVSP_URL`（默认 `http://127.0.0.1:4173/`）。`?dualWasmProbe=1`
 只注册测试入口 `__runPython`；产品入口是顶栏 **Python Console** 按钮。

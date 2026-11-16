@@ -3092,12 +3092,66 @@ void RunImpl( const Job &j )
         if ( j.a.empty() ) return Result( j.id, "Invalid parameter ID", "" );
         Parm *p = ParmMgr.FindParm( j.a );
         if ( !p ) return Result( j.id, "Unknown parameter", "" );
+        // `group` stays the display group for compatibility; `groupName` is the
+        // internal group FindParm/GetParmVal expect.
         return Result( j.id, "", "{\"id\":" + Quote( j.a ) +
             ",\"name\":" + Quote( vsp::GetParmName( j.a ) ) +
             ",\"group\":" + Quote( vsp::GetParmDisplayGroupName( j.a ) ) +
+            ",\"groupName\":" + Quote( vsp::GetParmGroupName( j.a ) ) +
             ",\"container\":" + Quote( vsp::GetParmContainer( j.a ) ) +
             ",\"type\":" + std::to_string( vsp::GetParmType( j.a ) ) +
+            ",\"active\":" + ( vsp::GetParmActiveFlag( j.a ) ? "true" : "false" ) +
+            ",\"lower\":" + Num( vsp::GetParmLowerLimit( j.a ) ) +
+            ",\"upper\":" + Num( vsp::GetParmUpperLimit( j.a ) ) +
             ",\"value\":" + Num( vsp::GetParmVal( j.a ) ) + "}" );
+    }
+    if ( j.op == "liveParmType" )
+    {
+        if ( j.a.empty() || !ParmMgr.FindParm( j.a ) ) return Result( j.id, "Unknown parameter", "" );
+        return Result( j.id, "", std::to_string( vsp::GetParmType( j.a ) ) );
+    }
+    if ( j.op == "liveParmLimits" )
+    {
+        if ( j.a.empty() || !ParmMgr.FindParm( j.a ) ) return Result( j.id, "Unknown parameter", "" );
+        return Result( j.id, "", "{\"lower\":" + Num( vsp::GetParmLowerLimit( j.a ) ) +
+                                 ",\"upper\":" + Num( vsp::GetParmUpperLimit( j.a ) ) + "}" );
+    }
+    if ( j.op == "liveParmActive" )
+    {
+        if ( j.a.empty() || !ParmMgr.FindParm( j.a ) ) return Result( j.id, "Unknown parameter", "" );
+        return Result( j.id, "", vsp::GetParmActiveFlag( j.a ) ? "true" : "false" );
+    }
+    if ( j.op == "liveParmName" || j.op == "liveParmGroup" || j.op == "liveParmDisplayGroup" || j.op == "liveParmValueById" )
+    {
+        if ( j.a.empty() || !ParmMgr.FindParm( j.a ) ) return Result( j.id, "Unknown parameter", "" );
+        if ( j.op == "liveParmName" ) return Result( j.id, "", Quote( vsp::GetParmName( j.a ) ) );
+        if ( j.op == "liveParmGroup" ) return Result( j.id, "", Quote( vsp::GetParmGroupName( j.a ) ) );
+        if ( j.op == "liveParmDisplayGroup" ) return Result( j.id, "", Quote( vsp::GetParmDisplayGroupName( j.a ) ) );
+        const double value = vsp::GetParmVal( j.a );
+        const string readErr = TakeParmErrors( true );
+        if ( !readErr.empty() ) return Result( j.id, "GetParmVal failed: " + readErr, "" );
+        return Result( j.id, "", Num( value ) );
+    }
+    if ( j.op == "liveParmFind" )
+    {
+        // b = internal group name + \x1f + parm name (same order as liveParmGet).
+        const size_t sep = j.b.find( '\x1f' );
+        if ( j.a.empty() || sep == string::npos || sep == 0 || sep + 1 >= j.b.size() )
+            return Result( j.id, "Invalid parameter lookup", "" );
+        const string group = j.b.substr( 0, sep ), name = j.b.substr( sep + 1 );
+        const string id = vsp::FindParm( j.a, name, group );
+        TakeErrors(); // A missing parm queues a native error; report "" instead.
+        return Result( j.id, "", Quote( id ) );
+    }
+    if ( j.op == "liveParmSetUpdate" )
+    {
+        if ( j.a.empty() || !ParmMgr.FindParm( j.a ) ) return Result( j.id, "Unknown parameter", "" );
+        if ( !std::isfinite( j.value ) ) return Result( j.id, "Requested value must be finite", "" );
+        const double actual = vsp::SetParmValUpdate( j.a, j.value );
+        const string err = TakeParmErrors( true );
+        Watch( "Parameter update", true );
+        if ( !err.empty() ) return Result( j.id, "SetParmValUpdate failed: " + err, "" );
+        return Result( j.id, "", Num( actual ) );
     }
     if ( j.op == "liveParmSetById" )
     {

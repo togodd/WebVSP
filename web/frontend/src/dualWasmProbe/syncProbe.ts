@@ -17,7 +17,8 @@ const LIVE_WRITES = new Set([
   'live_add_geom', 'live_delete_geom', 'live_update', 'live_parm_set', 'live_parm_set_by_id',
   'live_analysis_defaults', 'live_analysis_set_int', 'live_analysis_run', 'live_insert_xsec',
   'live_delete_xsec', 'live_change_xsec_shape', 'live_add_sub_surf', 'live_delete_sub_surf',
-  'live_set_set_name', 'live_set_set_flag',
+  'live_set_set_name', 'live_set_set_flag', 'live_delete_result', 'live_delete_all_results',
+  'live_parm_set_update',
 ])
 // File operations also mutate the session: ReadVSPFile replaces the model and
 // WriteVSPFile renames it, so both carry write-outcome semantics.
@@ -177,6 +178,18 @@ async function run(mode: 'script' | 'console', script?: string): Promise<unknown
         }
         if (op === 'live_parm_get') {
           return live('liveParmGet', text('geom_id'), text('key'))
+        }
+        if (op === 'live_parm_value_by_id') return live('liveParmValueById', text('parm_id'))
+        if (op === 'live_parm_type') return live('liveParmType', text('parm_id'))
+        if (op === 'live_parm_limits') return live('liveParmLimits', text('parm_id'))
+        if (op === 'live_parm_active') return live('liveParmActive', text('parm_id'))
+        if (op === 'live_parm_name') return live('liveParmName', text('parm_id'))
+        if (op === 'live_parm_group') return live('liveParmGroup', text('parm_id'))
+        if (op === 'live_parm_display_group') return live('liveParmDisplayGroup', text('parm_id'))
+        if (op === 'live_parm_find') return live('liveParmFind', text('container_id'), text('key'))
+        if (op === 'live_parm_set_update') {
+          if (typeof args.value !== 'number' || !Number.isFinite(args.value)) throw new WasmEngineError(400, 'Invalid parameter value', 'not_written')
+          return live('liveParmSetUpdate', text('parm_id'), '', args.value as number)
         }
         if (op === 'live_parm_set') {
           if (typeof args.value !== 'number' || !Number.isFinite(args.value)) throw new WasmEngineError(400, 'Invalid parameter value', 'not_written')
