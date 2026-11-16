@@ -11,6 +11,18 @@ import openvsp_live as vsp
 
 
 class LiveErrorsTest(unittest.TestCase):
+    def test_delete_clone_policy_is_forwarded(self):
+        calls = []
+        def request(op, payload):
+            calls.append((op, json.loads(payload)))
+            return json.dumps({'ok': True, 'value': None})
+        vsp.request = request
+        vsp.DeleteGeom('g')
+        for policy in (vsp.CLONE_DELETE_LEAVE_EMPTY, vsp.CLONE_DELETE_WITH_ORIGINAL, vsp.CLONE_DELETE_REPLACE, 99):
+            vsp.DeleteGeom('g', policy)
+        self.assertEqual([args['clone_delete'] for _, args in calls], [0, 0, 1, 2, 99])
+        self.assertTrue(all(op == 'live_delete_geom' for op, _ in calls))
+
     def test_propagates_engine_error_metadata(self):
         vsp.request = lambda *_: json.dumps({'ok': False, 'error': {'message': 'rejected', 'outcome': 'not_written', 'actual': 2, 'code': 'GUARD'}})
         with self.assertRaises(vsp.OpenVSPError) as caught:

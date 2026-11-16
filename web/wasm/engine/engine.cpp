@@ -24,7 +24,7 @@
 //     modelDiscovery is an unguarded internal snapshot that reports serializer errors.
 //   mesh(a=geom id)                     binary "VSPM" mesh (format: web/frontend/src/api/mesh.ts)
 //   addGeom(a=type, b=parent)           {"id":...}
-//   deleteGeoms(a=comma-separated ids)
+//   deleteGeoms(a=comma-separated ids), liveDeleteGeom(a=geom id, value=clone delete policy)
 //   guardedSetGeomName(a=geom id, b=name), guardedDeleteGeom(a=geom id)
 //   setParm(a=parm id, value)           legacy unscoped write
 //   geomSetParm(a=geom id, b=parm id, value), xsecSetParm(a=xsec id, b=parm id, value)
@@ -3183,6 +3183,25 @@ void RunImpl( const Job &j )
         if ( j.guarded && ( errors.had_errors || id.empty() ) )
             return ParmWriteFailure( j.id, err.empty() ? "AddGeom returned an empty id" : err, "unknown", "null" );
         return Result( j.id, err, "{\"id\":" + Quote( id ) + "}" );
+    }
+    if ( j.op == "liveDeleteGeom" )
+    {
+        // Validate on the model thread too: callers can invoke the engine directly.
+        if ( !std::isfinite( j.value ) || std::floor( j.value ) != j.value ||
+             j.value < 0 || j.value >= vsp::CLONE_DELETE_NUM_TYPES )
+            return ParmWriteFailure( j.id, "Invalid clone_delete", "not_written", "null" );
+        string err;
+        if ( !CurrentModelGeom( j.a, err, nullptr, true ) )
+            return ParmWriteFailure( j.id, err, "not_written", "null" );
+        if ( !BeginGuardedWrite() ) return;
+        vsp::DeleteGeom( j.a, static_cast<int>( j.value ) );
+        DrainedErrors errors = TakeWriteErrors();
+        vsp::Update();
+        DrainedErrors update_errors = TakeWriteErrors();
+        Watch( "Delete", true );
+        if ( errors.had_errors || update_errors.had_errors )
+            return ParmWriteFailure( j.id, errors.had_errors ? errors.message : update_errors.message, "unknown", "null" );
+        return Result( j.id, "", "null" );
     }
     if ( j.op == "deleteGeoms" )
     {

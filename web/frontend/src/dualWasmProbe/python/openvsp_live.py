@@ -77,8 +77,12 @@ def AddGeom(type, parent=''):
     return _call('live_add_geom', type=type, parent=parent)
 
 
-def DeleteGeom(geom_id, clone_delete=1):
-    return _call('live_delete_geom', geom_id=geom_id)
+CLONE_DELETE_LEAVE_EMPTY, CLONE_DELETE_WITH_ORIGINAL, CLONE_DELETE_REPLACE = 0, 1, 2
+CLONE_DELETE_NUM_TYPES = 3
+
+
+def DeleteGeom(geom_id, clone_delete=CLONE_DELETE_LEAVE_EMPTY):
+    return _call('live_delete_geom', geom_id=geom_id, clone_delete=clone_delete)
 
 
 def Update(update_managers=True):

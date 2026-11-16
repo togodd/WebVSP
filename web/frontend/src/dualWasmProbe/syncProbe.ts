@@ -247,7 +247,11 @@ async function run(mode: 'read' | 'modeling' | 'script' | 'console', script?: st
           return id
         }
         if (op === 'live_delete_geom') {
-          await live('deleteGeoms', text('geom_id'))
+          const id = text('geom_id')
+          const policy = args.clone_delete
+          if (typeof policy !== 'number' || !Number.isInteger(policy) || policy < 0 || policy > 2)
+            throw new WasmEngineError(400, 'Invalid clone_delete', 'not_written')
+          await live('liveDeleteGeom', id, '', policy)
           return null
         }
         if (op === 'live_update') {

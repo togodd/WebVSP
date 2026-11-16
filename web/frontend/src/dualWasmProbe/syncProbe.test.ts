@@ -53,6 +53,22 @@ describe('live write bridge', () => {
     expect((await worker.request('live_parm_set', { geom_id: 'g', key: 'k', value: 1 })).error).toMatchObject({ outcome: 'not_written', actual: 4, code: 'GUARD' })
     worker.onmessage({ data: { type: 'done', value: 'null' } } as MessageEvent)
   })
+  it('forwards only valid clone deletion policies without dispatching invalid ones', async () => {
+    void runSyncScript('')
+    const worker = FakeWorker.instance
+    engine.call.mockResolvedValue(null)
+    for (const policy of [0, 1, 2]) {
+      expect((await worker.request('live_delete_geom', { geom_id: 'g', clone_delete: policy })).ok).toBe(true)
+      expect(engine.call).toHaveBeenLastCalledWith('liveDeleteGeom', 'g', '', policy)
+    }
+    engine.call.mockClear()
+    for (const policy of [-1, 3, 1.5, '1', null, true]) {
+      expect((await worker.request('live_delete_geom', { geom_id: 'g', clone_delete: policy })).error.outcome).toBe('not_written')
+    }
+    expect((await worker.request('live_delete_geom', { geom_id: 'g' })).error.outcome).toBe('not_written')
+    expect(engine.call).not.toHaveBeenCalled()
+    worker.onmessage({ data: { type: 'done', value: 'null' } } as MessageEvent)
+  })
   it('refuses a later write after a timed-out request is abandoned', async () => {
     void runSyncScript('')
     const worker = FakeWorker.instance
