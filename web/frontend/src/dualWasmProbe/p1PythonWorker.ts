@@ -20,7 +20,10 @@ scope.onmessage = ({ data }: MessageEvent<{ base: string; model: string; snapsho
   if (started) return // A disposable worker accepts at most one request.
   started = true
   void (async () => {
-    if (!['WING', 'PROP', 'MODEL'].includes(data.model) || typeof data.snapshots?.DegenGeom !== 'string' || typeof data.snapshots?.SurfacePatches !== 'string') throw new Error('Invalid P1 Python diagnostic input')
+    if (!['WING', 'PROP', 'MODEL'].includes(data.model) ||
+        !data.snapshots || typeof data.snapshots !== 'object' ||
+        !Object.keys(data.snapshots).length ||
+        Object.entries(data.snapshots).some(([name, raw]) => !['DegenGeom', 'SurfacePatches'].includes(name) || typeof raw !== 'string')) throw new Error('Invalid P1 Python diagnostic input')
     const base = new URL('pyodide/', data.base).href
     const { loadPyodide } = await import(/* @vite-ignore */ new URL('pyodide.mjs', base).href) as { loadPyodide: (options: { indexURL: string }) => Promise<PyodideInterface> }
     const pyodide = await loadPyodide({ indexURL: base })
@@ -28,7 +31,7 @@ scope.onmessage = ({ data }: MessageEvent<{ base: string; model: string; snapsho
     pyodide.registerJsModule('sync_bridge', { request: () => { throw new Error('P1 isolated diagnostic cannot access the page engine') } })
     pyodide.registerJsModule('p1_snapshot', { get_snapshot: (analysis: string) => {
       if (analysis !== 'DegenGeom' && analysis !== 'SurfacePatches') throw new Error('Unsupported isolated analysis')
-      return data.snapshots[analysis]
+      return data.snapshots[analysis] ?? ''
     } })
     for (const dir of ['/p1-probe', '/p1-probe/utilities', '/p1-probe/degen_geom']) pyodide.FS.mkdirTree(dir)
     for (const [name, content] of Object.entries({

@@ -199,58 +199,75 @@ def _bind(facade):
 
 
 def run():
-    """Fetch and parse both host snapshots; return a compact JSON summary."""
+    """Fetch and parse the analyses the host selected; return a compact JSON summary."""
     from p1_snapshot import get_snapshot
     snapshots = {}
     for analysis in _ANALYSES:
         raw = get_snapshot(analysis)
+        if raw is None or raw == '':
+            continue
         if not isinstance(raw, str):
             raise ValueError('Snapshot must be a JSON string')
         if len(raw) > 8 * 1024 * 1024 or len(raw.encode('utf-8')) > 8 * 1024 * 1024:
             raise ValueError('Snapshot byte budget exceeded')
         snapshots[analysis] = SnapshotFacade(json.loads(raw), analysis)
-    if snapshots['DegenGeom'].model != snapshots['SurfacePatches'].model:
-        raise ValueError('Snapshot models differ')
-    if snapshots['DegenGeom'].fingerprint != snapshots['SurfacePatches'].fingerprint:
-        raise ValueError('Copies of the current model differ between analyses')
+    if not snapshots:
+        raise ValueError('No analysis snapshots were requested')
+    if len(snapshots) == 2:
+        if snapshots['DegenGeom'].model != snapshots['SurfacePatches'].model:
+            raise ValueError('Snapshot models differ')
+        if snapshots['DegenGeom'].fingerprint != snapshots['SurfacePatches'].fingerprint:
+            raise ValueError('Copies of the current model differ between analyses')
 
-    degen = snapshots['DegenGeom']
-    utility, parser, _ = _bind(degen)
-    root = utility.parse_results_object(degen.root, degen)
-    objects = parser.parse_degen_geom(degen.root, degen)
-
-    patch = snapshots['SurfacePatches']
-    _, _, surface = _bind(patch)
-    components = surface.export_surface_patches(SET_ALL, vsp_instance=patch)
-    surfaces = sum(len(c.surfaces) for c in components)
-    patches = sum(len(s.patches) for c in components for s in c.surfaces)
-    # Check values returned by the actual helpers, not just snapshot metadata.
     import numpy as np
-    if not objects or not components or not surfaces or not patches:
-        raise ValueError('Fixed model analysis unexpectedly produced empty geometry')
-    for obj in objects:
-        mat = np.asarray(obj.transmat.mat)
-        if mat.shape != (4, 4) or not np.isfinite(mat).all():
-            raise ValueError('Invalid degen transformation')
-    # Exercise the unchanged helper's degenerate-filter option on the same snapshot.
-    components_all = surface.export_surface_patches(SET_ALL, remove_degenerate=False, vsp_instance=patch)
-    all_patches = sum(len(s.patches) for c in components_all for s in c.surfaces)
-    if all_patches < patches:
-        raise ValueError('Unfiltered patch count is smaller than filtered count')
-    for component in components:
-        for surf in component.surfaces:
-            for item in surf.patches:
-                matrices = [np.asarray(getattr(item, name)) for name in ('x', 'y', 'z', 'nx', 'ny', 'nz')]
-                shape = matrices[0].shape
-                if (len(shape) != 2 or min(shape) <= 1 or
-                        any(m.shape != shape or not np.isfinite(m).all() for m in matrices)):
-                    raise ValueError('Invalid surface patch matrices')
-    return json.dumps({'protocol': 'webvsp-p1-analysis-summary', 'version': 1,
-                       'model': degen.model,
-                       'modelFingerprint': degen.fingerprint,
-                       'DegenGeom': {'root': degen.root, 'rootFields': list(root._fields),
-                                     'results': len(degen._results), 'objects': len(objects),
-                                     'geomIds': sorted(set(o.geom_id for o in objects))},
-                       'SurfacePatches': {'root': patch.root, 'results': len(patch._results),
-                                          'components': len(components), 'surfaces': surfaces,
-                                          'patches': patches}}, allow_nan=False)
+    first = next(iter(snapshots.values()))
+    summary = {'protocol': 'webvsp-p1-analysis-summary', 'version': 1,
+               'model': first.model, 'modelFingerprint': first.fingerprint}
+
+    if 'DegenGeom' in snapshots:
+        degen = snapshots['DegenGeom']
+        utility, parser, _ = _bind(degen)
+        root = utility.parse_results_object(degen.root, degen)
+        objects = parser.parse_degen_geom(degen.root, degen)
+        if not objects:
+            raise ValueError('DegenGeom unexpectedly produced no geometry')
+        for obj in objects:
+            mat = np.asarray(obj.transmat.mat)
+            if mat.shape != (4, 4) or not np.isfinite(mat).all():
+                raise ValueError('Invalid degen transformation')
+        summary['DegenGeom'] = {
+            'root': degen.root, 'rootFields': list(root._fields),
+            'results': len(degen._results), 'objects': len(objects),
+            'geomIds': sorted(set(o.geom_id for o in objects)),
+            'details': [{'name': o.name, 'type': o.type.name, 'geomId': o.geom_id,
+                         'surfaces': 1 if o.surf else 0} for o in objects]}
+
+    if 'SurfacePatches' in snapshots:
+        patch = snapshots['SurfacePatches']
+        _, _, surface = _bind(patch)
+        components = surface.export_surface_patches(SET_ALL, vsp_instance=patch)
+        surfaces = sum(len(c.surfaces) for c in components)
+        patches = sum(len(s.patches) for c in components for s in c.surfaces)
+        # Check values returned by the actual helpers, not just snapshot metadata.
+        if not components or not surfaces or not patches:
+            raise ValueError('SurfacePatches unexpectedly produced empty geometry')
+        # Exercise the unchanged helper's degenerate-filter option on the same snapshot.
+        components_all = surface.export_surface_patches(SET_ALL, remove_degenerate=False, vsp_instance=patch)
+        all_patches = sum(len(s.patches) for c in components_all for s in c.surfaces)
+        if all_patches < patches:
+            raise ValueError('Unfiltered patch count is smaller than filtered count')
+        for component in components:
+            for surf in component.surfaces:
+                for item in surf.patches:
+                    matrices = [np.asarray(getattr(item, name)) for name in ('x', 'y', 'z', 'nx', 'ny', 'nz')]
+                    shape = matrices[0].shape
+                    if (len(shape) != 2 or min(shape) <= 1 or
+                            any(m.shape != shape or not np.isfinite(m).all() for m in matrices)):
+                        raise ValueError('Invalid surface patch matrices')
+        summary['SurfacePatches'] = {
+            'root': patch.root, 'results': len(patch._results),
+            'components': len(components), 'surfaces': surfaces, 'patches': patches,
+            'details': [{'name': c.name, 'geomId': c.id, 'surfaces': len(c.surfaces),
+                         'patches': sum(len(s.patches) for s in c.surfaces)} for c in components]}
+
+    return json.dumps(summary, allow_nan=False)

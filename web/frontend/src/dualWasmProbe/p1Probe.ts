@@ -16,7 +16,7 @@ interface XmlProbe {
   unsupported?: { name: string; type: string; attached: boolean }[]
 }
 
-function runProgram(request: { model?: string; analysis: 'DegenGeom' | 'SurfacePatches'; xml?: string }, base: string): Promise<string> {
+function runProgram(request: { model?: string; analysis: 'DegenGeom' | 'SurfacePatches'; xml?: string }, base: string, signal?: AbortSignal): Promise<string> {
   const worker = new Worker(new URL('./p1ProgramWorker.ts', import.meta.url), { type: 'module' })
   return new Promise((resolve, reject) => {
     let settled = false
@@ -24,11 +24,14 @@ function runProgram(request: { model?: string; analysis: 'DegenGeom' | 'SurfaceP
       if (settled) return
       settled = true
       clearTimeout(timer)
+      signal?.removeEventListener('abort', onAbort)
       worker.terminate()
       if (error) reject(error)
       else resolve(snapshot!)
     }
     const label = request.xml !== undefined ? request.analysis : `${request.model} ${request.analysis}`
+    const onAbort = () => finish(new DOMException('Analysis cancelled', 'AbortError'))
+    signal?.addEventListener('abort', onAbort, { once: true })
     const timer = setTimeout(() => finish(new Error(`Isolated ${label} timed out; its disposable worker was terminated`)), 120_000)
     worker.onerror = (event) => finish(new Error(`Isolated analysis worker failed: ${event.message}`))
     worker.onmessageerror = () => finish(new Error('Invalid isolated analysis worker response'))
@@ -42,7 +45,7 @@ function runProgram(request: { model?: string; analysis: 'DegenGeom' | 'SurfaceP
   })
 }
 
-function pythonWorker(base: string, model: string, snapshots: Record<string, string>): Promise<unknown> {
+function pythonWorker(base: string, model: string, snapshots: Record<string, string>, signal?: AbortSignal): Promise<unknown> {
   const worker = new Worker(new URL('./p1PythonWorker.ts', import.meta.url), { type: 'module' })
   return new Promise((resolve, reject) => {
     let settled = false
@@ -50,10 +53,13 @@ function pythonWorker(base: string, model: string, snapshots: Record<string, str
       if (settled) return
       settled = true
       clearTimeout(timer)
+      signal?.removeEventListener('abort', onAbort)
       worker.terminate()
       if (error) reject(error)
       else resolve(value)
     }
+    const onAbort = () => finish(new DOMException('Analysis cancelled', 'AbortError'))
+    signal?.addEventListener('abort', onAbort, { once: true })
     const timer = setTimeout(() => finish(new Error('P1 Python diagnostic timed out')), 120_000)
     worker.onerror = (e) => finish(new Error(`P1 Python worker failed: ${e.message}`))
     worker.onmessageerror = () => finish(new Error('Invalid P1 Python worker response'))
@@ -70,8 +76,9 @@ function pythonWorker(base: string, model: string, snapshots: Record<string, str
 function analyzeSnapshots(
   base: string,
   model: string,
-  snapshots: { DegenGeom: string; SurfacePatches: string },
+  snapshots: Partial<Record<'DegenGeom' | 'SurfacePatches', string>>,
   expectedFingerprint?: string,
+  signal?: AbortSignal,
 ): Promise<unknown> {
   if (expectedFingerprint !== undefined) {
     for (const [analysis, raw] of Object.entries(snapshots)) {
@@ -80,7 +87,7 @@ function analyzeSnapshots(
       if (parsed.modelFingerprint !== expectedFingerprint) throw new Error(`Isolated copy of the current model does not match (${analysis})`)
     }
   }
-  return pythonWorker(base, model, snapshots)
+  return pythonWorker(base, model, snapshots, signal)
 }
 
 /** Real analysis on disposable fixed geometry. This does not inspect the active GUI model. */
@@ -100,37 +107,78 @@ export async function runP1AnalysisProbe(): Promise<unknown> {
   } finally { active = false }
 }
 
-/**
- * Analyze a serialized copy of the current model in the isolated instance.
- * Fails closed when the model is unsupported, cannot be serialized, or the copy's
- * fingerprint differs from the source. The page model is never mutated by analysis.
- */
-export async function runP1CurrentModelProbe(): Promise<unknown> {
+export type AnalysisName = 'DegenGeom' | 'SurfacePatches'
+export type AnalysisStage = 'serializing' | 'DegenGeom' | 'SurfacePatches' | 'python' | 'done'
+
+export interface CurrentModelAnalysisOptions {
+  analyses?: AnalysisName[]
+  onProgress?: (stage: AnalysisStage) => void
+  signal?: AbortSignal
+}
+
+export interface CurrentModelAnalysisReport {
+  isolation: 'disposable-model-snapshot'
+  pageModelUsed: true
+  modelFingerprint: string
+  xmlBytes: number
+  sourceTypes: string[]
+  durationMs: number
+  reports: {
+    model?: string
+    modelFingerprint?: string
+    DegenGeom?: { objects: number; results: number; details?: { name: string; type: string; geomId: string; surfaces: number }[] }
+    SurfacePatches?: { patches: number; surfaces?: number; components?: number; details?: { name: string; geomId: string; surfaces: number; patches: number }[] }
+  }[]
+}
+
+/** Analyze a serialized copy of the current model in the isolated instance. */
+export async function runCurrentModelAnalysis(options: CurrentModelAnalysisOptions = {}): Promise<CurrentModelAnalysisReport> {
+  const analyses = options.analyses ?? ['DegenGeom', 'SurfacePatches']
+  if (!analyses.length) throw new Error('Select at least one analysis')
   if (active) throw new Error('An isolated P1 diagnostic is already running')
   if (!crossOriginIsolated || typeof SharedArrayBuffer === 'undefined') throw new Error('Cross-origin isolation is required')
+  const signal = options.signal
+  const checkAborted = () => { if (signal?.aborted) throw new DOMException('Analysis cancelled', 'AbortError') }
   active = true
+  const started = performance.now()
   try {
     const base = new URL(import.meta.env.BASE_URL, window.location.href).href
     const model = await discoverModel<{ modelEpoch?: string; geoms?: unknown[] }>(new AbortController().signal)
+    checkAborted()
     if (!model.modelEpoch) throw new Error('The current model identity is unavailable')
     if (!model.geoms?.length) throw new Error('The current model has no geometry to analyze')
+    options.onProgress?.('serializing')
     const probe = await callGuarded<XmlProbe>('p1XmlProbe', 'xml', '', 1, model.modelEpoch)
+    checkAborted()
     if (!probe.ok) {
       if (probe.error === 'EMPTY_MODEL') throw new Error('The current model has no geometry to analyze')
       const detail = (probe.unsupported ?? []).map(u => `${u.name} (${u.type}${u.attached ? ', attached' : ''})`).join(', ')
       throw new Error(`Model is outside the supported subset: ${detail || probe.error}`)
     }
     if (!probe.xml) throw new Error('Model serialization returned no data')
-    const degen = await runProgram({ analysis: 'DegenGeom', xml: probe.xml }, base)
-    const patches = await runProgram({ analysis: 'SurfacePatches', xml: probe.xml }, base)
-    const report = await analyzeSnapshots(base, 'MODEL', { DegenGeom: degen, SurfacePatches: patches }, probe.fingerprintHash)
+    const snapshots: Partial<Record<AnalysisName, string>> = {}
+    for (const analysis of analyses) {
+      checkAborted()
+      options.onProgress?.(analysis)
+      snapshots[analysis] = await runProgram({ analysis, xml: probe.xml }, base, signal)
+    }
+    checkAborted()
+    options.onProgress?.('python')
+    const report = await analyzeSnapshots(base, 'MODEL', snapshots as Record<string, string>, probe.fingerprintHash, signal)
+    options.onProgress?.('done')
     return {
       isolation: 'disposable-model-snapshot',
       pageModelUsed: true,
       modelFingerprint: probe.fingerprintHash,
       xmlBytes: probe.xmlBytes,
       sourceTypes: probe.types,
+      durationMs: Math.round(performance.now() - started),
       reports: [report],
-    }
+    } as CurrentModelAnalysisReport
   } finally { active = false }
+}
+
+/** Console shortcut: both analyses, no UI. */
+export function runP1CurrentModelProbe(): Promise<unknown> {
+  return runCurrentModelAnalysis()
 }

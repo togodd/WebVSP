@@ -16,7 +16,12 @@ The file test explicitly sends a fixed Python string to the page, writes a rando
 
 The fixed read diagnostic also opens a one-shot opaque ResultsMgr lease and runs the unchanged original `parse_results_object` against it. The engine creates fixed namedtuple-safe fields for int, string, double, double matrix, and vec3d, deep-copies typed getter results on the engine thread, and deletes only its own result. The lease is explicitly closed after parsing and has a 30-second TTL for worker loss. This validates the parser and transport contract only; arbitrary live result IDs, unrestricted Results Manager calls, and real analysis side effects are not exposed.
 
-## P1 current-model analysis (diagnostic)
+## P1 current-model analysis
+
+The page has a product entry: the top bar's **Geometry analysis** button opens a
+floating window with the supported-range summary, an option per analysis, stage progress,
+the result table (per geometry: type, objects, patches) and the failure reason. The same
+work is available from the console as `await window.__runP1CurrentModelProbe()`.
 
 `await window.__runP1CurrentModelProbe()` analyzes a **serialized copy** of the active
 model in the disposable instance. The page model is never passed to the analysis. The
