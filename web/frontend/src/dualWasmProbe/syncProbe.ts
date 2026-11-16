@@ -1,4 +1,4 @@
-import { syncProbeEngineCall, wasmRequest, WasmEngineError } from '../api/wasmEngine'
+import { openEngineFile, saveEngineFile, syncProbeEngineCall, wasmRequest, WasmEngineError } from '../api/wasmEngine'
 
 type Geom = { id: string; name: string; type: string }
 
@@ -19,7 +19,10 @@ const LIVE_WRITES = new Set([
   'live_delete_xsec', 'live_change_xsec_shape', 'live_add_sub_surf', 'live_delete_sub_surf',
   'live_set_set_name', 'live_set_set_flag',
 ])
-const isWrite = (op: string) => LIVE_WRITES.has(op)
+// File operations also mutate the session: ReadVSPFile replaces the model and
+// WriteVSPFile renames it, so both carry write-outcome semantics.
+const FILE_OPS = new Set(['read_file', 'write_file'])
+const isWrite = (op: string) => LIVE_WRITES.has(op) || FILE_OPS.has(op)
 
 function responseTooLarge(write: boolean, issued: boolean, capacity: number): string {
   return JSON.stringify({ ok: false, error: { message: `Synchronous response exceeds ${capacity}-byte limit`, code: 'RESPONSE_TOO_LARGE', ...(write ? { outcome: issued ? 'unknown' : 'not_written' } : {}) } })
@@ -108,6 +111,13 @@ async function run(mode: 'script' | 'console', script?: string): Promise<unknown
         return op === 'geom_name' ? geom.name : geom.type
       }
       if (op === 'geom_parm_ids') return syncProbeEngineCall('geomParmIDs', textArg('geom_id'))
+      if (op === 'read_file' || op === 'write_file') {
+        const path = textArg('path')
+        if (finished || poisoned) throw new WasmEngineError(400, 'Probe stopped', 'not_written')
+        dispatchedWrite = true
+        currentWriteIssued = true
+        return syncProbeEngineCall(op === 'read_file' ? 'readFile' : 'writeFile', path)
+      }
       if (op.startsWith('live_')) {
         const live = (engineOp: string, a = '', b = '', value = 0) => {
           if (isWrite(op)) {
@@ -222,7 +232,7 @@ async function run(mode: 'script' | 'console', script?: string): Promise<unknown
     worker.onerror = (event) => finish(new Error(`Sync worker failed: ${event.message}`))
     worker.onmessageerror = () => finish(new Error('Invalid sync worker message'))
     worker.onmessage = (event: MessageEvent) => {
-      const msg = event.data as { type?: string; op?: string; args?: string; value?: string; stdout?: string; ok?: boolean; id?: number; error?: string; buffer?: SharedArrayBuffer; capacity?: number; profile?: ConsoleProfile }
+      const msg = event.data as { type?: string; op?: string; args?: string; value?: string; stdout?: string; ok?: boolean; id?: number; error?: string; buffer?: SharedArrayBuffer; capacity?: number; profile?: ConsoleProfile; path?: string; name?: string }
       if (mode === 'console' && msg.type === 'ready') {
         clearTimeout(timer) // The session stays open until it is closed.
         resolve({
@@ -240,6 +250,20 @@ async function run(mode: 'script' | 'console', script?: string): Promise<unknown
         if (!entry) return
         consoleRuns.delete(msg.id ?? -1)
         entry.resolve({ ok: !!msg.ok, value: msg.value ?? '', stdout: msg.stdout ?? '', error: msg.error, profile: msg.profile })
+        return
+      }
+      if (msg.type === 'file_open') {
+        void openEngineFile().then(
+          (path) => worker.postMessage({ type: 'file_open_result', id: msg.id, value: path }),
+          (error: unknown) => worker.postMessage({ type: 'file_open_result', id: msg.id, error: error instanceof Error ? error.message : String(error) }),
+        )
+        return
+      }
+      if (msg.type === 'file_save') {
+        void saveEngineFile(String(msg.path ?? ''), msg.name ? String(msg.name) : undefined).then(
+          () => worker.postMessage({ type: 'file_save_result', id: msg.id, value: null }),
+          (error: unknown) => worker.postMessage({ type: 'file_save_result', id: msg.id, error: error instanceof Error ? error.message : String(error) }),
+        )
         return
       }
       if (msg.type === 'done') {

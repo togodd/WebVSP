@@ -673,6 +673,114 @@ async function deliver(f: LinkedFile, bytes: Uint8Array<ArrayBuffer>) {
   setTimeout(() => URL.revokeObjectURL(a.href), 10000)
 }
 
+// ------------------------------------------------------- Python file I/O bridge
+
+// Minimal bridge used by the in-process Python console: the page owns the browser
+// file pickers and the engine's MEMFS is the hand-off point. These are deliberately
+// small helpers, not a general filesystem API.
+let nextEngineFile: { name: string; bytes: Uint8Array } | null = null
+let captureEngineSave = false
+let savedEngineFile: { name: string; bytes: Uint8Array } | null = null
+
+/** Test seam: make the next openEngineFile() use these bytes instead of a picker. */
+export function setNextEngineFile(name: string, bytes: Uint8Array): void {
+  nextEngineFile = { name, bytes: new Uint8Array(bytes) }
+}
+
+/** Test seam: capture the next saveEngineFile() instead of writing to disk/downloading. */
+export function setCaptureEngineSave(on: boolean): void {
+  captureEngineSave = on
+}
+
+/** Test seam: take (and clear) the last captured save. */
+export function takeSavedEngineFile(): { name: string; bytes: Uint8Array } | null {
+  const saved = savedEngineFile
+  savedEngineFile = null
+  return saved
+}
+
+/** Copy bytes into the engine's MEMFS without linking them to a user file. */
+export async function putEngineFile(name: string, bytes: Uint8Array): Promise<string> {
+  const vsp = await load()
+  if (!name || name.includes('/') || name.includes('\\')) throw new Error('Invalid file name')
+  vsp.FS.mkdirTree(HOME)
+  const path = `${HOME}/${name}`
+  vsp.FS.writeFile(path, new Uint8Array(bytes))
+  return path
+}
+
+/** Read a file the engine wrote, as an ordinary copy. */
+export async function readEngineFile(path: string): Promise<Uint8Array> {
+  const vsp = await load()
+  if (!vsp.FS.analyzePath(path).exists) throw new Error('File not found in the engine file system')
+  return new Uint8Array(vsp.FS.readFile(path))
+}
+
+/**
+ * Pick a file in the browser, copy it into the engine's MEMFS, and return its path.
+ * The caller (Python) can then pass that path to ReadVSPFile.
+ */
+export async function openEngineFile(): Promise<string> {
+  const vsp = await load()
+  let name: string
+  let bytes: Uint8Array
+  let handle: FileSystemFileHandle | null = null
+  if (nextEngineFile) {
+    ({ name, bytes } = nextEngineFile)
+    nextEngineFile = null
+  } else {
+    const picked = await pickFiles(['vsp3'], [{ description: 'OpenVSP models', accept: { 'application/octet-stream': ['.vsp3'] } }])
+    if (!picked.length) throw new Error('Open cancelled')
+    name = picked[0].name
+    bytes = new Uint8Array(await picked[0].file.arrayBuffer())
+    handle = picked[0].handle
+  }
+  const path = await putEngineFile(name, bytes)
+  if (handle) {
+    link(vsp, path, handle, name)
+    void askToWrite(handle)
+  }
+  return path
+}
+
+/**
+ * Read a file the engine wrote and hand it to the user: write it back through the
+ * saved file handle, open a save picker, or fall back to a download.
+ */
+export async function saveEngineFile(path: string, suggestedName?: string): Promise<void> {
+  const vsp = await load()
+  if (!vsp.FS.analyzePath(path).exists) throw new Error('File not found in the engine file system')
+  const bytes = new Uint8Array(vsp.FS.readFile(path))
+  const name = suggestedName || path.split('/').pop() || 'export.dat'
+  if (captureEngineSave) {
+    savedEngineFile = { name, bytes }
+    return
+  }
+  const existing = linked.get(path)
+  if (existing?.handle) {
+    await deliver({ ...existing, name }, bytes)
+    return
+  }
+  const w = window as unknown as { showSaveFilePicker?: (o: unknown) => Promise<FileSystemFileHandle> }
+  if (w.showSaveFilePicker) {
+    try {
+      const handle = await w.showSaveFilePicker({ id: 'webvsp', suggestedName: name })
+      const out = await handle.createWritable()
+      await out.write(bytes)
+      await out.close()
+      return
+    } catch (err) {
+      if (isPickerAbort(err)) throw new Error('Save cancelled')
+      // Fall through to a download when the picker is unavailable or refused.
+    }
+  }
+  const a = document.createElement('a')
+  a.href = URL.createObjectURL(new Blob([bytes]))
+  a.download = name
+  a.click()
+  setTimeout(() => URL.revokeObjectURL(a.href), 10000)
+}
+
 // ------------------------------------------------------------------ programs
 
 /**

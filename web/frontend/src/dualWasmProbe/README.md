@@ -99,6 +99,7 @@ WebVSP 自己编写的 Python 文件在 `python/` 顶层：`openvsp_live.py`（�
 | `GetIntResults`/`GetDoubleResults`/`GetStringResults`/`GetDoubleMatResults`/`GetVec3dResults` | ✅ | `Vec3d` 只提供 `x()/y()/z()` |
 | `parse_results_object`、`GetResultSnapshotCapabilities`、`GetResultSnapshots` | ✅ | 见“运行机制与限制” |
 | `GetResultTree`、`parse_results_tree`、`parse_results_object_fast`、`parse_surface_patches_fast` | 🚫 | 递归结果树被固定拒绝 |
+| `ReadVSPFile`、`WriteVSPFile` | 🟨 | 原型已接通（见“文件 I/O 原型”）；路径必须是引擎 MEMFS 中的路径，且需要页面先放入/取出字节 |
 | `SetGeomName`、`GetGeomParent`、`SetParmValUpdate` | ❌ | 未桥接；引擎/页面已有可用数据或操作，缺少路由与守卫（见下节）。`GetGeomType` 不是原生接口，只有 `GetGeomTypeName`/`GetGeomTypes` |
 
 ### 上游 helper 模块
@@ -155,6 +156,31 @@ WebVSP 自己编写的 Python 文件在 `python/` 顶层：`openvsp_live.py`（�
 | 进程（`subprocess`） | ❌ Pyodide 报 `OSError: emscripten does not support processes` |
 | 文件系统 | 🟨 Pyodide 内存 FS，与页面模型/宿主机磁盘不自动互通 |
 
+### 文件 I/O 原型（最小闭环）
+
+用现有 `readFile`/`writeFile` 引擎操作 + 页面文件选择器/下载，已经打通一条最小链路：
+
+```python
+import openvsp as vsp, webvsp_files
+
+path = await webvsp_files.open_into_engine()   # 页面选文件 → 引擎 MEMFS，返回路径
+vsp.ReadVSPFile(path)                          # 同步读取，模型被替换
+
+vsp.WriteVSPFile('/home/web_user/out.vsp3')    # 写入引擎 MEMFS，并像原生一样设置模型文件名
+await webvsp_files.save_from_engine('/home/web_user/out.vsp3', 'out.vsp3')
+```
+
+- `open_into_engine`/`save_from_engine` 是 `await` 的 JS 桥；控制台用 `runPythonAsync`，所以支持顶层
+  `await`。普通同步脚本不能调用它们。
+- `ReadVSPFile`/`WriteVSPFile` 是同步门面，引擎侧复用已有的 `readFile`/`writeFile` op：读会清空并替换模型，
+  写会像原生一样设置模型文件名。
+- 路径是**引擎 MEMFS** 路径（通常 `/home/web_user/...`），不是用户磁盘路径；文件选择器、保存对话框与下载
+  仍由页面负责，Python 只拿路径。
+- 原型边界：`ExportFile`/`ImportFile`/`ClearVSPModel`/`SetVSP3FileName`/`GetVSPFileName` 未提供；Python 写入
+  的路径没有绑定磁盘句柄，之后用 GUI Save 不会自动写回磁盘；保存对话框被拒绝时退回下载。
+- 测试：`node scripts/file-io-browser-check.mjs`（需要 `CHROMIUM_PATH`、`WEBVSP_URL`），覆盖
+  Python 写→页面读、页面写→Python 读、以及 `await` 打开/保存三条路径。
+
 ### 未桥接接口的堵点与影响
 
 这几个函数不是“做不到”，而是没接到 Python 门面上；堵点各不相同：
@@ -206,7 +232,7 @@ WebVSP 自己编写的 Python 文件在 `python/` 顶层：`openvsp_live.py`（�
 | 批量快照 | `python3 scripts/test-live-result-batch.py` |
 | 上游模块数值 | `python3 scripts/test-native-atmosphere.py`、`test-native-uberlogging.py`、`test-native-wt-util.py` |
 | 源码一致性 | `node scripts/check-native-modules.mjs` |
-| 真实浏览器（先构建并启动预览） | `console-smoke.mjs`、`live-analysis-smoke.mjs`、`scipy-console-browser-check.mjs`、`delete-clone-browser-check.mjs`、`live-binary-browser-check.mjs` |
+| 真实浏览器（先构建并启动预览） | `console-smoke.mjs`、`live-analysis-smoke.mjs`、`scipy-console-browser-check.mjs`、`delete-clone-browser-check.mjs`、`live-binary-browser-check.mjs`、`file-io-browser-check.mjs` |
 
 浏览器脚本需要 `CHROMIUM_PATH` 与 `WEBVSP_URL`（默认 `http://127.0.0.1:4173/`）。`?dualWasmProbe=1`
 只注册测试入口 `__runPython`；产品入口是顶栏 **Python Console** 按钮。

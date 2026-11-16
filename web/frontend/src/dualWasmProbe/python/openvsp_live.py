@@ -36,7 +36,7 @@ _LIVE_WRITES = frozenset({
     'live_add_geom', 'live_delete_geom', 'live_update', 'live_parm_set', 'live_parm_set_by_id',
     'live_analysis_defaults', 'live_analysis_set_int', 'live_analysis_run', 'live_insert_xsec',
     'live_delete_xsec', 'live_change_xsec_shape', 'live_add_sub_surf', 'live_delete_sub_surf',
-    'live_set_set_name', 'live_set_set_flag',
+    'live_set_set_name', 'live_set_set_flag', 'read_file', 'write_file',
 })
 
 
@@ -87,6 +87,30 @@ def DeleteGeom(geom_id, clone_delete=CLONE_DELETE_LEAVE_EMPTY):
 
 def Update(update_managers=True):
     return _call('live_update', update_managers=bool(update_managers))
+
+
+def ReadVSPFile(file_name):
+    """Replace the model with a file already in the engine's virtual file system.
+
+    Use ``webvsp_files.open_into_engine()`` to let the user pick a file first; it
+    copies the bytes into that file system and returns the path to pass here.
+    """
+    if not isinstance(file_name, str) or not file_name:
+        raise ValueError('A file path in the engine file system is required')
+    return _call('read_file', path=file_name)
+
+
+def WriteVSPFile(file_name, set=SET_ALL):
+    """Write the whole model to a path in the engine's virtual file system.
+
+    Follow with ``webvsp_files.save_from_engine(path)`` to hand the file to the
+    user. Only ``SET_ALL`` is supported, matching the live engine's behaviour.
+    """
+    if not isinstance(file_name, str) or not file_name:
+        raise ValueError('A file path in the engine file system is required')
+    if set != SET_ALL:
+        raise ValueError('Only SET_ALL is supported for WriteVSPFile')
+    return _call('write_file', path=file_name)
 
 
 def FindGeoms():

@@ -2,6 +2,7 @@
 import type { PyodideInterface } from 'pyodide'
 import liveFacade from './python/openvsp_live.py?raw'
 import liveImports from './python/live_imports.py?raw'
+import webvspFiles from './python/webvsp_files.py?raw'
 // Bundled upstream files keep the src/python_api package layout so gaps stay visible.
 import openvspUtilities from './python/packages/openvsp/openvsp/utilities.py?raw'
 import openvspDegenParser from './python/packages/openvsp/openvsp/degen_geom_parse.py?raw'
@@ -23,6 +24,17 @@ const MAX_BYTES = 64 * 1024
 const RESULTS_BYTES = 8 * 1024 * 1024
 const RESPONSE_HEADER_BYTES = 8
 let nextId = 0
+// Async browser file requests (picker / save) handled by the page.
+let nextFileId = 0
+const pendingFiles = new Map<number, { resolve: (value: unknown) => void; reject: (error: Error) => void }>()
+
+function fileRequest(kind: 'file_open' | 'file_save', args: Record<string, unknown>): Promise<unknown> {
+  return new Promise((resolve, reject) => {
+    const id = ++nextFileId
+    pendingFiles.set(id, { resolve, reject })
+    scope.postMessage({ type: kind, id, ...args })
+  })
+}
 // Only completed requests return their buffer to the pool. A timed-out request
 // permanently loses ownership, so a delayed page response cannot corrupt a
 // later request even though the buffer itself remains alive in the page.
@@ -111,6 +123,11 @@ async function setupLive(pyodide: PyodideInterface): Promise<void> {
     'utilities/atmosphere.py': utilitiesAtmosphere,
     'utilities/simple_rotor_calcs.py': utilitiesRotor,
   })) pyodide.FS.writeFile(`/sync-live/${name}`, content)
+  pyodide.FS.writeFile('/sync-live/webvsp_files.py', webvspFiles)
+  pyodide.registerJsModule('_webvsp_files_js', {
+    open_into_engine: () => fileRequest('file_open', {}),
+    save_from_engine: (path: string, name: string) => fileRequest('file_save', { path, name }),
+  })
   pyodide.runPython("import sys\nif '/sync-live' not in sys.path: sys.path.insert(0, '/sync-live')")
   pyodide.runPython(liveImports)
 }
@@ -192,10 +209,18 @@ async function runConsole(pyodide: PyodideInterface, message: ConsoleMessage): P
   }
 }
 
-type ConsoleMessage = { assets?: string; mode?: 'script' | 'console'; script?: string; type?: string; id?: number; code?: string; profile?: boolean }
+type ConsoleMessage = { assets?: string; mode?: 'script' | 'console'; script?: string; type?: string; id?: number; code?: string; profile?: boolean; value?: unknown; error?: string }
 let consoleReady: PyodideInterface | null = null
 
 scope.onmessage = (event: MessageEvent<ConsoleMessage>) => {
+  if (event.data.type === 'file_open_result' || event.data.type === 'file_save_result') {
+    const pending = pendingFiles.get(event.data.id ?? -1)
+    if (!pending) return
+    pendingFiles.delete(event.data.id ?? -1)
+    if (event.data.error) pending.reject(new Error(event.data.error))
+    else pending.resolve(event.data.value)
+    return
+  }
   if (event.data.type === 'run' && consoleReady) {
     void runConsole(consoleReady, event.data)
     return

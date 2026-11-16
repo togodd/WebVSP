@@ -14,6 +14,26 @@ if (new URLSearchParams(window.location.search).get('dualWasmProbe') === '1') {
   void import('./dualWasmProbe/syncProbe').then(({ runSyncScript }) => {
     ;(window as unknown as Record<string, unknown>).__runPython = runSyncScript
   })
+  // Test seam for the Python file-I/O prototype: bytes cross the page boundary as
+  // base64 so Playwright can pass them in and read them back.
+  const bytesToBase64 = (bytes: Uint8Array) => {
+    let binary = ''
+    for (const b of bytes) binary += String.fromCharCode(b)
+    return btoa(binary)
+  }
+  const base64ToBytes = (text: string) => Uint8Array.from(atob(text), (c) => c.charCodeAt(0))
+  void import('./api/wasmEngine').then(({ putEngineFile, readEngineFile, setNextEngineFile, setCaptureEngineSave, takeSavedEngineFile }) => {
+    ;(window as unknown as Record<string, unknown>).__webvspFileIO = {
+      put: (name: string, base64: string) => putEngineFile(name, base64ToBytes(base64)),
+      read: async (path: string) => bytesToBase64(await readEngineFile(path)),
+      nextFile: (name: string, base64: string) => setNextEngineFile(name, base64ToBytes(base64)),
+      captureSave: (on: boolean) => setCaptureEngineSave(on),
+      takeSaved: () => {
+        const saved = takeSavedEngineFile()
+        return saved ? { name: saved.name, base64: bytesToBase64(saved.bytes) } : null
+      },
+    }
+  })
 }
 
 /**
