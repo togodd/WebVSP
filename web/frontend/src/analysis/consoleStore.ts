@@ -9,6 +9,7 @@ export interface ConsoleEntry {
   stdout: string
   error?: string
   ms: number
+  profile?: ConsoleRun['profile']
 }
 
 const HISTORY_KEY = 'webvsp.console.history'
@@ -62,7 +63,7 @@ export const useConsole = create<ConsoleState>((set, get) => ({
     const started = performance.now()
     let result: ConsoleRun
     try {
-      result = await runInConsole(code)
+      result = await runInConsole(code, true)
     } catch (error) {
       result = { ok: false, value: '', stdout: '', error: error instanceof Error ? error.message : String(error) }
     }

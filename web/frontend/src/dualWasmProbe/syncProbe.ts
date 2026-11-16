@@ -29,8 +29,24 @@ export function runSyncModelingProbe(): Promise<unknown> { return run('modeling'
  */
 export function runSyncScript(code: string): Promise<unknown> { return run('script', code) }
 
+export interface ConsoleProfile {
+  calls: number
+  waitMs: number
+  responseBytes: number
+  elapsedMs: number
+  byOp: Record<string, { calls: number; waitMs: number; bytes: number }>
+}
+
+export interface ConsoleResult {
+  ok: boolean
+  value: string
+  stdout: string
+  error?: string
+  profile?: ConsoleProfile
+}
+
 export interface ConsoleSession {
-  run(code: string): Promise<{ ok: boolean; value: string; stdout: string; error?: string }>
+  run(code: string, profile?: boolean): Promise<ConsoleResult>
   close(): void
 }
 
@@ -53,7 +69,7 @@ async function run(mode: 'read' | 'modeling' | 'script' | 'console', script?: st
     let dispatchedWrite = false
     let currentWriteIssued = false
     let consoleRunId = 0
-    const consoleRuns = new Map<number, { resolve: (r: { ok: boolean; value: string; stdout: string; error?: string }) => void; reject: (e: Error) => void }>()
+    const consoleRuns = new Map<number, { resolve: (r: ConsoleResult) => void; reject: (e: Error) => void }>()
     let epoch: string | undefined
     const parameterIds = new Map<string, Map<string, string>>()
     const finish = (error?: Error, value?: unknown) => {
@@ -298,14 +314,14 @@ async function run(mode: 'read' | 'modeling' | 'script' | 'console', script?: st
     worker.onerror = (event) => finish(new Error(`Sync worker failed: ${event.message}`))
     worker.onmessageerror = () => finish(new Error('Invalid sync worker message'))
     worker.onmessage = (event: MessageEvent) => {
-      const msg = event.data as { type?: string; op?: string; args?: string; value?: string; stdout?: string; ok?: boolean; id?: number; error?: string; buffer?: SharedArrayBuffer; capacity?: number }
+      const msg = event.data as { type?: string; op?: string; args?: string; value?: string; stdout?: string; ok?: boolean; id?: number; error?: string; buffer?: SharedArrayBuffer; capacity?: number; profile?: ConsoleProfile }
       if (mode === 'console' && msg.type === 'ready') {
         clearTimeout(timer) // The session stays open until it is closed.
         resolve({
-          run: (code: string) => new Promise((res, rej) => {
+          run: (code: string, profile = false) => new Promise((res, rej) => {
             const runId = ++consoleRunId
             consoleRuns.set(runId, { resolve: res, reject: rej })
-            worker.postMessage({ type: 'run', id: runId, code })
+            worker.postMessage({ type: 'run', id: runId, code, profile })
           }),
           close: () => { finished = true; worker.terminate() },
         })
@@ -315,7 +331,7 @@ async function run(mode: 'read' | 'modeling' | 'script' | 'console', script?: st
         const entry = consoleRuns.get(msg.id ?? -1)
         if (!entry) return
         consoleRuns.delete(msg.id ?? -1)
-        entry.resolve({ ok: !!msg.ok, value: msg.value ?? '', stdout: msg.stdout ?? '', error: msg.error })
+        entry.resolve({ ok: !!msg.ok, value: msg.value ?? '', stdout: msg.stdout ?? '', error: msg.error, profile: msg.profile })
         return
       }
       if (msg.type === 'done') {

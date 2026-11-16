@@ -82,7 +82,7 @@ export function PythonConsole() {
             {e.stdout && <pre className="py-console-stdout">{e.stdout}</pre>}
             {e.value && <pre className="py-console-value">{e.value}</pre>}
             {e.error && <pre className="py-console-error">{e.error}</pre>}
-            <div className="py-console-meta">{e.ms} ms</div>
+            <div className="py-console-meta">{e.ms} ms{e.profile ? ` · ${e.profile.calls} bridge calls · ${Math.round(e.profile.waitMs)} ms bridge wait · ${Math.round(e.profile.responseBytes / 1024)} KiB` : ''}</div>
           </div>
         ))}
         {busy && <div className="py-console-busy">{t('console.running')}</div>}

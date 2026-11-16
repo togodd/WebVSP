@@ -23,6 +23,35 @@ const RESULTS_BYTES = 8 * 1024 * 1024
 const RESPONSE_HEADER_BYTES = 8
 let nextId = 0
 
+type BridgeStats = {
+  calls: number
+  waitMs: number
+  responseBytes: number
+  byOp: Record<string, { calls: number; waitMs: number; bytes: number }>
+}
+
+type RunProfile = BridgeStats & { elapsedMs: number }
+
+const bridgeStats: BridgeStats = { calls: 0, waitMs: 0, responseBytes: 0, byOp: {} }
+
+function resetBridgeStats(): void {
+  bridgeStats.calls = 0
+  bridgeStats.waitMs = 0
+  bridgeStats.responseBytes = 0
+  bridgeStats.byOp = {}
+}
+
+function getBridgeStats(reset = false): BridgeStats {
+  const snapshot: BridgeStats = {
+    calls: bridgeStats.calls,
+    waitMs: bridgeStats.waitMs,
+    responseBytes: bridgeStats.responseBytes,
+    byOp: Object.fromEntries(Object.entries(bridgeStats.byOp).map(([op, stat]) => [op, { ...stat }])),
+  }
+  if (reset) resetBridgeStats()
+  return snapshot
+}
+
 function request(op: string, args: string): string {
   const capacity = op.startsWith('live_result') || op.startsWith('results_') ? RESULTS_BYTES : MAX_BYTES
   // A fresh buffer per request: a delayed reply to an earlier request can never
@@ -30,7 +59,14 @@ function request(op: string, args: string): string {
   const buffer = new SharedArrayBuffer(RESPONSE_HEADER_BYTES + capacity)
   const control = new Int32Array(buffer, 0, 2)
   scope.postMessage({ type: 'request', id: ++nextId, op, args, buffer, capacity })
+  const started = performance.now()
   const state = Atomics.wait(control, 0, 0, op === 'timeout_test' || op === 'timeout_real_test' ? 20 : 60_000)
+  const waitMs = performance.now() - started
+  bridgeStats.calls += 1
+  bridgeStats.waitMs += waitMs
+  const stat = bridgeStats.byOp[op] ?? (bridgeStats.byOp[op] = { calls: 0, waitMs: 0, bytes: 0 })
+  stat.calls += 1
+  stat.waitMs += waitMs
   if (state === 'timed-out' && Atomics.load(control, 0) === 0) {
     if (op !== 'timeout_test') scope.postMessage({ type: 'abandon' })
     throw new Error('Synchronous probe request timed out; do not retry a dispatched write')
@@ -38,6 +74,8 @@ function request(op: string, args: string): string {
   if (Atomics.load(control, 0) !== 1) throw new Error('Invalid synchronous probe response')
   const size = Atomics.load(control, 1)
   if (size < 0 || size > capacity) throw new Error('Invalid response size')
+  bridgeStats.responseBytes += size
+  stat.bytes += size
   // TextDecoder rejects shared-backed views in Chromium; copy into an ordinary buffer.
   return new TextDecoder('utf-8', { fatal: true }).decode(Uint8Array.from(new Uint8Array(buffer, RESPONSE_HEADER_BYTES, size)))
 }
@@ -63,6 +101,8 @@ async function setupLive(pyodide: PyodideInterface): Promise<void> {
 async function runConsole(pyodide: PyodideInterface, message: ConsoleMessage): Promise<void> {
   const id = message.id ?? 0
   const out: string[] = []
+  const started = performance.now()
+  if (message.profile) resetBridgeStats()
   try {
     pyodide.setStdout({ batched: (text) => out.push(text) })
     pyodide.setStderr({ batched: (text) => out.push(text) })
@@ -70,13 +110,15 @@ async function runConsole(pyodide: PyodideInterface, message: ConsoleMessage): P
     let text: string
     try { text = value === undefined || value === null ? '' : String(value) } catch { text = '' }
     try { value?.destroy?.() } catch { /* best effort */ }
-    scope.postMessage({ type: 'result', id, ok: true, value: text, stdout: out.join('\n') })
+    const profile: RunProfile | undefined = message.profile ? { ...getBridgeStats(), elapsedMs: performance.now() - started } : undefined
+    scope.postMessage({ type: 'result', id, ok: true, value: text, stdout: out.join('\n'), profile })
   } catch (error) {
-    scope.postMessage({ type: 'result', id, ok: false, error: error instanceof Error ? error.message : String(error), stdout: out.join('\n') })
+    const profile: RunProfile | undefined = message.profile ? { ...getBridgeStats(), elapsedMs: performance.now() - started } : undefined
+    scope.postMessage({ type: 'result', id, ok: false, error: error instanceof Error ? error.message : String(error), stdout: out.join('\n'), profile })
   }
 }
 
-type ConsoleMessage = { assets?: string; mode?: 'read' | 'modeling' | 'script' | 'console'; script?: string; type?: string; id?: number; code?: string }
+type ConsoleMessage = { assets?: string; mode?: 'read' | 'modeling' | 'script' | 'console'; script?: string; type?: string; id?: number; code?: string; profile?: boolean }
 let consoleReady: PyodideInterface | null = null
 
 scope.onmessage = (event: MessageEvent<ConsoleMessage>) => {

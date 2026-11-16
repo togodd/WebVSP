@@ -1,6 +1,6 @@
 // Console store helper: one persistent Python session created through the same
 // bridge as script mode, so Python calls reach the page engine identically.
-import { startConsoleSession, type ConsoleSession } from '../dualWasmProbe/syncProbe'
+import { startConsoleSession, type ConsoleResult, type ConsoleSession } from '../dualWasmProbe/syncProbe'
 
 let session: ConsoleSession | null = null
 let starting: Promise<ConsoleSession> | null = null
@@ -17,9 +17,9 @@ export function resetSession(): void {
   starting = null
 }
 
-export type ConsoleRun = { ok: boolean; value: string; stdout: string; error?: string }
+export type ConsoleRun = ConsoleResult
 
-export async function runInConsole(code: string): Promise<ConsoleRun> {
+export async function runInConsole(code: string, profile = false): Promise<ConsoleRun> {
   const active = await ensureSession()
-  return active.run(code)
+  return active.run(code, profile)
 }
