@@ -58,9 +58,10 @@ This mode deliberately gives up the protections the isolated diagnostic has: an 
 out-of-memory or assertion takes the whole engine session — and unsaved edits — with it;
 the engine thread is busy while an analysis runs, so the GUI mirror and 3D view stop
 updating and clicks are ignored; and there is no cancellation. It is arbitrary Python in
-your own page, not a security boundary. Live write errors do not currently expose a reliable
-`not_written`/`unknown` outcome to Python; after a transport error or timeout, inspect the
-model before retrying. Analyses always cover the whole model with file
+your own page, not a security boundary. Live write errors expose an `outcome` on
+`OpenVSPError`: `not_written` means rejected before dispatch; `unknown` means the operation
+may have run. A timeout does not cancel engine work; inspect the model before retrying an
+unknown outcome. Analyses always cover the whole model with file
 output and mode application disabled. Numeric result fields use bounded binary chunks that preserve IEEE-754 NaN and infinities,
 including ragged matrices. A field can change between chunk requests; shape changes are
 detected where possible, but a same-shape concurrent modification is not an atomic snapshot.
