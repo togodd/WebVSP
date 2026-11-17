@@ -97,8 +97,23 @@ helper（[上游入口](../../../../src/python_api/packages/openvsp/openvsp/__in
 
 ### `openvsp` 门面（`python/openvsp_live.py`）
 
-当前门面公开函数 182 个；上游 `VSP_Geom_API.h` 有 1017 个不同函数名，同名覆盖仍以本表为准，
-不做“名称即支持”的推断。下面未列出的上游功能（FEA/CFD 网格、属性与参数链接、设计变量、
+### 签名驱动批量桥接
+
+手工桥接只留给需要打包参数或解码结果的接口。其余“纯输入、标量/列表返回”的原生函数由
+`web/wasm/engine/gen_live_api.py` 从头文件生成：
+
+```
+python3 web/wasm/engine/gen_live_api.py
+```
+
+它同时写出引擎侧的 `live_api_table.inc` 和门面侧的 `live_api_table.py`，两边形状不会漂移。
+当前覆盖 620 个原生函数（门面共 820 个公开名，占 `VSP_Geom_API.h` 1017 个不同函数名的 81%）。
+
+通道路径：门面包装函数 → `live_api` / `live_api_write` → `liveApi` 引擎分发（按形状解析
+长度前缀参数包）→ 直接调用 `vsp::`。写操作按返回值是否为 `void` 自动分类。
+
+未覆盖的主要是：带非 const 输出参数（`double &u_out`）、重载同名函数、以及需要
+`vec3d`/矩阵等复杂入参的接口——这些仍需逐个手写。下面未列出的上游功能（FEA/CFD 网格、属性与参数链接、设计变量、
 VSPAERO 控制面、测量、可视化等）尚未桥接。
 
 | 接口 | 状态 | 说明 |
