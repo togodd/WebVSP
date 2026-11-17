@@ -148,12 +148,12 @@ export default function App() {
           <ViewerOverlay fullscreen={fullscreen} onToggle={() => setFullscreen(!fullscreen)} />
         </div>
         <SidePanel side="right" win={editorWin} open={!fullscreen} height={panelHeight} />
+        <WorkspacePanel />
         {floating.map((w, i) => (
           <FloatingWindow key={w.id} win={w} index={i} origin={mainWin} />
         ))}
         <ResultsViewer />
         <PythonConsole />
-        <WorkspacePanel />
       </div>
       <DialogHost />
       <DeleteConfirm />

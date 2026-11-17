@@ -1,8 +1,9 @@
 // State for the workspace panel: the open flag, the file list and the filters.
 //
-// The list is read from the engine on demand (open, refresh, after a delete);
-// there is no watcher. Solver runs and scripts write files while the page is
-// busy elsewhere, so the panel offers "刷新" rather than polling.
+// The list is read from the engine on demand and while the workspace panel is
+// open. Polling is deliberately silent: solver runs and scripts can write files
+// while the user is working, but a refresh must not erase a status message or
+// interrupt a download/delete operation.
 import { create } from 'zustand'
 import {
   deleteWorkspaceFile,
@@ -33,6 +34,59 @@ interface WorkspaceState {
 }
 
 let seq = 0
+let operation = 0
+let listTail: Promise<unknown> = Promise.resolve()
+let timer: ReturnType<typeof setTimeout> | undefined
+let generation = 0
+
+// Serialize all listings, including manual and post-delete refreshes.
+function listSerial(): Promise<WorkspaceFile[]> {
+  const result = listTail.then(() => listWorkspace())
+  listTail = result.catch(() => {})
+  return result
+}
+
+function visible(): boolean {
+  return typeof document === 'undefined' || document.visibilityState !== 'hidden'
+}
+
+function stopPolling() {
+  generation++
+  if (timer !== undefined) clearTimeout(timer)
+  timer = undefined
+  if (typeof document !== 'undefined') document.removeEventListener('visibilitychange', onVisibility)
+}
+
+function onVisibility() {
+  generation++
+  if (timer !== undefined) clearTimeout(timer)
+  timer = undefined
+  if (visible() && useWorkspaceFiles.getState().open) void poll(generation)
+}
+
+async function poll(run: number) {
+  if (run !== generation || !useWorkspaceFiles.getState().open || !visible()) return
+  if (!useWorkspaceFiles.getState().busy) {
+    const token = seq
+    try {
+      const files = await listSerial()
+      if (run === generation && token === seq && useWorkspaceFiles.getState().open && visible()) {
+        useWorkspaceFiles.setState({ files, loaded: true })
+      }
+    } catch {
+      // Automatic refresh is silent; manual refresh reports errors.
+    }
+  }
+  if (run === generation && useWorkspaceFiles.getState().open && visible()) {
+    timer = setTimeout(() => { timer = undefined; void poll(run) }, 1000)
+  }
+}
+
+function startPolling() {
+  stopPolling()
+  if (typeof document !== 'undefined') document.addEventListener('visibilitychange', onVisibility)
+  if (visible()) void poll(generation)
+}
 
 export const useWorkspaceFiles = create<WorkspaceState>((set, get) => ({
   open: false,
@@ -47,20 +101,22 @@ export const useWorkspaceFiles = create<WorkspaceState>((set, get) => ({
   toggle: () => {
     const open = !get().open
     set({ open })
-    if (open && !get().loaded) void get().refresh()
+    if (open) startPolling()
+    else stopPolling()
   },
 
-  close: () => set({ open: false }),
+  close: () => { set({ open: false }); stopPolling() },
 
   refresh: async () => {
     const token = ++seq
+    const owner = ++operation
     set({ busy: true, message: '' })
     try {
-      const files = await listWorkspace()
-      if (token !== seq) return
+      const files = await listSerial()
+      if (token !== seq || owner !== operation) return
       set({ files, loaded: true, busy: false, message: files.length ? '' : '/work 里还没有文件' })
     } catch (error) {
-      if (token !== seq) return
+      if (token !== seq || owner !== operation) return
       set({ busy: false, message: error instanceof Error ? error.message : String(error) })
     }
   },
@@ -74,24 +130,28 @@ export const useWorkspaceFiles = create<WorkspaceState>((set, get) => ({
   },
 
   download: async (file) => {
+    const owner = ++operation
+    ++seq
     set({ busy: true, message: `下载 ${file.name}…` })
     try {
       await downloadWorkspaceFile(file)
-      set({ busy: false, message: `已下载 ${file.name}` })
+      if (owner === operation) set({ busy: false, message: `已下载 ${file.name}` })
     } catch (error) {
-      set({ busy: false, message: error instanceof Error ? error.message : String(error) })
+      if (owner === operation) set({ busy: false, message: error instanceof Error ? error.message : String(error) })
     }
   },
 
   remove: async (file) => {
+    const owner = ++operation
+    ++seq // Invalidate listings started before the deletion.
     set({ busy: true })
     try {
       await deleteWorkspaceFile(file)
-      // Refresh first: it clears the status line, so the confirmation goes after.
-      await get().refresh()
-      set({ message: `已删除 ${file.name}` })
+      ++seq // Also invalidate listings started while deletion was pending.
+      const files = await listSerial()
+      if (owner === operation) set({ files, loaded: true, busy: false, message: `已删除 ${file.name}` })
     } catch (error) {
-      set({ busy: false, message: error instanceof Error ? error.message : String(error) })
+      if (owner === operation) set({ busy: false, message: error instanceof Error ? error.message : String(error) })
     }
   },
 }))

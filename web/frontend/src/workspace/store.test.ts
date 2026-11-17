@@ -1,6 +1,6 @@
 // The workspace listing's pure parts: classification, filtering and the store's
 // delete-then-refresh flow.
-import { describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 vi.mock('../api/wasmEngine', () => ({
   engineListFiles: vi.fn(),
@@ -93,6 +93,52 @@ describe('listWorkspace', () => {
 })
 
 describe('workspace store', () => {
+  beforeEach(() => {
+    useWorkspaceFiles.getState().close()
+    vi.clearAllMocks()
+  })
+
+  afterEach(() => {
+    useWorkspaceFiles.getState().close()
+    vi.useRealTimers()
+    delete (globalThis as { document?: unknown }).document
+  })
+
+  it('opens with an immediate refresh and polls once per second', async () => {
+    vi.useFakeTimers()
+    let visibility: 'visible' | 'hidden' = 'visible'
+    const listeners = new Set<() => void>()
+    Object.defineProperty(globalThis, 'document', { configurable: true, value: {
+      get visibilityState() { return visibility },
+      addEventListener: (_: string, listener: () => void) => listeners.add(listener),
+      removeEventListener: (_: string, listener: () => void) => listeners.delete(listener),
+    } })
+    vi.mocked(engineListFiles).mockResolvedValue([])
+
+    useWorkspaceFiles.getState().toggle()
+    await vi.waitFor(() => expect(engineListFiles).toHaveBeenCalledTimes(1))
+    await vi.advanceTimersByTimeAsync(1000)
+    await vi.waitFor(() => expect(engineListFiles).toHaveBeenCalledTimes(2))
+
+    visibility = 'hidden'
+    listeners.forEach((listener) => listener())
+    await vi.advanceTimersByTimeAsync(2000)
+    expect(engineListFiles).toHaveBeenCalledTimes(2)
+  })
+
+  it('does not let an automatic refresh clobber a delete operation', async () => {
+    vi.useFakeTimers()
+    vi.mocked(engineListFiles).mockImplementation(() => new Promise((resolve) => setTimeout(() => resolve([]), 100)))
+    vi.mocked(engineDeleteFile).mockResolvedValue()
+    const target = file('gone.txt')
+    useWorkspaceFiles.setState({ files: [target], loaded: true })
+    useWorkspaceFiles.getState().toggle()
+    const deletion = useWorkspaceFiles.getState().remove(target)
+    await vi.advanceTimersByTimeAsync(250)
+    await deletion
+    expect(useWorkspaceFiles.getState().message).toContain('已删除')
+  })
+
   it('deletes then reloads the list', async () => {
     vi.mocked(engineListFiles).mockResolvedValue([
       { path: '/work/keep.txt', name: 'keep.txt', size: 1, mtime: 1 },

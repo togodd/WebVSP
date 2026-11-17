@@ -45,6 +45,11 @@ try {
   await page.click('[data-testid="workspace-open"]')
   await page.waitForSelector('[data-testid="workspace-panel"]', { timeout: 15000 })
   await page.waitForTimeout(400)
+  assert.equal(await page.locator('[data-testid="workspace-panel"]').evaluate((el) => getComputedStyle(el).position), 'relative')
+  assert.equal(await page.locator('[data-testid="workspace-panel"] button[title="刷新"]').count(), 0)
+  assert.equal(await page.locator('[data-testid="workspace-panel"] button:has-text("选择文件夹")').count(), 0)
+  assert.equal(await page.locator('[data-testid="workspace-panel"] button:has-text("添加文件")').count(), 0)
+  assert.equal(await page.locator('[data-testid="workspace-panel"] button:has-text("同步")').count(), 0)
 
   // The list shows every file with its kind glyph.
   assert.equal(await page.locator('.ws-row').count(), 3)
@@ -78,8 +83,8 @@ try {
     const { engineWriteFile } = await import('/src/api/wasmEngine.ts')
     await engineWriteFile('/work/demo/run.adb', new Uint8Array([0, 1, 2, 3]))
   })
-  await page.locator('[data-testid="workspace-panel"] .ws-title button').first().click()
-  await page.waitForTimeout(500)
+  // The side panel observes engine writes without a manual refresh.
+  await page.locator('.ws-row:has-text("run.adb")').waitFor({ timeout: 6000 })
   await page.click('.ws-row:has-text("run.adb") button:has-text("查看")')
   await page.waitForTimeout(400)
   assert.match((await page.textContent('.ws-modal-body')) ?? '', /二进制文件/)
@@ -107,6 +112,17 @@ try {
   await page.keyboard.press('Escape')
   await page.click('[data-testid="ws-search"]')
   console.log('PASS opens a context menu')
+
+  // Close, mutate the engine, then reopen: the initial listing must not be stale.
+  await page.locator('[data-testid="workspace-panel"] button[title="关闭"]').click()
+  await page.waitForSelector('[data-testid="workspace-panel"]', { state: 'detached' })
+  await page.evaluate(async () => {
+    const { engineWriteFile } = await import('/src/api/wasmEngine.ts')
+    await engineWriteFile('/work/demo/reopened.txt', new TextEncoder().encode('new'))
+  })
+  await page.click('[data-testid="workspace-open"]')
+  await page.locator('.ws-row:has-text("reopened.txt")').waitFor({ timeout: 6000 })
+  console.log('PASS reloads the current filesystem on reopen')
 
   if (errors.length) throw Error(`page errors: ${JSON.stringify(errors)}`)
 } finally { await browser.close() }
