@@ -171,6 +171,33 @@ async function run(mode: 'script' | 'console', script?: string): Promise<unknown
           return live(op === 'live_comp_pnt01' ? 'liveCompPnt01' : 'liveCompNorm01', id, `${index},${w}`, u)
         }
         if (op === 'live_num_main_surfs') return live('liveNumMainSurfs', text('geom_id'))
+        if (op === 'live_comp_vec_pnt01' || op === 'live_comp_vec_norm01') {
+          const id = text('geom_id'), index = args.surf_indx, us = args.us, ws = args.ws
+          if (typeof index !== 'number' || !Number.isInteger(index)) throw new WasmEngineError(400, 'Invalid surf_indx')
+          if (!Array.isArray(us) || !Array.isArray(ws) || us.length !== ws.length || us.length === 0 || us.length > 512) {
+            throw new WasmEngineError(400, 'Invalid surface coordinates')
+          }
+          if (![...us, ...ws].every(v => typeof v === 'number' && Number.isFinite(v))) throw new WasmEngineError(400, 'Invalid surface coordinate')
+          const encoder = new TextEncoder(), items = [String(index), ...us.map(String), ...ws.map(String)]
+          return live(op === 'live_comp_vec_pnt01' ? 'liveCompVecPnt01' : 'liveCompVecNorm01', id, `${items.length};` + items.map(i => `${encoder.encode(i).length}:${i}`).join(''), 0)
+        }
+        if (op === 'live_proj_pnt01') {
+          const id = text('geom_id'), index = args.surf_indx, p = args.point
+          if (typeof index !== 'number' || !Number.isInteger(index)) throw new WasmEngineError(400, 'Invalid surf_indx')
+          if (!Array.isArray(p) || p.length !== 3 || !p.every(v => typeof v === 'number' && Number.isFinite(v))) throw new WasmEngineError(400, 'Invalid point')
+          return live('liveProjPnt01', id, [index, ...p].join('\x1f'), 0)
+        }
+        if (op === 'live_comp_curvature01') {
+          const id = text('geom_id'), index = args.surf_indx, u = args.u, w = args.w
+          if (typeof index !== 'number' || !Number.isInteger(index)) throw new WasmEngineError(400, 'Invalid surf_indx')
+          if (typeof u !== 'number' || !Number.isFinite(u) || typeof w !== 'number' || !Number.isFinite(w)) throw new WasmEngineError(400, 'Invalid surface coordinate')
+          return live('liveCompCurvature01', id, `${index}\x1f${w}`, u)
+        }
+        if (op === 'live_uw_tess01') {
+          const id = text('geom_id'), index = args.surf_indx
+          if (typeof index !== 'number' || !Number.isInteger(index)) throw new WasmEngineError(400, 'Invalid surf_indx')
+          return live('liveUWTess01', id, String(index), 0)
+        }
         if (op === 'live_geom_draw_type') return live('liveGeomDrawType', text('geom_id'))
         if (op === 'live_geom_display_type') return live('liveGeomDisplayType', text('geom_id'))
         if (op === 'live_geom_set_draw_type' || op === 'live_geom_set_display_type') {

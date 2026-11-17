@@ -3644,6 +3644,94 @@ void RunImpl( const Job &j )
         if ( !err.empty() ) return Result( j.id, err, "" );
         return Result( j.id, "", "[" + Num( v.x() ) + "," + Num( v.y() ) + "," + Num( v.z() ) + "]" );
     }
+    if ( j.op == "liveCompVecPnt01" || j.op == "liveCompVecNorm01" )
+    {
+        // b is the ID-free packet: [surface, u0..un-1, w0..wn-1] as decimals.
+        vector< string > items;
+        if ( !live_packet( j.b, items ) || items.size() < 3 || items.size() % 2 == 0 )
+            return Result( j.id, "Invalid surface query arguments", "" );
+        char *end = nullptr;
+        const long index = std::strtol( items[0].c_str(), &end, 10 );
+        if ( items[0].empty() || end != items[0].c_str() + items[0].size() ||
+             index < std::numeric_limits<int>::min() || index > std::numeric_limits<int>::max() )
+            return Result( j.id, "Invalid surface index", "" );
+        const size_t half = ( items.size() - 1 ) / 2;
+        vector< double > us, ws;
+        for ( size_t i = 0; i < half; ++i )
+        {
+            const string &ut = items[1 + i], &wt = items[1 + half + i];
+            char *ue = nullptr, *we = nullptr;
+            const double u = std::strtod( ut.c_str(), &ue ), w = std::strtod( wt.c_str(), &we );
+            if ( ut.empty() || ue != ut.c_str() + ut.size() || !std::isfinite( u ) ||
+                 wt.empty() || we != wt.c_str() + wt.size() || !std::isfinite( w ) )
+                return Result( j.id, "Invalid surface coordinate", "" );
+            us.push_back( u ); ws.push_back( w );
+        }
+        const vector< vec3d > values = j.op == "liveCompVecPnt01"
+            ? vsp::CompVecPnt01( j.a, static_cast<int>( index ), us, ws )
+            : vsp::CompVecNorm01( j.a, static_cast<int>( index ), us, ws );
+        const string err = TakeErrors();
+        if ( !err.empty() ) return Result( j.id, err, "" );
+        const string out = LiveVec3dArray( values );
+        if ( out.empty() ) return Result( j.id, "Surface query returned a non-finite point", "" );
+        return Result( j.id, "", out );
+    }
+    if ( j.op == "liveProjPnt01" )
+    {
+        // b = surface + \x1f + x + \x1f + y + \x1f + z; no field contains the separator.
+        vector< double > fields;
+        size_t pos = 0;
+        while ( pos <= j.b.size() )
+        {
+            const size_t sep = j.b.find( '\x1f', pos );
+            const string text = j.b.substr( pos, sep == string::npos ? string::npos : sep - pos );
+            char *end = nullptr;
+            const double value = std::strtod( text.c_str(), &end );
+            if ( text.empty() || end != text.c_str() + text.size() || !std::isfinite( value ) )
+                return Result( j.id, "Invalid projection arguments", "" );
+            fields.push_back( value );
+            if ( sep == string::npos ) break;
+            pos = sep + 1;
+        }
+        if ( fields.size() != 4 ) return Result( j.id, "Invalid projection arguments", "" );
+        double u = 0, w = 0;
+        const double d = vsp::ProjPnt01( j.a, static_cast<int>( fields[0] ), vec3d( fields[1], fields[2], fields[3] ), u, w );
+        const string err = TakeErrors();
+        if ( !err.empty() ) return Result( j.id, err, "" );
+        return Result( j.id, "", "[" + Num( d ) + "," + Num( u ) + "," + Num( w ) + "]" );
+    }
+    if ( j.op == "liveCompCurvature01" )
+    {
+        // b = surface + \x1f + w; value = u.
+        const size_t sep = j.b.find( '\x1f' );
+        if ( sep == string::npos || !std::isfinite( j.value ) ) return Result( j.id, "Invalid curvature arguments", "" );
+        char *end = nullptr;
+        const long index = std::strtol( j.b.c_str(), &end, 10 );
+        if ( end != j.b.c_str() + sep ) return Result( j.id, "Invalid surface index", "" );
+        const string text = j.b.substr( sep + 1 );
+        char *we = nullptr;
+        const double w = std::strtod( text.c_str(), &we );
+        if ( text.empty() || we != text.c_str() + text.size() || !std::isfinite( w ) )
+            return Result( j.id, "Invalid surface coordinate", "" );
+        double k1 = 0, k2 = 0, ka = 0, kg = 0;
+        vsp::CompCurvature01( j.a, static_cast<int>( index ), j.value, w, k1, k2, ka, kg );
+        const string err = TakeErrors();
+        if ( !err.empty() ) return Result( j.id, err, "" );
+        return Result( j.id, "", "[" + Num( k1 ) + "," + Num( k2 ) + "," + Num( ka ) + "," + Num( kg ) + "]" );
+    }
+    if ( j.op == "liveUWTess01" )
+    {
+        char *end = nullptr;
+        const long index = std::strtol( j.b.c_str(), &end, 10 );
+        if ( j.b.empty() || end != j.b.c_str() + j.b.size() ||
+             index < std::numeric_limits<int>::min() || index > std::numeric_limits<int>::max() )
+            return Result( j.id, "Invalid surface index", "" );
+        vector< double > us, ws;
+        vsp::GetUWTess01( j.a, static_cast<int>( index ), us, ws );
+        const string err = TakeErrors();
+        if ( !err.empty() ) return Result( j.id, err, "" );
+        return Result( j.id, "", "[" + LiveDoubleArray( us ) + "," + LiveDoubleArray( ws ) + "]" );
+    }
     if ( j.op == "liveNumMainSurfs" )
     {
         const int count = vsp::GetNumMainSurfs( j.a );

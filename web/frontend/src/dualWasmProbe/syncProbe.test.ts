@@ -80,6 +80,26 @@ describe('live write bridge', () => {
     expect(engine.call).not.toHaveBeenCalled()
     worker.onmessage({ data: { type: 'done', value: 'null' } } as MessageEvent)
   })
+  it('forwards surface vector queries and projection', async () => {
+    void runSyncScript('')
+    const worker = FakeWorker.instance
+    engine.call.mockResolvedValue(null)
+    expect((await worker.request('live_comp_vec_pnt01', { geom_id: 'g', surf_indx: 0, us: [0.1, 0.2], ws: [0.3, 0.4] })).ok).toBe(true)
+    expect(engine.call).toHaveBeenLastCalledWith('liveCompVecPnt01', 'g', '5;1:03:0.13:0.23:0.33:0.4', 0)
+    expect((await worker.request('live_comp_vec_norm01', { geom_id: 'g', surf_indx: 1, us: [0.5], ws: [0.5] })).ok).toBe(true)
+    expect(engine.call).toHaveBeenLastCalledWith('liveCompVecNorm01', 'g', '3;1:13:0.53:0.5', 0)
+    expect((await worker.request('live_proj_pnt01', { geom_id: 'g', surf_indx: 0, point: [1, 2, 3] })).ok).toBe(true)
+    expect(engine.call).toHaveBeenLastCalledWith('liveProjPnt01', 'g', '0\x1f1\x1f2\x1f3', 0)
+    expect((await worker.request('live_comp_curvature01', { geom_id: 'g', surf_indx: 0, u: 0.25, w: 0.75 })).ok).toBe(true)
+    expect(engine.call).toHaveBeenLastCalledWith('liveCompCurvature01', 'g', '0\x1f0.75', 0.25)
+    expect((await worker.request('live_uw_tess01', { geom_id: 'g', surf_indx: 2 })).ok).toBe(true)
+    expect(engine.call).toHaveBeenLastCalledWith('liveUWTess01', 'g', '2', 0)
+    engine.call.mockClear()
+    expect((await worker.request('live_comp_vec_pnt01', { geom_id: 'g', surf_indx: 0, us: [0.1], ws: [0.2, 0.3] })).ok).toBe(false)
+    expect((await worker.request('live_proj_pnt01', { geom_id: 'g', surf_indx: 0, point: [1, 2] })).ok).toBe(false)
+    expect(engine.call).not.toHaveBeenCalled()
+    worker.onmessage({ data: { type: 'done', value: 'null' } } as MessageEvent)
+  })
   it('forwards parameter metadata and batch geometry edits', async () => {
     void runSyncScript('')
     const worker = FakeWorker.instance

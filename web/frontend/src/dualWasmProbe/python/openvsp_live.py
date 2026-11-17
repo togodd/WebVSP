@@ -122,6 +122,41 @@ def GetNumMainSurfs(geom_id):
     return _call('live_num_main_surfs', geom_id=geom_id)
 
 
+def CompVecPnt01(geom_id, surf_indx, us, ws):
+    """Surface points for matching u/w lists, returned as a list of vec3d."""
+    if len(us) != len(ws) or not us:
+        raise ValueError('CompVecPnt01 needs matching, non-empty u and w lists')
+    return _vec3d_list(_call('live_comp_vec_pnt01', geom_id=geom_id, surf_indx=surf_indx,
+                             us=[float(v) for v in us], ws=[float(v) for v in ws]))
+
+
+def CompVecNorm01(geom_id, surf_indx, us, ws):
+    """Surface normals for matching u/w lists, returned as a list of vec3d."""
+    if len(us) != len(ws) or not us:
+        raise ValueError('CompVecNorm01 needs matching, non-empty u and w lists')
+    return _vec3d_list(_call('live_comp_vec_norm01', geom_id=geom_id, surf_indx=surf_indx,
+                             us=[float(v) for v in us], ws=[float(v) for v in ws]))
+
+
+def ProjPnt01(geom_id, surf_indx, pt):
+    """Nearest surface coordinate: returns ``(distance, u, w)``."""
+    point = [float(v) for v in (pt[0], pt[1], pt[2])]
+    d, u, w = _call('live_proj_pnt01', geom_id=geom_id, surf_indx=surf_indx, point=point)
+    return d, u, w
+
+
+def CompCurvature01(geom_id, surf_indx, u, w):
+    """Principal, mean and Gaussian curvature: ``(k1, k2, ka, kg)``."""
+    k1, k2, ka, kg = _call('live_comp_curvature01', geom_id=geom_id, surf_indx=surf_indx, u=u, w=w)
+    return k1, k2, ka, kg
+
+
+def GetUWTess01(geom_id, surf_indx, u_out=None, w_out=None):
+    """Tessellation coordinates as ``(us, ws)``; the native out-args are ignored."""
+    us, ws = _call('live_uw_tess01', geom_id=geom_id, surf_indx=surf_indx)
+    return us, ws
+
+
 def GetGeomDrawType(geom_id):
     return _call('live_geom_draw_type', geom_id=geom_id)
 
@@ -559,6 +594,10 @@ def GetXSecParmIDs(xsec_id):
 
 def GetXSecParm(xsec_id, name):
     return _call('live_xsec_parm', xsec_id=xsec_id, name=name)
+
+
+def _vec3d_list(values):
+    return [_Vec3d((item[0], item[1], item[2])) for item in values]
 
 
 def GetXSecAlias(xsec_id):

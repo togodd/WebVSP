@@ -62,6 +62,25 @@ class GeometryApiTest(unittest.TestCase):
         with self.assertRaises(vsp.OpenVSPError):
             vsp.CompNorm01('g', 0, float('nan'), w)
 
+    def test_surface_vector_forwarding(self):
+        self.reply['value'] = [[1.0, 2.0, 3.0], [4.0, 5.0, 6.0]]
+        points = vsp.CompVecPnt01('g', 0, [0.1, 0.2], [0.3, 0.4])
+        self.assertEqual(self.calls[-1], ('live_comp_vec_pnt01', {'geom_id': 'g', 'surf_indx': 0, 'us': [0.1, 0.2], 'ws': [0.3, 0.4]}))
+        self.assertEqual([(p.x(), p.y(), p.z()) for p in points], [(1.0, 2.0, 3.0), (4.0, 5.0, 6.0)])
+        vsp.CompVecNorm01('g', 1, [0.5], [0.5])
+        self.assertEqual(self.calls[-1][0], 'live_comp_vec_norm01')
+        self.reply['value'] = [1.0, 0.25, 0.75]
+        self.assertEqual(vsp.ProjPnt01('g', 0, (1.0, 2.0, 3.0)), (1.0, 0.25, 0.75))
+        self.assertEqual(self.calls[-1], ('live_proj_pnt01', {'geom_id': 'g', 'surf_indx': 0, 'point': [1.0, 2.0, 3.0]}))
+        self.reply['value'] = [1.0, 2.0, 1.5, 2.0]
+        self.assertEqual(vsp.CompCurvature01('g', 0, 0.25, 0.75), (1.0, 2.0, 1.5, 2.0))
+        self.assertEqual(self.calls[-1], ('live_comp_curvature01', {'geom_id': 'g', 'surf_indx': 0, 'u': 0.25, 'w': 0.75}))
+        self.reply['value'] = [[0.0, 1.0], [0.0, 0.5, 1.0]]
+        self.assertEqual(vsp.GetUWTess01('g', 0), ([0.0, 1.0], [0.0, 0.5, 1.0]))
+        self.assertEqual(self.calls[-1], ('live_uw_tess01', {'geom_id': 'g', 'surf_indx': 0}))
+        with self.assertRaisesRegex(ValueError, 'matching'):
+            vsp.CompVecPnt01('g', 0, [0.1], [0.2, 0.3])
+
     def test_parameter_metadata_forwarding(self):
         self.reply['value'] = 'Total length'
         self.assertEqual(vsp.GetParmDescript('p'), 'Total length')
