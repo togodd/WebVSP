@@ -105,6 +105,7 @@ helper（[上游入口](../../../../src/python_api/packages/openvsp/openvsp/__in
 | `AddGeom`、`DeleteGeom`、`Update`、`FindGeoms`、`FindGeom` | ✅ | `DeleteGeom` 支持三种克隆策略；`Update` 参数被忽略，始终完整更新 |
 | `FindGeoms`、`FindGeom`、`GetGeomName`、`GetGeomTypeName` | ✅ | 直接读引擎线程，改名后同一段脚本内即可见 |
 | `GetGeomParent`、`GetGeomChildren`、`SetGeomName` | ✅ | 顶层父级是 `'NONE'`；自命名（Clone 等）拒绝改名 |
+| `GetGeomTypes`、`GetNumMainSurfs`、`UpdateGeom`、`SetGeomParent`、`CopyGeomToClipboard`、`CutGeomToClipboard`、`PasteGeomClipboard` | ✅ | 已通过真实浏览器几何更新、父子关系和剪贴板回归 |
 | `GetGeomParmIDs` | ✅ | |
 | `GetParmVal`、`SetParmVal` | ✅ | `GetParmVal` 支持单参数重载；`SetParmVal` 支持两参数和四参数重载，均不触发更新 |
 | `GetParmInfo`、`GetParmInfoByName`、`GetParmValByID`、`SetParmValByID` | ✅ | `GetParmInfo` 另含 `active`、`lower`、`upper`、`groupName` |
