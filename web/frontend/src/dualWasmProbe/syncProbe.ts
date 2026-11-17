@@ -22,6 +22,7 @@ const LIVE_WRITES = new Set([
   'live_parm_set_descript', 'live_parm_set_limits', 'live_clone_geom_vec', 'live_delete_geom_vec',
   'live_copy_paste_set',
   'live_vspaero_kill',
+  'live_api_write',
   'live_vspaero_set_ref_wing', 'live_vspaero_set_mode', 'live_vspaero_set_cg_mode',
   'live_vspaero_add_cs_group', 'live_vspaero_auto_group', 'live_vspaero_delete_cs_group',
   'live_vspaero_add_all_cs_group', 'live_vspaero_remove_all_cs_group', 'live_vspaero_set_cs_name',
@@ -170,6 +171,20 @@ async function run(mode: 'script' | 'console', script?: string): Promise<unknown
         if (op === 'live_geom_types') return live('geomTypes')
         if (op === 'live_vspaero_files') return live('liveVSPAEROFiles')
         if (op === 'live_vspaero_output') return live('liveVSPAEROOutput')
+        if (op === 'live_api' || op === 'live_api_write') {
+          const fn = text('fn'), shape = text('shape')
+          const values = args.args
+          if (!Array.isArray(values) || values.length > 4) throw new WasmEngineError(400, 'Invalid API arguments', 'not_written')
+          const encoder = new TextEncoder()
+          const packed = values.map(value => {
+            if (typeof value === 'string') return value
+            if (typeof value === 'boolean') return value ? '1' : '0'
+            if (typeof value === 'number' && Number.isFinite(value)) return String(value)
+            throw new WasmEngineError(400, 'Invalid API argument', 'not_written')
+          })
+          const packet = `${packed.length};` + packed.map(v => `${encoder.encode(v).length}:${v}`).join('')
+          return live('liveApi', fn, `${shape}\x1f${packet}`, 0)
+        }
         if (op === 'live_vspaero_ref_wing') return live('liveVSPAERORefWing')
         if (op === 'live_vspaero_set_ref_wing') return live('liveVSPAEROSetRefWing', text('geom_id'))
         if (op === 'live_vspaero_mode') return live('liveVSPAEROMode')

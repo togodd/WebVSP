@@ -80,6 +80,24 @@ describe('live write bridge', () => {
     expect(engine.call).not.toHaveBeenCalled()
     worker.onmessage({ data: { type: 'done', value: 'null' } } as MessageEvent)
   })
+  it('forwards the generic signature-driven API bridge', async () => {
+    void runSyncScript('')
+    const worker = FakeWorker.instance
+    engine.call.mockResolvedValue(null)
+    expect((await worker.request('live_api', { fn: 'GetParmName', shape: 'S', args: ['p1'] })).ok).toBe(true)
+    expect(engine.call).toHaveBeenLastCalledWith('liveApi', 'GetParmName', 'S\x1f1;2:p1', 0)
+    expect((await worker.request('live_api_write', { fn: 'SetParmDescript', shape: 'ss', args: ['p1', 'text'] })).ok).toBe(true)
+    expect(engine.call).toHaveBeenLastCalledWith('liveApi', 'SetParmDescript', 'ss\x1f2;2:p14:text', 0)
+    // Numbers and booleans travel as decimal text in the same packet.
+    expect((await worker.request('live_api', { fn: 'GetSubSurfType', shape: 'Si', args: ['s1', 2] })).ok).toBe(true)
+    expect(engine.call).toHaveBeenLastCalledWith('liveApi', 'GetSubSurfType', 'Si\x1f2;2:s11:2', 0)
+    expect((await worker.request('live_api', { fn: 'CheckForVSPAERO', shape: 'B', args: ['/bin'] })).ok).toBe(true)
+    expect(engine.call).toHaveBeenLastCalledWith('liveApi', 'CheckForVSPAERO', 'B\x1f1;4:/bin', 0)
+    engine.call.mockClear()
+    expect((await worker.request('live_api', { fn: 'GetParmName', shape: 'S', args: [{ bad: 1 }] })).error.outcome).toBe('not_written')
+    expect(engine.call).not.toHaveBeenCalled()
+    worker.onmessage({ data: { type: 'done', value: 'null' } } as MessageEvent)
+  })
   it('forwards VSPAERO reference, mode and control group calls', async () => {
     void runSyncScript('')
     const worker = FakeWorker.instance

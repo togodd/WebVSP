@@ -1,6 +1,7 @@
 /// <reference lib="webworker" />
 import type { PyodideInterface } from 'pyodide'
 import liveFacade from './python/openvsp_live.py?raw'
+import liveApiTable from './python/live_api_table.py?raw'
 import liveImports from './python/live_imports.py?raw'
 import webvspFiles from './python/webvsp_files.py?raw'
 // Bundled upstream files keep the src/python_api package layout so gaps stay visible.
@@ -112,6 +113,7 @@ async function setupLive(pyodide: PyodideInterface): Promise<void> {
     // The facade takes the desktop package's import name; every other file is
     // written under the same relative path it has in src/python_api/packages.
     'openvsp/__init__.py': liveFacade,
+    'live_api_table.py': liveApiTable,
     'openvsp/utilities.py': openvspUtilities,
     'openvsp/degen_geom_parse.py': openvspDegenParser,
     'openvsp/surface_patches.py': openvspPatches,

@@ -75,6 +75,7 @@
 #include "VSPAEROMgr.h"
 #include "MessageMgr.h"
 #include "WebProcess.h"
+#include "live_api_table.inc"
 #include <angelscript.h>
 #include "ScriptMgr.h"
 #if defined(WEBVSP_SCRIPT_GUARD_TEST) && defined(WEBVSP_PARM_REENTRY_TEST)
@@ -3239,6 +3240,236 @@ void RunImpl( const Job &j )
         const string writeErr = TakeParmErrors( true );
         if ( !writeErr.empty() ) return Result( j.id, "SetParmVal(" + group + "/" + name + "): " + writeErr, "" );
         return Result( j.id, "", Num( actual ) );
+    }
+    // ---- Signature-driven generic API bridge -------------------------------
+    // One line per native function lives in live_api_table.inc. The caller sends
+    // the argument shape so this switch can unpack without a per-function branch.
+    if ( j.op == "liveApi" )
+    {
+        const size_t sep = j.b.find( '\x1f' );
+        if ( sep == string::npos ) return Result( j.id, "Invalid API call", "" );
+        const string shape = j.b.substr( 0, sep );
+        vector< string > items;
+        if ( !live_packet( j.b.substr( sep + 1 ), items ) ) return Result( j.id, "Invalid API arguments", "" );
+        auto need = [ & ]( size_t count ) { return items.size() == count; };
+        auto as_int = [ & ]( size_t i, int &out )
+        {
+            char *end = nullptr;
+            const long value = std::strtol( items[i].c_str(), &end, 10 );
+            if ( items[i].empty() || end != items[i].c_str() + items[i].size() ||
+                 value < -2147483648L || value > 2147483647L ) return false;
+            out = static_cast< int >( value );
+            return true;
+        };
+        auto as_bool = [ & ]( size_t i, bool &out )
+        {
+            if ( items[i] == "1" ) { out = true; return true; }
+            if ( items[i] == "0" ) { out = false; return true; }
+            return false;
+        };
+        auto as_double = [ & ]( size_t i, double &out )
+        {
+            char *end = nullptr;
+            out = std::strtod( items[i].c_str(), &end );
+            return !items[i].empty() && end == items[i].c_str() + items[i].size() && std::isfinite( out );
+        };
+        auto missing = [ & ]() { return Result( j.id, "Unknown API function or wrong arguments: " + j.a, "" ); };
+        auto call_void_string = [ & ]( const std::map< string, std::function< void( const string & ) > > &table )
+        {
+            const auto it = table.find( j.a );
+            if ( it == table.end() ) return false;
+            it->second( items[0] );
+            return true;
+        };
+        auto call_void_string_string = [ & ]( const std::map< string, std::function< void( const string &, const string & ) > > &table )
+        {
+            const auto it = table.find( j.a );
+            if ( it == table.end() ) return false;
+            it->second( items[0], items[1] );
+            return true;
+        };
+
+        if ( shape == "s" || shape == "S" || shape == "I" || shape == "D" || shape == "B" )
+        {
+            if ( !need( 1 ) ) return missing();
+            if ( shape == "s" )
+            {
+                if ( !call_void_string( kApi_s ) ) return missing();
+                return Result( j.id, TakeErrors(), "null" );
+            }
+            if ( shape == "S" )
+            {
+                const auto it = kApi_S.find( j.a );
+                if ( it == kApi_S.end() ) return missing();
+                return Result( j.id, TakeErrors(), Quote( it->second( items[0] ) ) );
+            }
+            if ( shape == "I" )
+            {
+                const auto it = kApi_I.find( j.a );
+                if ( it == kApi_I.end() ) return missing();
+                return Result( j.id, TakeErrors(), std::to_string( it->second( items[0] ) ) );
+            }
+            if ( shape == "D" )
+            {
+                const auto it = kApi_D.find( j.a );
+                if ( it == kApi_D.end() ) return missing();
+                return Result( j.id, TakeErrors(), Num( it->second( items[0] ) ) );
+            }
+            const auto it = kApi_B.find( j.a );
+            if ( it == kApi_B.end() ) return missing();
+            return Result( j.id, TakeErrors(), it->second( items[0] ) ? "true" : "false" );
+        }
+        if ( shape == "v" )
+        {
+            if ( !need( 0 ) ) return missing();
+            const auto it = kApi_v.find( j.a );
+            if ( it == kApi_v.end() ) return missing();
+            it->second();
+            return Result( j.id, TakeErrors(), "null" );
+        }
+        if ( shape == "V" )
+        {
+            if ( !need( 0 ) ) return missing();
+            const auto it = kApi_V.find( j.a );
+            if ( it == kApi_V.end() ) return missing();
+            return Result( j.id, TakeErrors(), LiveStringArray( it->second() ) );
+        }
+        if ( shape == "Vs" )
+        {
+            if ( !need( 1 ) ) return missing();
+            const auto it = kApi_Vs.find( j.a );
+            if ( it == kApi_Vs.end() ) return missing();
+            return Result( j.id, TakeErrors(), LiveStringArray( it->second( items[0] ) ) );
+        }
+        if ( shape == "ss" || shape == "SS" )
+        {
+            if ( !need( 2 ) ) return missing();
+            if ( shape == "ss" )
+            {
+                if ( !call_void_string_string( kApi_ss ) ) return missing();
+                return Result( j.id, TakeErrors(), "null" );
+            }
+            const auto it = kApi_SS.find( j.a );
+            if ( it == kApi_SS.end() ) return missing();
+            return Result( j.id, TakeErrors(), Quote( it->second( items[0], items[1] ) ) );
+        }
+        if ( shape == "i" || shape == "N" || shape == "Vi" )
+        {
+            if ( !need( 1 ) ) return missing();
+            int a;
+            if ( !as_int( 0, a ) ) return Result( j.id, "Invalid integer argument", "" );
+            if ( shape == "i" )
+            {
+                const auto it = kApi_i.find( j.a );
+                if ( it == kApi_i.end() ) return missing();
+                it->second( a );
+                return Result( j.id, TakeErrors(), "null" );
+            }
+            if ( shape == "N" )
+            {
+                const auto it = kApi_N.find( j.a );
+                if ( it == kApi_N.end() ) return missing();
+                return Result( j.id, TakeErrors(), Quote( it->second( a ) ) );
+            }
+            const auto it = kApi_Vi.find( j.a );
+            if ( it == kApi_Vi.end() ) return missing();
+            return Result( j.id, TakeErrors(), LiveStringArray( it->second( a ) ) );
+        }
+        if ( shape == "n" || shape == "Ii" )
+        {
+            if ( !need( 2 ) ) return missing();
+            int b;
+            if ( !as_int( 1, b ) ) return Result( j.id, "Invalid integer argument", "" );
+            if ( shape == "n" )
+            {
+                const auto it = kApi_n.find( j.a );
+                if ( it == kApi_n.end() ) return missing();
+                it->second( items[0], b );
+                return Result( j.id, TakeErrors(), "null" );
+            }
+            const auto it = kApi_Ii.find( j.a );
+            if ( it == kApi_Ii.end() ) return missing();
+            return Result( j.id, TakeErrors(), std::to_string( it->second( items[0], b ) ) );
+        }
+        if ( shape == "Si" )
+        {
+            if ( !need( 2 ) ) return missing();
+            int b;
+            if ( !as_int( 1, b ) ) return Result( j.id, "Invalid integer argument", "" );
+            const auto it = kApi_Si.find( j.a );
+            if ( it == kApi_Si.end() ) return missing();
+            return Result( j.id, TakeErrors(), Quote( it->second( items[0], b ) ) );
+        }
+        if ( shape == "sb" || shape == "sd" )
+        {
+            if ( !need( 2 ) ) return missing();
+            if ( shape == "sb" )
+            {
+                bool b;
+                if ( !as_bool( 1, b ) ) return Result( j.id, "Invalid boolean argument", "" );
+                const auto it = kApi_sb.find( j.a );
+                if ( it == kApi_sb.end() ) return missing();
+                it->second( items[0], b );
+                return Result( j.id, TakeErrors(), "null" );
+            }
+            double b;
+            if ( !as_double( 1, b ) ) return Result( j.id, "Invalid numeric argument", "" );
+            const auto it = kApi_sd.find( j.a );
+            if ( it == kApi_sd.end() ) return missing();
+            it->second( items[0], b );
+            return Result( j.id, TakeErrors(), "null" );
+        }
+        if ( shape == "ns" )
+        {
+            if ( !need( 2 ) ) return missing();
+            int a;
+            if ( !as_int( 0, a ) ) return Result( j.id, "Invalid integer argument", "" );
+            const auto it = kApi_ns.find( j.a );
+            if ( it == kApi_ns.end() ) return missing();
+            it->second( a, items[1] );
+            return Result( j.id, TakeErrors(), "null" );
+        }
+        if ( shape == "nn" || shape == "ib" )
+        {
+            if ( !need( 2 ) ) return missing();
+            int a;
+            if ( !as_int( 0, a ) ) return Result( j.id, "Invalid integer argument", "" );
+            if ( shape == "nn" )
+            {
+                int b;
+                if ( !as_int( 1, b ) ) return Result( j.id, "Invalid integer argument", "" );
+                const auto it = kApi_nn.find( j.a );
+                if ( it == kApi_nn.end() ) return missing();
+                it->second( a, b );
+                return Result( j.id, TakeErrors(), "null" );
+            }
+            bool b;
+            if ( !as_bool( 1, b ) ) return Result( j.id, "Invalid boolean argument", "" );
+            const auto it = kApi_ib.find( j.a );
+            if ( it == kApi_ib.end() ) return missing();
+            it->second( a, b );
+            return Result( j.id, TakeErrors(), "null" );
+        }
+        if ( shape == "sis" || shape == "sii" )
+        {
+            if ( !need( 3 ) ) return missing();
+            int b;
+            if ( !as_int( 1, b ) ) return Result( j.id, "Invalid integer argument", "" );
+            if ( shape == "sis" )
+            {
+                const auto it = kApi_sis.find( j.a );
+                if ( it == kApi_sis.end() ) return missing();
+                it->second( items[0], b, items[2] );
+                return Result( j.id, TakeErrors(), "null" );
+            }
+            int c;
+            if ( !as_int( 2, c ) ) return Result( j.id, "Invalid integer argument", "" );
+            const auto it = kApi_sii.find( j.a );
+            if ( it == kApi_sii.end() ) return missing();
+            it->second( items[0], b, c );
+            return Result( j.id, TakeErrors(), "null" );
+        }
+        return missing();
     }
     // ---- Live XSec / subsurface / set access (in-process mode) -------------
     if ( j.op == "liveXSecSurfIDs" )

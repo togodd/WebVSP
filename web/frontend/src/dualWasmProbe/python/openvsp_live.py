@@ -884,6 +884,51 @@ def _parm_id(geom_id, name, group):
     raise OpenVSPError('Parameter %s/%s not found on %s' % (group, name, geom_id))
 
 
+# ---------------------------------------------------------------- generated API
+
+def _api_wrappers():
+    """Build one wrapper per native function listed in live_api_table.
+
+    Those functions only take plain inputs and return a scalar or a string list,
+    so the shape table is enough to marshal them through the generic bridge.
+    """
+    from live_api_table import FUNCTIONS, SHAPES
+
+    def make(name, shape):
+        types, _ = SHAPES[shape]
+        write = shape[0].islower()
+
+        def wrapper(*args):
+            if len(args) != len(types):
+                raise TypeError('%s expects %d argument(s), got %d' % (name, len(types), len(args)))
+            values = []
+            for kind, value in zip(types, args):
+                if kind == 'string':
+                    if not isinstance(value, str):
+                        raise TypeError('%s expects a string argument' % name)
+                    values.append(value)
+                elif kind == 'int':
+                    if type(value) is not int:
+                        raise TypeError('%s expects an integer argument' % name)
+                    values.append(value)
+                elif kind == 'bool':
+                    values.append(bool(value))
+                else:
+                    values.append(float(value))
+            return _call('live_api_write' if write else 'live_api',
+                         fn=name, shape=shape, args=values)
+
+        wrapper.__name__ = name
+        wrapper.__qualname__ = name
+        wrapper.__doc__ = 'Native OpenVSP API bridged by signature (%s).' % shape
+        return wrapper
+
+    return {name: make(name, shape) for name, shape in FUNCTIONS.items()}
+
+
+globals().update(_api_wrappers())
+
+
 # ---------------------------------------------------------------- analyses
 
 def ListAnalysis():
