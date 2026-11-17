@@ -97,6 +97,10 @@ helper（[上游入口](../../../../src/python_api/packages/openvsp/openvsp/__in
 
 ### `openvsp` 门面（`python/openvsp_live.py`）
 
+当前门面公开函数 182 个；上游 `VSP_Geom_API.h` 有 1017 个不同函数名，同名覆盖仍以本表为准，
+不做“名称即支持”的推断。下面未列出的上游功能（FEA/CFD 网格、属性与参数链接、设计变量、
+VSPAERO 控制面、测量、可视化等）尚未桥接。
+
 | 接口 | 状态 | 说明 |
 | --- | --- | --- |
 | `OpenVSPError`、`get_instance()` | ✅ | 错误带 `outcome`/`actual`/`code`；只接受本模块，第二实例直接 `ValueError` |
