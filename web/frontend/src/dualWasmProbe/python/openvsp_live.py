@@ -1325,6 +1325,74 @@ def _parm_id(geom_id, name, group):
     raise OpenVSPError('Parameter %s/%s not found on %s' % (group, name, geom_id))
 
 
+# ---------------------------------------------------------------- scripting shims
+
+def Print(*args):
+    """AngelScript-style Print: joins the arguments, optional trailing newline flag.
+
+    The example scripts call ``Print("value = ", false)`` then ``Print(x)``, so a
+    trailing bool selects whether a newline is written.
+    """
+    newline = True
+    if args and isinstance(args[-1], bool):
+        newline = args[-1]
+        args = args[:-1]
+    text = ''.join(_as_text(value) for value in args)
+    sys.stdout.write(text + ('\n' if newline else ''))
+    sys.stdout.flush()
+
+
+def _as_text(value):
+    if isinstance(value, str):
+        return value
+    if isinstance(value, bool):
+        return '1' if value else '0'
+    if isinstance(value, float):
+        return repr(value)
+    return str(value)
+
+
+def CloseTo(a, b, tol=1e-8):
+    """AngelScript closeTo(): absolute difference within a tolerance."""
+    return abs(float(a) - float(b)) <= float(tol)
+
+
+closeTo = CloseTo
+
+
+def PrintResults(result_id):
+    """Print every field of a result, as the ScriptMgr helper does."""
+    if not result_id:
+        Print('PrintResults: no result ID', True)
+        return
+    Print('Results: ' + result_id, True)
+    for name in GetAllDataNames(result_id):
+        kind = GetResultsType(result_id, name)
+        try:
+            if kind == INT_DATA:
+                value = GetIntResults(result_id, name, 0)
+            elif kind == DOUBLE_DATA:
+                value = GetDoubleResults(result_id, name, 0)
+            elif kind == STRING_DATA:
+                value = GetStringResults(result_id, name, 0)
+            elif kind == VEC3D_DATA:
+                value = [(v.x(), v.y(), v.z()) for v in GetVec3dResults(result_id, name, 0)]
+            else:
+                value = '<type %d>' % kind
+        except OpenVSPError as exc:
+            value = '<error: %s>' % exc
+        Print('  %s: %s' % (name, value), True)
+
+
+def GetNumTotalErrors():
+    """Legacy free function; the queue lives on ErrorMgrSingleton now."""
+    return ErrorMgrSingleton.getInstance().GetNumTotalErrors()
+
+
+def PopLastError():
+    return ErrorMgrSingleton.getInstance().PopLastError()
+
+
 # ---------------------------------------------------------------- generated API
 
 def _api_wrappers():
@@ -1333,15 +1401,35 @@ def _api_wrappers():
     Those functions only take plain inputs and return a scalar or a string list,
     so the shape table is enough to marshal them through the generic bridge.
     """
-    from live_api_table import FUNCTIONS, SHAPES
+    from live_api_table import DEFAULTS, FUNCTIONS, SHAPES
 
     def make(name, shape):
         types, returns = SHAPES[shape]
+        defaults = DEFAULTS.get(name, ())
         write = returns == 'void'
 
+        def resolved(index, given):
+            if index < len(given):
+                return given[index], None
+            spec = defaults[index] if index < len(defaults) else None
+            if spec is None:
+                return None, 'missing'
+            kind, value = spec
+            if kind == 'lit':
+                return value, None
+            constant = globals().get(value)
+            return (constant, None) if constant is not None else (None, 'missing')
+
         def wrapper(*args):
-            if len(args) != len(types):
-                raise TypeError('%s expects %d argument(s), got %d' % (name, len(types), len(args)))
+            if len(args) > len(types):
+                raise TypeError('%s expects at most %d argument(s), got %d' % (name, len(types), len(args)))
+            filled = []
+            for index in range(len(types)):
+                value, problem = resolved(index, args)
+                if problem:
+                    raise TypeError('%s is missing argument %d' % (name, index + 1))
+                filled.append(value)
+            args = tuple(filled)
             values = []
             for kind, value in zip(types, args):
                 if kind == 'string':

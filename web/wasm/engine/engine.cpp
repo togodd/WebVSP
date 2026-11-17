@@ -76,6 +76,7 @@
 #include "MessageMgr.h"
 #include "WebProcess.h"
 #include "live_api_table.inc"
+#include "custom_scripts.inc"
 #include <angelscript.h>
 #include "ScriptMgr.h"
 #if defined(WEBVSP_SCRIPT_GUARD_TEST) && defined(WEBVSP_PARM_REENTRY_TEST)
@@ -3514,6 +3515,25 @@ void RunImpl( const Job &j )
             if ( out.empty() && !values.empty() ) return Result( j.id, "Non-finite vector result", "" );
             return Result( j.id, TakeErrors(), out );
         }
+        if ( shape == "sbi" || shape == "siiS" )
+        {
+            if ( !need( 3 ) ) return missing();
+            int c;
+            if ( !as_int( 2, c ) ) return Result( j.id, "Invalid integer argument", "" );
+            if ( shape == "sbi" )
+            {
+                bool b;
+                if ( !as_bool( 1, b ) ) return Result( j.id, "Invalid boolean argument", "" );
+                const auto it = kApi_sbi.find( j.a );
+                if ( it == kApi_sbi.end() ) return missing();
+                return Result( j.id, TakeErrors(), std::to_string( it->second( items[0], b, c ) ) );
+            }
+            int b;
+            if ( !as_int( 1, b ) ) return Result( j.id, "Invalid integer argument", "" );
+            const auto it = kApi_siiS.find( j.a );
+            if ( it == kApi_siiS.end() ) return missing();
+            return Result( j.id, TakeErrors(), Quote( it->second( items[0], b, c ) ) );
+        }
         if ( shape == "sv" || shape == "sL" || shape == "sidd" || shape == "ssi" || shape == "iss" )
         {
             if ( shape == "sv" || shape == "sidd" )
@@ -5816,6 +5836,23 @@ int main()
         {
             fputs( "run by the web page\n", f );
             fclose( f );
+        }
+    }
+    // OpenVSP discovers custom components by scanning "CustomScripts" folders.
+    // The browser has none, so write the embedded examples there before the
+    // first scan (the scan itself runs once, lazily, on the first type query).
+    {
+        static const char *dirs[] = { "/CustomScripts", "/CustomScripts/" };
+        ( void ) dirs;
+        mkdir( "/CustomScripts", 0755 );
+        for ( int i = 0; i < kCustomScriptCount; ++i )
+        {
+            const string path = string( "/CustomScripts/" ) + kCustomScripts[i].name;
+            if ( FILE *f = fopen( path.c_str(), "wb" ) )
+            {
+                fwrite( kCustomScripts[i].body, 1, strlen( kCustomScripts[i].body ), f );
+                fclose( f );
+            }
         }
     }
     vsp::SetVSPAEROPath( "/bin" );

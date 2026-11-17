@@ -3,8 +3,7 @@
 # uses ErrorMgrSingleton (the free functions no longer exist).
 import openvsp as vsp
 
-# TransportFuse is a custom component (.vsppart); the browser engine has not
-# loaded it, so the faithful port fails here. See REPORT.md, cause A.
+# TransportFuse comes from examples/CustomScripts, which the engine embeds.
 fid = vsp.AddGeom('TransportFuse', '')
 len_id = vsp.GetParm(fid, 'Length', 'Design')
 vsp.SetParmVal(len_id, 30.0)

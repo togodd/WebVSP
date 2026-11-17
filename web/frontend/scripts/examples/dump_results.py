@@ -1,6 +1,5 @@
 # Ported from examples/scripts/DumpResults.vspscript
-# Adapted: PrintResults() does not exist in the Python API; the script lists the
-# data names instead, which is what the printout was for.
+# Adapted: PrintResults() is now provided by the scripting shim layer.
 import openvsp as vsp
 
 vsp.ClearVSPModel()
@@ -14,8 +13,7 @@ for name in vsp.GetAllResultsNames():
     resid = vsp.FindLatestResultsID(name)
     if not resid:
         continue
-    for field in vsp.GetAllDataNames(resid):
-        print('   ', field, vsp.GetResultsType(resid, field))
+    vsp.PrintResults(resid)
     print('')
 
 manager = vsp.ErrorMgrSingleton.getInstance()

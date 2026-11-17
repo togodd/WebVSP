@@ -1,6 +1,6 @@
 # OpenVSP 示例移植报告（WebVSP / Python 桥）
 
-日期：2026-11-17
+日期：2026-11-17（第 2 版：便捷层、自定义组件、FEA 形状已补）
 范围：`examples/scripts/*.vspscript`（AngelScript）代表性取样 13 个，逐个人工移植成 Python，在真实浏览器 + Pyodide + WASM 引擎里运行。
 移植代码：[`scripts/examples/`](.) ｜ 运行器：[`scripts/run-examples.mjs`](../run-examples.mjs)
 
@@ -28,25 +28,24 @@
 | 1 | `Fuselage.vspscript` | ✅ 完整可用 | 截面复制/粘贴/裁剪、切线、CompGeom，`Wet_Area = 349.03` |
 | 2 | `SubSurface.vspscript` | ✅ 完整可用 | 子表面增删改查、按名查找、参数列表全部正确 |
 | 3 | `TestAreaProj.vspscript` | ✅ 完整可用 | 三向投影面积与期望值一致（误差 < 1e-6） |
-| 4 | `TestMeasure.vspscript` | ✅ 完整可用 | 标尺创建/删除、探头、距离 `4.978884` vs 期望 `4.978881`（差 3.4e-6） |
-| 5 | `DumpResults.vspscript` | ✅ 改一行可用 | `PrintResults()` 无对应 API，改为遍历 `GetAllDataNames` |
-| 6 | `Wing.vspscript` | 🟡 降级可用 | 几何全部建成，但 `SetDriverGroup` 缺失，驱动组未设置 |
-| 7 | `Stack.vspscript` | 🟡 降级可用 | 同上；其余截面/粘贴/切线流程正常 |
-| 8 | `DegenGeom.vspscript` | ❌ 原脚本受阻 → 🟡 移植版可用 | 原脚本用自定义组件 `TransportFuse`；移植版回退到内置 `FUSELAGE` 后跑通，结果含 `Degen_surf/stick/plate/DegenGeom` |
-| 9 | `CreateEditGeom.vspscript` | ❌ 受阻 | 同上；换成内置 `FUSELAGE` 后脚本自身的 `Diameter` 参数也不存在（示例专有） |
-| 10 | `StructuresParmContainerTest.vspscript` | ❌ 受阻 | `AddFeaStruct` 未桥接 |
-| 11 | `FEAMesh.vspscript` | ❌ 受阻 | `FeaMeshAnalysis/Export` 分析被拒，`AddFeaPart`/`SetFeaMeshVal` 未桥接 |
-| 12 | `CpSlicer.vspscript` | ❌ 受阻 | `CpSlicer` 分析被拒，`ComputeVSPAEROCpSlices` 等不存在 |
-| 13 | `SurfaceIntersection.vspscript` | ❌ 受阻 | `SurfaceIntersection` 分析被拒，`IntersectGeoms` 不存在 |
+| 4 | `TestMeasure.vspscript` | ✅ 完整可用 | 标尺创建/删除、探头、距离 `4.978884` vs 期望 `4.978881` |
+| 5 | `DumpResults.vspscript` | ✅ 完整可用 | 用上 `PrintResults()` 便捷函数后与原脚本一致 |
+| 6 | `DegenGeom.vspscript` | ✅ 完整可用 | 自定义组件 `TransportFuse` 已可用；产出 `Degen_surf/stick/plate` |
+| 7 | `CreateEditGeom.vspscript` | ✅ 完整可用 | 同上，`TransportFuse` + `WING` 建模成功 |
+| 8 | `StructuresParmContainerTest.vspscript` | ✅ 完整可用 | `AddFeaStruct`/`AddFeaPart` 已桥接，FEA 结构与参数容器可读写 |
+| 9 | `Wing.vspscript` | 🟡 降级可用 | 几何全部建成，`SetDriverGroup` 仍缺失（重载未桥接） |
+| 10 | `Stack.vspscript` | 🟡 降级可用 | 同上 |
+| 11 | `CpSlicer.vspscript` | ❌ 仍受阻 | `CpSlicer` 分析未放开，切片函数不存在 |
+| 12 | `SurfaceIntersection.vspscript` | ❌ 仍受阻 | `SurfaceIntersection` 分析未放开 |
+| 13 | `FEAMesh.vspscript` | ❌ 仍受阻 | `FeaMeshAnalysis/Export` 未放开；`SetFeaMeshVal` 仍缺 |
 
-统计：**5 个完整可用、3 个降级可用（含回退后的 DegenGeom）、5 个受阻**。
-移植后 13 个脚本中 **12 个不再抛异常**；但"不抛异常"不等于"可用"，上表按实际输出语义判定。
+统计：**8 个完整可用、2 个降级可用、3 个仍受阻**（13/13 不再抛异常，但按实际输出语义判定如上表）。
 
 ---
 
 ## 3. 根因分类（这是下次完善的方向）
 
-### A. 自定义组件（`.vsppart`）没有加载机制 — 2 例
+### A. 自定义组件（`.vsppart`）没有加载机制 — ✅ 已修复
 
 `TransportFuse` 不是内置类型，而是 `examples/CustomScripts/TransportFuse.vsppart`。官方文档写明：自定义组件由 OpenVSP 在启动时从 `Custom Scripts/` 目录加载，之后才能 `AddGeom("TransportFuse")`。
 
@@ -56,8 +55,7 @@
 openvsp.OpenVSPError: AddGeom::Can't Find Type Name TransportFuse
 ```
 
-**影响**：所有依赖示例自定义组件的脚本（`DegenGeom`、`CreateEditGeom`、`TransportFuse` 相关）都无法直接移植。
-**建议**：把 `examples/CustomScripts/*.vsppart` 打进引擎镜像的 `Custom Scripts/` 目录，或提供"上传/加载 vsppart"的入口。这是**单点投入、解锁一批示例**的改动。
+**已修复**：`gen_custom_scripts.py` 把 `examples/CustomScripts/*.vsppart`（10 个、约 58 KB）编译进引擎，启动时写入 `/CustomScripts/`，赶在 OpenVSP 首次扫描之前。现在 `GetGeomTypes()` 里能看到 `Box`、`Disk`、`PodMan`、`TransportFuse` 等，`AddGeom('TransportFuse')` 正常。
 
 ### B. 分析未纳入白名单 — 3 例
 
@@ -69,7 +67,7 @@ openvsp.OpenVSPError: AddGeom::Can't Find Type Name TransportFuse
 
 **建议**：优先级 `SurfaceIntersection`（进程内、无外部依赖）> `CpSlicer`（VSPAERO 链路已通，只差 `vsploads` 调用与 `.adb` 输入）。
 
-### C. FEA 结构 API 缺口 — 2 例
+### C. FEA 结构 API 缺口 — ✅ 已修复
 
 实测缺失：`AddFeaStruct`、`AddFeaPart`、`SetFeaMeshVal`（`AddFeaMaterial` 已存在）。
 
@@ -83,7 +81,7 @@ extern std::string AddFeaPart( const std::string & geom_id, int fea_struct_ind, 
 - `AddFeaStruct`：带默认参数 `(string, bool, int)`，签名表里没有这个形状
 - `AddFeaPart`：`(string, int, int) → string`，有参数形状没有对应返回形状
 
-**建议**：生成器补两个形状 `(string,bool,int)` 与 `(string,int,int)→string`，再按需补 `SetFeaMeshVal` 等。成本很低。
+**已修复**：生成器新增 `sbi` 与 `siiS` 两个形状，并**支持原生默认参数**（`DEFAULTS` 表 + 门面按缺省补齐）。`AddFeaStruct(pod)` 这种只传一个参数的调用现在可用，FEA 结构与参数容器读写正常。剩下 `SetFeaMeshVal` 等仍需单独补。
 
 ### D. 重载函数未桥接 — 2 例（`Wing`、`Stack`）
 
@@ -96,7 +94,7 @@ extern void SetDriverGroup( const std::string & geom_id, int section_index, int 
 
 **建议**：为高频重载写手写包装（按参数个数分派），优先 `SetDriverGroup`、`Get/SetXSecPnts`、`DeleteSubSurf` 这类常用项。
 
-### E. AngelScript 专有 API（示例比 C++ API 老）— 全部示例都有
+### E. AngelScript 专有 API — ✅ 部分修复
 
 | 示例里用的 | 现状 | 替代 |
 |---|---|---|
@@ -107,7 +105,9 @@ extern void SetDriverGroup( const std::string & geom_id, int section_index, int 
 | `ComputeVSPAEROCpSlices` / `GetAllCpSlices` / `IntersectGeoms` | **头文件里没有**，仅 ScriptMgr 注册过 | 暂无 |
 | `SetXSecTanAngles(xsec, XSEC_BOTH_SIDES, 0)` 3 参便捷式 | 原生是 6 参 `(side, top, right, bottom, left)` | 左右两侧各调一次 |
 
-**结论**：`examples/scripts/*.vspscript` 是按 **AngelScript 便捷层**写的，不是 C++/Python API。移植必须做一层映射。**建议在桥里提供这层便捷函数**（`Print`、`closeTo` 之类），让示例几乎可以逐行复制——这对用户体验提升最直接。
+**已修复的部分**：门面新增便捷层 `Print(*args)`（支持结尾的换行布尔）、`closeTo(a, b, tol)`、`PrintResults(result_id)`，以及自由函数版 `GetNumTotalErrors()`/`PopLastError()`。示例里这几处现在可以逐行保留。
+
+**仍未覆盖**：`ComputeCompGeom`/`ComputeDegenGeom`（已废弃，用 `ExecAnalysis` 代替）、`SetXSecTanAngles` 三参便捷式（原生是 6 参）、`GetAllCpSlices`/`IntersectGeoms`（头文件里没有）。
 
 ---
 
@@ -124,14 +124,13 @@ extern void SetDriverGroup( const std::string & geom_id, int section_index, int 
 
 ## 5. 建议的下一步（按性价比）
 
-1. **便捷层兼容函数**（半天）：`Print`、`closeTo`、`PrintResults`、自由函数版 `GetNumTotalErrors/PopLastError` 的等价物。让示例"几乎不用改"。
-2. **自定义组件加载**（1 天）：把 `examples/CustomScripts` 挂进引擎 `Custom Scripts/`，解锁 `TransportFuse` 一类示例。
-3. **生成器补形状**（半天）：`(string,bool,int)`、`(string,int,int)→string`，直接补上 `AddFeaStruct`/`AddFeaPart`。
-4. **重载手写包装**（1 天）：`SetDriverGroup` 优先，其次 `GetXSecPnts/SetXSecPnts`。
-5. **`SurfaceIntersection` 分析**（1–2 天）：进程内、无外部依赖，收益明确。
-6. **`CpSlicer` 链路**（2–3 天）：VSPAERO `.adb` → `vsploads` 切片，属于跨进程，风险高于收益。
+已完成：便捷层、自定义组件加载、FEA 形状与默认参数。
 
----
+1. **`SetDriverGroup` 手写重载**（半天）：`Wing`/`Stack` 由降级转完整的唯一缺口。
+2. **`SetXSecTanAngles` 三参便捷式**（2 小时）：把 AngelScript 的"一次设两侧"补成便捷重载。
+3. **补 `SetFeaMeshVal` 等 FEA 细节**（半天）：让 `FEAMesh` 脚本的建模段完整。
+4. **放开 `SurfaceIntersection` 分析**（1 天）：进程内、无外部依赖。
+5. **`CpSlicer` 链路**（2–3 天）：VSPAERO `.adb` → `vsploads` 切片，跨进程、风险最高。
 
 ## 6. 复现
 

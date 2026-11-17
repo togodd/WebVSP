@@ -4,10 +4,9 @@
 # the browser has no host file system.
 import openvsp as vsp
 
-# TransportFuse is a custom component (.vsppart) that the browser engine has
-# not loaded, so this port falls back to the built-in fuselage. The report notes
-# this as the blocking cause.
-fid = vsp.AddGeom('FUSELAGE', '')
+# TransportFuse is a custom component; the engine now writes the bundled
+# examples/CustomScripts files into its file system before the first scan.
+fid = vsp.AddGeom('TransportFuse', '')
 wid = vsp.AddGeom('WING', '')
 
 vsp.SetParmVal(wid, 'X_Rel_Location', 'XForm', 2.5)

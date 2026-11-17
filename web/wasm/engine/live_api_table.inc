@@ -76,6 +76,8 @@
 
 // sb: void (string, bool)  -- 7 functions
 
+// sbi: int (string, bool, int)  -- 1 functions
+
 // sd: void (string, double)  -- 3 functions
 
 // sdd: void (string, double, double)  -- 2 functions
@@ -83,6 +85,8 @@
 // sidd: void (string, int, double, double)  -- 3 functions
 
 // sii: void (string, int, int)  -- 4 functions
+
+// siiS: string (string, int, int)  -- 4 functions
 
 // sis: void (string, int, string)  -- 10 functions
 
@@ -730,6 +734,10 @@ static const std::map< string, std::function< void(const string &a, bool b) > > 
     { "SetParmLinkUpperLimitFlag", []( const string &a, bool b ) { vsp::SetParmLinkUpperLimitFlag(a, b); } },
 };
 
+static const std::map< string, std::function< int(const string &a, bool b, int c) > > kApi_sbi = {
+    { "AddFeaStruct", []( const string &a, bool b, int c ) { return vsp::AddFeaStruct(a, b, c); } },
+};
+
 static const std::map< string, std::function< void(const string &a, double b) > > kApi_sd = {
     { "SetAttributeDouble", []( const string &a, double b ) { vsp::SetAttributeDouble(a, b); } },
     { "SetParmLowerLimit", []( const string &a, double b ) { vsp::SetParmLowerLimit(a, b); } },
@@ -752,6 +760,13 @@ static const std::map< string, std::function< void(const string &a, int b, int c
     { "FitCSTAirfoil", []( const string &a, int b, int c ) { vsp::FitCSTAirfoil(a, b, c); } },
     { "PCurveConvertTo", []( const string &a, int b, int c ) { vsp::PCurveConvertTo(a, b, c); } },
     { "PCurveDeletePt", []( const string &a, int b, int c ) { vsp::PCurveDeletePt(a, b, c); } },
+};
+
+static const std::map< string, std::function< string(const string &a, int b, int c) > > kApi_siiS = {
+    { "AddFeaPart", []( const string &a, int b, int c ) { return vsp::AddFeaPart(a, b, c); } },
+    { "AddFeaSubSurf", []( const string &a, int b, int c ) { return vsp::AddFeaSubSurf(a, b, c); } },
+    { "CreateAndAddMode", []( const string &a, int b, int c ) { return vsp::CreateAndAddMode(a, b, c); } },
+    { "GetFeaMeshFileName", []( const string &a, int b, int c ) { return vsp::GetFeaMeshFileName(a, b, c); } },
 };
 
 static const std::map< string, std::function< void(const string &a, int b, const string &c) > > kApi_sis = {
