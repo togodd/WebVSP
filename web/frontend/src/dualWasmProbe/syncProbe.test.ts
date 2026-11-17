@@ -80,6 +80,25 @@ describe('live write bridge', () => {
     expect(engine.call).not.toHaveBeenCalled()
     worker.onmessage({ data: { type: 'done', value: 'null' } } as MessageEvent)
   })
+  it('forwards surface queries with output parameters', async () => {
+    void runSyncScript('')
+    const worker = FakeWorker.instance
+    engine.call.mockResolvedValue(null)
+    expect((await worker.request('live_xsec_tangent_u', { geom_id: 'g', surf_indx: 0, u: 0.25, w: 0.75 })).ok).toBe(true)
+    expect(engine.call).toHaveBeenLastCalledWith('liveXSecTangentU', 'g', '0.25\x1f0.75', 0)
+    expect((await worker.request('live_inside_surf', { geom_id: 'g', surf_indx: 1, point: [1, 2, 3] })).ok).toBe(true)
+    expect(engine.call).toHaveBeenLastCalledWith('liveInsideSurf', 'g', '1\x1f2\x1f3', 1)
+    expect((await worker.request('live_comp_pnt_rst', { geom_id: 'g', surf_indx: 0, r: 0.1, s: 0.2, t: 0.3 })).ok).toBe(true)
+    expect(engine.call).toHaveBeenLastCalledWith('liveCompPntRST', 'g', '0.1\x1f0.2\x1f0.3', 0)
+    expect((await worker.request('live_find_rst_guess', { geom_id: 'g', surf_indx: 0, point: [1, 2, 3], guess: [0.1, 0.2, 0.3] })).ok).toBe(true)
+    expect(engine.call).toHaveBeenLastCalledWith('liveFindRSTGuess', 'g', '1\x1f2\x1f3\x1f0.1\x1f0.2\x1f0.3', 0)
+    expect((await worker.request('live_proj_pnt01_i', { geom_id: 'g', point: [1, 2, 3] })).ok).toBe(true)
+    expect(engine.call).toHaveBeenLastCalledWith('liveProjPnt01I', 'g', '1\x1f2\x1f3', 0)
+    engine.call.mockClear()
+    expect((await worker.request('live_inside_surf', { geom_id: 'g', surf_indx: 0, point: [1, 2] })).ok).toBe(false)
+    expect(engine.call).not.toHaveBeenCalled()
+    worker.onmessage({ data: { type: 'done', value: 'null' } } as MessageEvent)
+  })
   it('forwards the generic signature-driven API bridge', async () => {
     void runSyncScript('')
     const worker = FakeWorker.instance

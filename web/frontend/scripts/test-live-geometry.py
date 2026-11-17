@@ -81,6 +81,46 @@ class GeometryApiTest(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, 'matching'):
             vsp.CompVecPnt01('g', 0, [0.1], [0.2, 0.3])
 
+    def test_surface_query_forwarding(self):
+        self.reply['value'] = [1.0, 0.0, 0.0]
+        tangent = vsp.CompTanU01('g', 0, 0.25, 0.75)
+        self.assertEqual((tangent.x(), tangent.y(), tangent.z()), (1.0, 0.0, 0.0))
+        self.assertEqual(self.calls[-1], ('live_xsec_tangent_u', {'geom_id': 'g', 'surf_indx': 0, 'u': 0.25, 'w': 0.75}))
+        vsp.CompTanW01('g', 0, 0.25, 0.75)
+        self.assertEqual(self.calls[-1][0], 'live_xsec_tangent_w')
+        self.reply['value'] = 0.125
+        self.assertEqual(vsp.CompareGeomSurfaces('a', 'b'), 0.125)
+        self.assertEqual(self.calls[-1], ('live_compare_geom_surfaces', {'geom_a': 'a', 'geom_b': 'b'}))
+        self.reply['value'] = True
+        self.assertIs(vsp.InsideSurf('g', 0, (1.0, 2.0, 3.0)), True)
+        self.assertEqual(self.calls[-1], ('live_inside_surf', {'geom_id': 'g', 'surf_indx': 0, 'point': [1.0, 2.0, 3.0]}))
+        self.reply['value'] = [0.0, 0.0, 1.0]
+        rst = vsp.CompPntRST('g', 0, 0.5, 0.5, 0.5)
+        self.assertEqual((rst.x(), rst.y(), rst.z()), (0.0, 0.0, 1.0))
+        self.assertEqual(self.calls[-1], ('live_comp_pnt_rst', {'geom_id': 'g', 'surf_indx': 0, 'r': 0.5, 's': 0.5, 't': 0.5}))
+        self.reply['value'] = [1.0, 2.0, 3.0]
+        self.assertEqual(vsp.ConvertRSTtoLMN('g', 0, 0.1, 0.2, 0.3), (1.0, 2.0, 3.0))
+        self.assertEqual(self.calls[-1], ('live_convert_rst_lmn', {'geom_id': 'g', 'surf_indx': 0, 'values': [0.1, 0.2, 0.3]}))
+        vsp.ConvertLMNtoRST('g', 0, 1.0, 2.0, 3.0)
+        self.assertEqual(self.calls[-1][0], 'live_convert_lmn_rst')
+        self.reply['value'] = [0.5, 0.25, 0.75]
+        self.assertEqual(vsp.ProjPnt01Guess('g', 0, (1.0, 2.0, 3.0), 0.1, 0.2), (0.5, 0.25, 0.75))
+        self.assertEqual(self.calls[-1], ('live_proj_pnt01_guess', {'geom_id': 'g', 'surf_indx': 0, 'point': [1.0, 2.0, 3.0], 'extra': [0.1, 0.2]}))
+        vsp.AxisProjPnt01('g', 0, 2, (1.0, 2.0, 3.0))
+        self.assertEqual(self.calls[-1][1]['extra'], [2])
+        vsp.AxisProjPnt01Guess('g', 0, 2, (1.0, 2.0, 3.0), 0.1, 0.2)
+        self.assertEqual(self.calls[-1][1]['extra'], [2, 0.1, 0.2])
+        self.reply['value'] = [0.5, 0, 0.25, 0.75]
+        self.assertEqual(vsp.ProjPnt01I('g', (1.0, 2.0, 3.0)), (0.5, 0, 0.25, 0.75))
+        self.assertEqual(self.calls[-1], ('live_proj_pnt01_i', {'geom_id': 'g', 'point': [1.0, 2.0, 3.0]}))
+        vsp.AxisProjPnt01I('g', (1.0, 2.0, 3.0), 2)
+        self.assertEqual(self.calls[-1][1]['iaxis'], 2)
+        self.reply['value'] = [0.5, 0.1, 0.2, 0.3]
+        self.assertEqual(vsp.FindRST('g', 0, (1.0, 2.0, 3.0)), (0.5, 0.1, 0.2, 0.3))
+        self.assertEqual(self.calls[-1], ('live_find_rst', {'geom_id': 'g', 'surf_indx': 0, 'point': [1.0, 2.0, 3.0]}))
+        vsp.FindRSTGuess('g', 0, (1.0, 2.0, 3.0), 0.1, 0.2, 0.3)
+        self.assertEqual(self.calls[-1][1]['guess'], [0.1, 0.2, 0.3])
+
     def test_parameter_metadata_forwarding(self):
         self.reply['value'] = 'Total length'
         self.assertEqual(vsp.GetParmDescript('p'), 'Total length')

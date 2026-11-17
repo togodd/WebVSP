@@ -223,6 +223,54 @@ async function run(mode: 'script' | 'console', script?: string): Promise<unknown
           return live(op === 'live_comp_pnt01' ? 'liveCompPnt01' : 'liveCompNorm01', id, `${index},${w}`, u)
         }
         if (op === 'live_num_main_surfs') return live('liveNumMainSurfs', text('geom_id'))
+        const numbers = (values: unknown[], expected?: number): string => {
+          if (expected !== undefined && values.length !== expected) throw new WasmEngineError(400, 'Invalid numeric arguments')
+          return values.map(v => {
+            if (typeof v !== 'number' || !Number.isFinite(v)) throw new WasmEngineError(400, 'Invalid numeric argument')
+            return String(v)
+          }).join('\x1f')
+        }
+        if (op === 'live_xsec_tangent_u' || op === 'live_xsec_tangent_w') {
+          const index = args.surf_indx, u = args.u, w = args.w
+          if (typeof index !== 'number' || !Number.isInteger(index)) throw new WasmEngineError(400, 'Invalid surf_indx')
+          return live(op === 'live_xsec_tangent_u' ? 'liveXSecTangentU' : 'liveXSecTangentW', text('geom_id'), numbers([u, w], 2), index)
+        }
+        if (op === 'live_compare_geom_surfaces') return live('liveCompareGeomSurfaces', text('geom_a'), text('geom_b'))
+        if (op === 'live_inside_surf') {
+          const index = args.surf_indx
+          if (typeof index !== 'number' || !Number.isInteger(index)) throw new WasmEngineError(400, 'Invalid surf_indx')
+          return live('liveInsideSurf', text('geom_id'), numbers(args.point as unknown[], 3), index)
+        }
+        if (op === 'live_comp_pnt_rst') {
+          const index = args.surf_indx
+          if (typeof index !== 'number' || !Number.isInteger(index)) throw new WasmEngineError(400, 'Invalid surf_indx')
+          return live('liveCompPntRST', text('geom_id'), numbers([args.r, args.s, args.t], 3), index)
+        }
+        if (op === 'live_convert_rst_lmn' || op === 'live_convert_lmn_rst') {
+          const index = args.surf_indx
+          if (typeof index !== 'number' || !Number.isInteger(index)) throw new WasmEngineError(400, 'Invalid surf_indx')
+          return live(op === 'live_convert_rst_lmn' ? 'liveConvertRSTtoLMN' : 'liveConvertLMNtoRST', text('geom_id'), numbers(args.values as unknown[], 3), index)
+        }
+        if (op === 'live_proj_pnt01_guess' || op === 'live_axis_proj_pnt01' || op === 'live_axis_proj_pnt01_guess') {
+          const index = args.surf_indx
+          if (typeof index !== 'number' || !Number.isInteger(index)) throw new WasmEngineError(400, 'Invalid surf_indx')
+          const values = [args.point, ...(args.extra as unknown[] ?? [])] as unknown[]
+          return live(op === 'live_proj_pnt01_guess' ? 'liveProjPnt01Guess'
+            : op === 'live_axis_proj_pnt01' ? 'liveAxisProjPnt01' : 'liveAxisProjPnt01Guess',
+            text('geom_id'), numbers(values.flat(), op === 'live_proj_pnt01_guess' ? 5 : op === 'live_axis_proj_pnt01' ? 4 : 6), index)
+        }
+        if (op === 'live_proj_pnt01_i' || op === 'live_axis_proj_pnt01_i') {
+          const values = op === 'live_proj_pnt01_i'
+            ? (args.point as unknown[])
+            : [...(args.point as unknown[]), args.iaxis]
+          return live(op === 'live_proj_pnt01_i' ? 'liveProjPnt01I' : 'liveAxisProjPnt01I', text('geom_id'), numbers(values, op === 'live_proj_pnt01_i' ? 3 : 4), 0)
+        }
+        if (op === 'live_find_rst' || op === 'live_find_rst_guess') {
+          const index = args.surf_indx
+          if (typeof index !== 'number' || !Number.isInteger(index)) throw new WasmEngineError(400, 'Invalid surf_indx')
+          const values = [...(args.point as unknown[]), ...(args.guess as unknown[] ?? [])]
+          return live(op === 'live_find_rst' ? 'liveFindRST' : 'liveFindRSTGuess', text('geom_id'), numbers(values, op === 'live_find_rst' ? 3 : 6), index)
+        }
         if (op === 'live_comp_vec_pnt01' || op === 'live_comp_vec_norm01') {
           const id = text('geom_id'), index = args.surf_indx, us = args.us, ws = args.ws
           if (typeof index !== 'number' || !Number.isInteger(index)) throw new WasmEngineError(400, 'Invalid surf_indx')

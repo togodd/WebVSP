@@ -600,6 +600,88 @@ def GetXSecParm(xsec_id, name):
     return _call('live_xsec_parm', xsec_id=xsec_id, name=name)
 
 
+# ---------------------------------------------------------------- surface queries
+
+def CompTanU01(geom_id, surf_indx, u, w):
+    """Tangent along u at a surface coordinate (unit vec3d)."""
+    return _Vec3d(_call('live_xsec_tangent_u', geom_id=geom_id, surf_indx=surf_indx, u=u, w=w))
+
+
+def CompTanW01(geom_id, surf_indx, u, w):
+    """Tangent along w at a surface coordinate (unit vec3d)."""
+    return _Vec3d(_call('live_xsec_tangent_w', geom_id=geom_id, surf_indx=surf_indx, u=u, w=w))
+
+
+def CompareGeomSurfaces(geom_a, geom_b):
+    """Largest deviation between two geometries' main surfaces."""
+    return _call('live_compare_geom_surfaces', geom_a=geom_a, geom_b=geom_b)
+
+
+def InsideSurf(geom_id, surf_indx, pt):
+    """Whether a 3D point lies inside the closed surface."""
+    return _call('live_inside_surf', geom_id=geom_id, surf_indx=surf_indx,
+                 point=[float(v) for v in (pt[0], pt[1], pt[2])])
+
+
+def CompPntRST(geom_id, surf_indx, r, s, t):
+    """3D point at a parametric (R, S, T) coordinate."""
+    return _Vec3d(_call('live_comp_pnt_rst', geom_id=geom_id, surf_indx=surf_indx,
+                        r=float(r), s=float(s), t=float(t)))
+
+
+def ConvertRSTtoLMN(geom_id, surf_indx, r, s, t):
+    """``(l, m, n)`` for an (R, S, T) coordinate."""
+    return tuple(_call('live_convert_rst_lmn', geom_id=geom_id, surf_indx=surf_indx,
+                       values=[float(r), float(s), float(t)]))
+
+
+def ConvertLMNtoRST(geom_id, surf_indx, l, m, n):
+    """``(r, s, t)`` for an (L, M, N) coordinate."""
+    return tuple(_call('live_convert_lmn_rst', geom_id=geom_id, surf_indx=surf_indx,
+                       values=[float(l), float(m), float(n)]))
+
+
+def ProjPnt01Guess(geom_id, surf_indx, pt, u0, w0):
+    """Projection from a starting guess: ``(distance, u, w)``."""
+    return tuple(_call('live_proj_pnt01_guess', geom_id=geom_id, surf_indx=surf_indx,
+                       point=[float(v) for v in pt], extra=[float(u0), float(w0)]))
+
+
+def AxisProjPnt01(geom_id, surf_indx, iaxis, pt):
+    """Projection along a coordinate axis: ``(distance, u, w)``."""
+    return tuple(_call('live_axis_proj_pnt01', geom_id=geom_id, surf_indx=surf_indx,
+                       point=[float(v) for v in pt], extra=[int(iaxis)]))
+
+
+def AxisProjPnt01Guess(geom_id, surf_indx, iaxis, pt, u0, w0):
+    """Axis projection from a starting guess: ``(distance, u, w)``."""
+    return tuple(_call('live_axis_proj_pnt01_guess', geom_id=geom_id, surf_indx=surf_indx,
+                       point=[float(v) for v in pt], extra=[int(iaxis), float(u0), float(w0)]))
+
+
+def ProjPnt01I(geom_id, pt):
+    """Projection that also picks the surface: ``(distance, surf, u, w)``."""
+    return tuple(_call('live_proj_pnt01_i', geom_id=geom_id, point=[float(v) for v in pt]))
+
+
+def AxisProjPnt01I(geom_id, pt, iaxis):
+    """Axis projection that also picks the surface: ``(distance, surf, u, w)``."""
+    return tuple(_call('live_axis_proj_pnt01_i', geom_id=geom_id, iaxis=int(iaxis),
+                       point=[float(v) for v in pt]))
+
+
+def FindRST(geom_id, surf_indx, pt):
+    """``(distance, r, s, t)`` for the closest parametric point."""
+    return tuple(_call('live_find_rst', geom_id=geom_id, surf_indx=surf_indx,
+                       point=[float(v) for v in pt]))
+
+
+def FindRSTGuess(geom_id, surf_indx, pt, r0, s0, t0):
+    """``(distance, r, s, t)`` from a starting guess."""
+    return tuple(_call('live_find_rst_guess', geom_id=geom_id, surf_indx=surf_indx,
+                       point=[float(v) for v in pt], guess=[float(r0), float(s0), float(t0)]))
+
+
 def _vec3d_list(values):
     return [_Vec3d((item[0], item[1], item[2])) for item in values]
 

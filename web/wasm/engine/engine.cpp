@@ -4212,6 +4212,131 @@ void RunImpl( const Job &j )
         if ( !err.empty() ) return Result( j.id, err, "" );
         return Result( j.id, "", "[" + Num( v.x() ) + "," + Num( v.y() ) + "," + Num( v.z() ) + "]" );
     }
+    // ---- Surface queries that need output parameters -----------------------
+    // b carries the numeric arguments as decimal strings separated by \x1f.
+    auto live_numbers = []( const string &text, vector< double > &values )
+    {
+        values.clear();
+        size_t pos = 0;
+        while ( pos <= text.size() )
+        {
+            const size_t sep = text.find( '\x1f', pos );
+            const string part = text.substr( pos, sep == string::npos ? string::npos : sep - pos );
+            char *end = nullptr;
+            const double value = std::strtod( part.c_str(), &end );
+            if ( part.empty() || end != part.c_str() + part.size() || !std::isfinite( value ) ) return false;
+            values.push_back( value );
+            if ( sep == string::npos ) break;
+            pos = sep + 1;
+        }
+        return true;
+    };
+    if ( j.op == "liveXSecTangentU" || j.op == "liveXSecTangentW" )
+    {
+        vector< double > v;
+        double u, w;
+        const size_t sep = j.b.find( '\x1f' );
+        if ( sep == string::npos || !live_numbers( j.b, v ) || v.size() != 2 ) return Result( j.id, "Invalid surface query arguments", "" );
+        u = v[0]; w = v[1];
+        const vec3d t = j.op == "liveXSecTangentU" ? vsp::CompTanU01( j.a, static_cast<int>( j.value ), u, w )
+                                                   : vsp::CompTanW01( j.a, static_cast<int>( j.value ), u, w );
+        const string err = TakeErrors();
+        if ( !err.empty() ) return Result( j.id, err, "" );
+        return Result( j.id, "", "[" + Num( t.x() ) + "," + Num( t.y() ) + "," + Num( t.z() ) + "]" );
+    }
+    if ( j.op == "liveCompareGeomSurfaces" )
+    {
+        const double diff = vsp::CompareGeomSurfaces( j.a, j.b );
+        return Result( j.id, TakeErrors(), Num( diff ) );
+    }
+    if ( j.op == "liveInsideSurf" )
+    {
+        vector< double > v;
+        if ( !live_numbers( j.b, v ) || v.size() != 3 ) return Result( j.id, "Invalid surface point", "" );
+        const bool inside = vsp::InsideSurf( j.a, static_cast<int>( j.value ), vec3d( v[0], v[1], v[2] ) );
+        return Result( j.id, TakeErrors(), inside ? "true" : "false" );
+    }
+    if ( j.op == "liveCompPntRST" )
+    {
+        vector< double > v;
+        if ( !live_numbers( j.b, v ) || v.size() != 3 ) return Result( j.id, "Invalid RST coordinates", "" );
+        const vec3d p = vsp::CompPntRST( j.a, static_cast<int>( j.value ), v[0], v[1], v[2] );
+        const string err = TakeErrors();
+        if ( !err.empty() ) return Result( j.id, err, "" );
+        return Result( j.id, "", "[" + Num( p.x() ) + "," + Num( p.y() ) + "," + Num( p.z() ) + "]" );
+    }
+    if ( j.op == "liveConvertRSTtoLMN" || j.op == "liveConvertLMNtoRST" )
+    {
+        vector< double > v;
+        if ( !live_numbers( j.b, v ) || v.size() != 3 ) return Result( j.id, "Invalid coordinates", "" );
+        double o1 = 0, o2 = 0, o3 = 0;
+        if ( j.op == "liveConvertRSTtoLMN" )
+            vsp::ConvertRSTtoLMN( j.a, static_cast<int>( j.value ), v[0], v[1], v[2], o1, o2, o3 );
+        else
+            vsp::ConvertLMNtoRST( j.a, static_cast<int>( j.value ), v[0], v[1], v[2], o1, o2, o3 );
+        const string err = TakeErrors();
+        if ( !err.empty() ) return Result( j.id, err, "" );
+        return Result( j.id, "", "[" + Num( o1 ) + "," + Num( o2 ) + "," + Num( o3 ) + "]" );
+    }
+    if ( j.op == "liveProjPnt01Guess" || j.op == "liveAxisProjPnt01" || j.op == "liveAxisProjPnt01Guess" )
+    {
+        // b = x, y, z [, u0, w0]; value = surface index; c is not available, so the
+        // axis variant packs iaxis first in b and the surface index in value.
+        vector< double > v;
+        if ( !live_numbers( j.b, v ) ) return Result( j.id, "Invalid projection arguments", "" );
+        const vec3d pt = v.size() >= 3 ? vec3d( v[0], v[1], v[2] ) : vec3d();
+        double u = 0, w = 0;
+        double d = 0;
+        if ( j.op == "liveProjPnt01Guess" )
+        {
+            if ( v.size() != 5 ) return Result( j.id, "Invalid projection arguments", "" );
+            d = vsp::ProjPnt01Guess( j.a, static_cast<int>( j.value ), pt, v[3], v[4], u, w );
+        }
+        else if ( j.op == "liveAxisProjPnt01" )
+        {
+            if ( v.size() != 4 ) return Result( j.id, "Invalid projection arguments", "" );
+            d = vsp::AxisProjPnt01( j.a, static_cast<int>( j.value ), static_cast<int>( v[3] ), pt, u, w );
+        }
+        else
+        {
+            if ( v.size() != 6 ) return Result( j.id, "Invalid projection arguments", "" );
+            d = vsp::AxisProjPnt01Guess( j.a, static_cast<int>( j.value ), static_cast<int>( v[3] ), pt, v[4], v[5], u, w );
+        }
+        const string err = TakeErrors();
+        if ( !err.empty() ) return Result( j.id, err, "" );
+        return Result( j.id, "", "[" + Num( d ) + "," + Num( u ) + "," + Num( w ) + "]" );
+    }
+    if ( j.op == "liveProjPnt01I" || j.op == "liveAxisProjPnt01I" )
+    {
+        vector< double > v;
+        const bool axis = j.op == "liveAxisProjPnt01I";
+        if ( !live_numbers( j.b, v ) || v.size() != ( axis ? 4u : 3u ) )
+            return Result( j.id, "Invalid projection arguments", "" );
+        const vec3d pt( v[0], v[1], v[2] );
+        int surf = 0;
+        double u = 0, w = 0;
+        double d;
+        if ( !axis ) d = vsp::ProjPnt01I( j.a, pt, surf, u, w );
+        else d = vsp::AxisProjPnt01I( j.a, static_cast<int>( v[3] ), pt, surf, u, w );
+        const string err = TakeErrors();
+        if ( !err.empty() ) return Result( j.id, err, "" );
+        return Result( j.id, "", "[" + Num( d ) + "," + std::to_string( surf ) + "," + Num( u ) + "," + Num( w ) + "]" );
+    }
+    if ( j.op == "liveFindRST" || j.op == "liveFindRSTGuess" )
+    {
+        vector< double > v;
+        if ( !live_numbers( j.b, v ) ) return Result( j.id, "Invalid RST query arguments", "" );
+        const bool guess = j.op == "liveFindRSTGuess";
+        if ( guess ? v.size() != 6 : v.size() != 3 ) return Result( j.id, "Invalid RST query arguments", "" );
+        const vec3d pt( v[0], v[1], v[2] );
+        double r = 0, s = 0, t = 0;
+        const double d = guess
+            ? vsp::FindRSTGuess( j.a, static_cast<int>( j.value ), pt, v[3], v[4], v[5], r, s, t )
+            : vsp::FindRST( j.a, static_cast<int>( j.value ), pt, r, s, t );
+        const string err = TakeErrors();
+        if ( !err.empty() ) return Result( j.id, err, "" );
+        return Result( j.id, "", "[" + Num( d ) + "," + Num( r ) + "," + Num( s ) + "," + Num( t ) + "]" );
+    }
     if ( j.op == "liveCompVecPnt01" || j.op == "liveCompVecNorm01" )
     {
         // b is the ID-free packet: [surface, u0..un-1, w0..wn-1] as decimals.
