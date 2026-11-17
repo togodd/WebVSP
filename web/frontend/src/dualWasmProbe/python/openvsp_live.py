@@ -38,6 +38,8 @@ XS_UNDEFINED = -1
  SS_XSEC_CURVE, SS_INTERSECT, SS_NUM_TYPES) = range(9)
 (REORDER_MOVE_UP, REORDER_MOVE_DOWN, REORDER_MOVE_TOP, REORDER_MOVE_BOTTOM,
  NUM_REORDER_TYPES) = range(5)
+# Keep in step with APIDefines.h XSEC_SIDES_TYPE.
+XSEC_BOTH_SIDES, XSEC_LEFT_SIDE, XSEC_RIGHT_SIDE = range(3)
 
 
 class OpenVSPError(RuntimeError):
@@ -52,6 +54,9 @@ _LIVE_WRITES = frozenset({
     'live_analysis_defaults', 'live_analysis_set_int', 'live_analysis_set_double', 'live_analysis_set_string', 'live_analysis_run', 'live_insert_xsec',
     'live_delete_xsec', 'live_insert_xsec_by_id', 'live_delete_xsec_by_id',
     'live_xsec_set_width', 'live_xsec_set_height', 'live_xsec_set_width_height',
+    'live_xsec_set_alias', 'live_xsec_set_curve_alias', 'live_xsec_set_continuity',
+    'live_xsec_set_tan_angles', 'live_xsec_set_tan_slews', 'live_xsec_set_tan_strengths',
+    'live_xsec_set_curvatures',
     'live_change_xsec_shape', 'live_add_sub_surf', 'live_delete_sub_surf',
     'live_reorder_sub_surf', 'live_set_sub_surf_name', 'live_set_set_name', 'live_set_set_flag', 'read_file', 'write_file', 'import_file',
     'export_file', 'set_vsp_file_name', 'clear_model', 'live_delete_result',
@@ -430,6 +435,83 @@ def GetXSecParmIDs(xsec_id):
 
 def GetXSecParm(xsec_id, name):
     return _call('live_xsec_parm', xsec_id=xsec_id, name=name)
+
+
+def GetXSecAlias(xsec_id):
+    return _call('live_xsec_alias', xsec_id=xsec_id)
+
+
+def SetXSecAlias(xsec_id, alias):
+    return _call('live_xsec_set_alias', xsec_id=xsec_id, alias=alias)
+
+
+def GetXSecCurveAlias(xsec_id):
+    return _call('live_xsec_curve_alias', xsec_id=xsec_id)
+
+
+def SetXSecCurveAlias(xsec_id, alias):
+    return _call('live_xsec_set_curve_alias', xsec_id=xsec_id, alias=alias)
+
+
+def GetXSecContinuity(xsec_id):
+    return _call('live_xsec_continuity', xsec_id=xsec_id)
+
+
+def SetXSecContinuity(xsec_id, continuity):
+    if type(continuity) is not int:
+        raise ValueError('XSec continuity must be an integer')
+    return _call('live_xsec_set_continuity', xsec_id=xsec_id, continuity=continuity)
+
+
+def _get_xsec_curve_values(kind, xsec_id, side):
+    if type(side) is not int:
+        raise ValueError('XSec side must be an integer')
+    return _call('live_xsec_' + kind, xsec_id=xsec_id, side=side)
+
+
+def _set_xsec_curve_values(kind, xsec_id, side, values):
+    if type(side) is not int:
+        raise ValueError('XSec side must be an integer')
+    if len(values) != 4:
+        raise ValueError('Four curve values (top, right, bottom, left) are required')
+    fields = []
+    for value in values:
+        if type(value) not in (int, float) or value != value or value in (float('inf'), float('-inf')):
+            raise ValueError('XSec curve values must be finite numbers')
+        fields.append(float(value))
+    return _call('live_xsec_set_' + kind, xsec_id=xsec_id, side=side, fields=fields)
+
+
+def GetXSecTanAngles(xsec_id, side):
+    return _get_xsec_curve_values('tan_angles', xsec_id, side)
+
+
+def SetXSecTanAngles(xsec_id, side, top, right, bottom, left):
+    return _set_xsec_curve_values('tan_angles', xsec_id, side, (top, right, bottom, left))
+
+
+def GetXSecTanSlews(xsec_id, side):
+    return _get_xsec_curve_values('tan_slews', xsec_id, side)
+
+
+def SetXSecTanSlews(xsec_id, side, top, right, bottom, left):
+    return _set_xsec_curve_values('tan_slews', xsec_id, side, (top, right, bottom, left))
+
+
+def GetXSecTanStrengths(xsec_id, side):
+    return _get_xsec_curve_values('tan_strengths', xsec_id, side)
+
+
+def SetXSecTanStrengths(xsec_id, side, top, right, bottom, left):
+    return _set_xsec_curve_values('tan_strengths', xsec_id, side, (top, right, bottom, left))
+
+
+def GetXSecCurvatures(xsec_id, side):
+    return _get_xsec_curve_values('curvatures', xsec_id, side)
+
+
+def SetXSecCurvatures(xsec_id, side, top, right, bottom, left):
+    return _set_xsec_curve_values('curvatures', xsec_id, side, (top, right, bottom, left))
 
 
 def GetXSecWidth(xsec_id):

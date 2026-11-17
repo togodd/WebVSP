@@ -80,6 +80,28 @@ describe('live write bridge', () => {
     expect(engine.call).not.toHaveBeenCalled()
     worker.onmessage({ data: { type: 'done', value: 'null' } } as MessageEvent)
   })
+  it('forwards XSec curve metadata and four-value setters', async () => {
+    void runSyncScript('')
+    const worker = FakeWorker.instance
+    engine.call.mockResolvedValue(null)
+    expect((await worker.request('live_xsec_alias', { xsec_id: 'x' })).ok).toBe(true)
+    expect(engine.call).toHaveBeenLastCalledWith('liveXSecAlias', 'x', '', 0)
+    expect((await worker.request('live_xsec_set_curve_alias', { xsec_id: 'x', alias: 'c1' })).ok).toBe(true)
+    expect(engine.call).toHaveBeenLastCalledWith('liveXSecSetCurveAlias', 'x', 'c1', 0)
+    expect((await worker.request('live_xsec_set_continuity', { xsec_id: 'x', continuity: 2 })).ok).toBe(true)
+    expect(engine.call).toHaveBeenLastCalledWith('liveXSecSetContinuity', 'x', '2', 0)
+    expect((await worker.request('live_xsec_tan_angles', { xsec_id: 'x', side: 1 })).ok).toBe(true)
+    expect(engine.call).toHaveBeenLastCalledWith('liveXSecTanAngles', 'x', '', 1)
+    expect((await worker.request('live_xsec_set_curvatures', { xsec_id: 'x', side: 0, fields: [0.5, 0.25, 0.75, 1] })).ok).toBe(true)
+    expect(engine.call).toHaveBeenLastCalledWith('liveXSecSetCurvatures', 'x', '0\x1f0.5\x1f0.25\x1f0.75\x1f1', 0)
+    engine.call.mockClear()
+    expect((await worker.request('live_xsec_set_tan_slews', { xsec_id: 'x', side: 0, fields: [1, 2, 3] })).error.outcome).toBe('not_written')
+    expect((await worker.request('live_xsec_set_tan_slews', { xsec_id: 'x', side: 0.5, fields: [1, 2, 3, 4] })).error.outcome).toBe('not_written')
+    expect((await worker.request('live_xsec_set_continuity', { xsec_id: 'x', continuity: 1.5 })).error.outcome).toBe('not_written')
+    expect((await worker.request('live_xsec_set_alias', { xsec_id: 'x', alias: 5 })).error.outcome).toBe('not_written')
+    expect(engine.call).not.toHaveBeenCalled()
+    worker.onmessage({ data: { type: 'done', value: 'null' } } as MessageEvent)
+  })
   it('forwards only valid clone deletion policies without dispatching invalid ones', async () => {
     void runSyncScript('')
     const worker = FakeWorker.instance

@@ -62,6 +62,33 @@ class GeometryApiTest(unittest.TestCase):
         with self.assertRaises(vsp.OpenVSPError):
             vsp.CompNorm01('g', 0, float('nan'), w)
 
+    def test_xsec_curve_forwarding(self):
+        self.reply['value'] = 'alias'
+        self.assertEqual(vsp.GetXSecAlias('x'), 'alias')
+        self.assertEqual(self.calls[-1], ('live_xsec_alias', {'xsec_id': 'x'}))
+        self.assertEqual(vsp.GetXSecCurveAlias('x'), 'alias')
+        self.assertEqual(self.calls[-1], ('live_xsec_curve_alias', {'xsec_id': 'x'}))
+        vsp.SetXSecAlias('x', 'a1')
+        self.assertEqual(self.calls[-1], ('live_xsec_set_alias', {'xsec_id': 'x', 'alias': 'a1'}))
+        vsp.SetXSecCurveAlias('x', 'c1')
+        self.assertEqual(self.calls[-1], ('live_xsec_set_curve_alias', {'xsec_id': 'x', 'alias': 'c1'}))
+        self.reply['value'] = 2
+        self.assertEqual(vsp.GetXSecContinuity('x'), 2)
+        self.assertEqual(self.calls[-1], ('live_xsec_continuity', {'xsec_id': 'x'}))
+        vsp.SetXSecContinuity('x', 1)
+        self.assertEqual(self.calls[-1], ('live_xsec_set_continuity', {'xsec_id': 'x', 'continuity': 1}))
+        self.reply['value'] = [0.0, 1.0, 2.0, 3.0]
+        self.assertEqual(vsp.GetXSecTanAngles('x', 0), [0.0, 1.0, 2.0, 3.0])
+        self.assertEqual(self.calls[-1], ('live_xsec_tan_angles', {'xsec_id': 'x', 'side': 0}))
+        vsp.SetXSecTanSlews('x', 1, 0.5, 0.6, 0.7, 0.8)
+        self.assertEqual(self.calls[-1], ('live_xsec_set_tan_slews', {'xsec_id': 'x', 'side': 1, 'fields': [0.5, 0.6, 0.7, 0.8]}))
+        with self.assertRaisesRegex(ValueError, 'continuity'):
+            vsp.SetXSecContinuity('x', 1.5)
+        with self.assertRaisesRegex(ValueError, 'side'):
+            vsp.GetXSecTanStrengths('x', '0')
+        with self.assertRaisesRegex(ValueError, 'finite'):
+            vsp.SetXSecCurvatures('x', 0, 1.0, 2.0, 3.0, float('nan'))
+
     def test_section_and_subsurface_indices(self):
         self.reply['value'] = ['first', 'last']
         for get in (vsp.GetXSecSurf, vsp.GetXSec, vsp.GetSubSurf):

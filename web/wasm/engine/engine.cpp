@@ -3238,6 +3238,71 @@ void RunImpl( const Job &j )
         const string err = TakeParmErrors( true );
         return Result( j.id, err, LiveStringArray( ids ) );
     }
+    if ( j.op == "liveXSecAlias" || j.op == "liveXSecCurveAlias" )
+    {
+        const string alias = j.op == "liveXSecAlias" ? vsp::GetXSecAlias( j.a ) : vsp::GetXSecCurveAlias( j.a );
+        return Result( j.id, TakeParmErrors( true ), Quote( alias ) );
+    }
+    if ( j.op == "liveXSecSetAlias" || j.op == "liveXSecSetCurveAlias" )
+    {
+        if ( j.op == "liveXSecSetAlias" ) vsp::SetXSecAlias( j.a, j.b );
+        else vsp::SetXSecCurveAlias( j.a, j.b );
+        return Result( j.id, TakeParmErrors( true ), "null" );
+    }
+    if ( j.op == "liveXSecContinuity" )
+    {
+        const int c = vsp::GetXSecContinuity( j.a );
+        return Result( j.id, TakeParmErrors( true ), std::to_string( c ) );
+    }
+    if ( j.op == "liveXSecSetContinuity" )
+    {
+        char *end = nullptr;
+        const double c = std::strtod( j.b.c_str(), &end );
+        if ( j.b.empty() || end != j.b.c_str() + j.b.size() || !std::isfinite( c ) || std::floor( c ) != c )
+            return Result( j.id, "Invalid XSec continuity", "" );
+        vsp::SetXSecContinuity( j.a, static_cast< int >( c ) );
+        return Result( j.id, TakeParmErrors( true ), "null" );
+    }
+    if ( j.op == "liveXSecTanAngles" || j.op == "liveXSecTanSlews" || j.op == "liveXSecTanStrengths" ||
+         j.op == "liveXSecCurvatures" )
+    {
+        const int side = static_cast< int >( j.value );
+        vector< double > values;
+        if ( j.op == "liveXSecTanAngles" ) values = vsp::GetXSecTanAngles( j.a, side );
+        else if ( j.op == "liveXSecTanSlews" ) values = vsp::GetXSecTanSlews( j.a, side );
+        else if ( j.op == "liveXSecTanStrengths" ) values = vsp::GetXSecTanStrengths( j.a, side );
+        else values = vsp::GetXSecCurvatures( j.a, side );
+        const string err = TakeParmErrors( true );
+        if ( !err.empty() ) return Result( j.id, err, "" );
+        return Result( j.id, "", LiveDoubleArray( values ) );
+    }
+    if ( j.op == "liveXSecSetTanAngles" || j.op == "liveXSecSetTanSlews" || j.op == "liveXSecSetTanStrengths" ||
+         j.op == "liveXSecSetCurvatures" )
+    {
+        // Five unit-separated fields: side, top, right, bottom, left. Numbers
+        // cannot contain the separator, so no framing is needed here.
+        vector< double > fields;
+        size_t pos = 0;
+        while ( pos <= j.b.size() )
+        {
+            const size_t sep = j.b.find( '\x1f', pos );
+            const string text = j.b.substr( pos, sep == string::npos ? string::npos : sep - pos );
+            char *end = nullptr;
+            const double value = std::strtod( text.c_str(), &end );
+            if ( text.empty() || end != text.c_str() + text.size() || !std::isfinite( value ) )
+                return Result( j.id, "Invalid XSec curve value", "" );
+            fields.push_back( value );
+            if ( sep == string::npos ) break;
+            pos = sep + 1;
+        }
+        if ( fields.size() != 5 ) return Result( j.id, "Invalid XSec curve values", "" );
+        const int side = static_cast< int >( fields[0] );
+        if ( j.op == "liveXSecSetTanAngles" ) vsp::SetXSecTanAngles( j.a, side, fields[1], fields[2], fields[3], fields[4] );
+        else if ( j.op == "liveXSecSetTanSlews" ) vsp::SetXSecTanSlews( j.a, side, fields[1], fields[2], fields[3], fields[4] );
+        else if ( j.op == "liveXSecSetTanStrengths" ) vsp::SetXSecTanStrengths( j.a, side, fields[1], fields[2], fields[3], fields[4] );
+        else vsp::SetXSecCurvatures( j.a, side, fields[1], fields[2], fields[3], fields[4] );
+        return Result( j.id, TakeParmErrors( true ), "null" );
+    }
     // Check both transport representations before converting or calling OpenVSP.
     // stoi alone accepts prefixes such as "1.5" and "1e3".
     const auto live_int_value = []( double value ) {

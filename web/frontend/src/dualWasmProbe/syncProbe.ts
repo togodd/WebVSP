@@ -10,6 +10,9 @@ const LIVE_WRITES = new Set([
   'live_delete_xsec', 'live_insert_xsec_by_id', 'live_delete_xsec_by_id',
   'live_xsec_set_width', 'live_xsec_set_height', 'live_xsec_set_width_height',
   'live_copy_xsec', 'live_copy_xsec_by_id', 'live_paste_xsec', 'live_paste_xsec_by_id',
+  'live_xsec_set_alias', 'live_xsec_set_curve_alias', 'live_xsec_set_continuity',
+  'live_xsec_set_tan_angles', 'live_xsec_set_tan_slews', 'live_xsec_set_tan_strengths',
+  'live_xsec_set_curvatures',
   'live_change_xsec_shape', 'live_add_sub_surf', 'live_delete_sub_surf',
   'live_reorder_sub_surf', 'live_set_sub_surf_name', 'live_set_set_name', 'live_set_set_flag', 'live_delete_result', 'live_delete_all_results',
   'live_parm_set_update', 'live_set_geom_name',
@@ -291,6 +294,41 @@ async function run(mode: 'script' | 'console', script?: string): Promise<unknown
         if (op === 'live_xsec_ids') return live('liveXSecIDs', text('xsec_surf_id'))
         if (op === 'live_xsec_shape') return live('liveXSecShape', text('xsec_id'))
         if (op === 'live_xsec_parm_ids') return live('liveXSecParmIDs', text('xsec_id'))
+        if (op === 'live_xsec_alias' || op === 'live_xsec_curve_alias') {
+          return live(op === 'live_xsec_alias' ? 'liveXSecAlias' : 'liveXSecCurveAlias', text('xsec_id'))
+        }
+        if (op === 'live_xsec_set_alias' || op === 'live_xsec_set_curve_alias') {
+          const alias = args.alias
+          if (typeof alias !== 'string') throw new WasmEngineError(400, 'Invalid XSec alias', 'not_written')
+          return live(op === 'live_xsec_set_alias' ? 'liveXSecSetAlias' : 'liveXSecSetCurveAlias', text('xsec_id'), alias)
+        }
+        if (op === 'live_xsec_continuity') return live('liveXSecContinuity', text('xsec_id'))
+        if (op === 'live_xsec_set_continuity') {
+          const continuity = args.continuity
+          if (typeof continuity !== 'number' || !Number.isInteger(continuity)) throw new WasmEngineError(400, 'Invalid XSec continuity', 'not_written')
+          return live('liveXSecSetContinuity', text('xsec_id'), String(continuity))
+        }
+        if (op === 'live_xsec_tan_angles' || op === 'live_xsec_tan_slews' || op === 'live_xsec_tan_strengths' || op === 'live_xsec_curvatures') {
+          const side = args.side
+          if (typeof side !== 'number' || !Number.isInteger(side)) throw new WasmEngineError(400, 'Invalid XSec side', 'not_written')
+          const engineOps: Record<string, string> = {
+            live_xsec_tan_angles: 'liveXSecTanAngles', live_xsec_tan_slews: 'liveXSecTanSlews',
+            live_xsec_tan_strengths: 'liveXSecTanStrengths', live_xsec_curvatures: 'liveXSecCurvatures',
+          }
+          return live(engineOps[op], text('xsec_id'), '', side)
+        }
+        if (op === 'live_xsec_set_tan_angles' || op === 'live_xsec_set_tan_slews' || op === 'live_xsec_set_tan_strengths' || op === 'live_xsec_set_curvatures') {
+          const side = args.side, fields = args.fields
+          if (typeof side !== 'number' || !Number.isInteger(side)) throw new WasmEngineError(400, 'Invalid XSec side', 'not_written')
+          if (!Array.isArray(fields) || fields.length !== 4 || fields.some(value => typeof value !== 'number' || !Number.isFinite(value))) {
+            throw new WasmEngineError(400, 'Invalid XSec curve values', 'not_written')
+          }
+          const engineOps: Record<string, string> = {
+            live_xsec_set_tan_angles: 'liveXSecSetTanAngles', live_xsec_set_tan_slews: 'liveXSecSetTanSlews',
+            live_xsec_set_tan_strengths: 'liveXSecSetTanStrengths', live_xsec_set_curvatures: 'liveXSecSetCurvatures',
+          }
+          return live(engineOps[op], text('xsec_id'), [side, ...fields].join('\x1f'))
+        }
         const int32 = (key: string, fallback?: number): number => {
           const value = args[key] === undefined ? fallback : args[key]
           if (typeof value !== 'number' || !Number.isInteger(value) || value < -0x80000000 || value > 0x7fffffff) {
