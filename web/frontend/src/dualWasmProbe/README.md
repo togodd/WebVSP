@@ -122,9 +122,11 @@ helper（[上游入口](../../../../src/python_api/packages/openvsp/openvsp/__in
 | `GetNumSets`、`GetSetName`、`GetSetFlag` | ✅ | |
 | `GetSetIndex`、`GetGeomSet`、`GetGeomSetAtIndex` | ✅ | 按名/序号读集合成员；`GetSetIndex` 不存在返回 -1 |
 | `GetSetNames`、`SetSetName`、`SetSetFlag` | ✅ | 已通过真实浏览器/WASM 集合改名与成员标记回归 |
-| `SetAnalysisInputDefaults`、`SetIntAnalysisInput`、`ExecAnalysis` | ✅ | 白名单 `DegenGeom`/`SurfacePatches`/`MassProp`/`CompGeom`；int 输入按分析声明的类型校验 |
-| `ListAnalysis`、`GetAnalysisInputNames`、`GetAnalysisInputType` | ✅ | 用于脚本发现可用分析与输入（`GetAnalysisInputType` 未知输入返回 -1） |
-| `SetDoubleAnalysisInput`、`SetStringAnalysisInput` 及其它分析 | ❌ | 未桥接 |
+| `ExecAnalysis` | ✅ | 只允许执行 `DegenGeom`/`SurfacePatches`/`MassProp`/`CompGeom`，且部分输入会被限制 |
+| `SetAnalysisInputDefaults` | ✅ | 对任意有效分析调用原生初始化，可能产生初始化副作用 |
+| `ListAnalysis`、`GetAnalysisInputNames`、`GetAnalysisInputType` | ✅ | 可发现分析和输入；发现不意味着能执行 |
+| `GetIntAnalysisInput`、`GetDoubleAnalysisInput`、`GetStringAnalysisInput` | ✅ | 返回完整向量并支持有效索引；真实浏览器验证基础读取 |
+| `SetIntAnalysisInput`、`SetDoubleAnalysisInput`、`SetStringAnalysisInput` | 🟨 | 仅接受单元素、index=0，字符串不支持 NUL；double/string 的基础写入已通过真实浏览器回归 |
 | `GetAllResultsIDs`、`GetAllResultsNames`、`GetAllDataNames`、`GetResultsName`、`GetResultsType` | ✅ | |
 | `FindResultsID(name, index=0)`、`FindLatestResultsID(name)`、`GetNumResults(name)` | ✅ | 不存在时返回 `''`/`0`，不抛异常 |
 | `DeleteResult(id)`、`DeleteAllResults()` | ✅ | 未知 ID 视为空操作；长会话可用它们控制 ResultsMgr 增长 |
