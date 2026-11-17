@@ -50,7 +50,8 @@ class OpenVSPError(RuntimeError):
 _LIVE_WRITES = frozenset({
     'live_add_geom', 'live_delete_geom', 'live_update', 'live_parm_set', 'live_parm_set_by_id',
     'live_analysis_defaults', 'live_analysis_set_int', 'live_analysis_run', 'live_insert_xsec',
-    'live_delete_xsec', 'live_change_xsec_shape', 'live_add_sub_surf', 'live_delete_sub_surf',
+    'live_delete_xsec', 'live_insert_xsec_by_id', 'live_delete_xsec_by_id',
+    'live_change_xsec_shape', 'live_add_sub_surf', 'live_delete_sub_surf',
     'live_reorder_sub_surf', 'live_set_sub_surf_name', 'live_set_set_name', 'live_set_set_flag', 'read_file', 'write_file', 'import_file',
     'export_file', 'set_vsp_file_name', 'clear_model', 'live_delete_result',
     'live_delete_all_results', 'live_parm_set_update', 'live_set_geom_name',
