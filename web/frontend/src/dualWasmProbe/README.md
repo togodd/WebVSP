@@ -172,7 +172,10 @@ VSPAERO 控制面、测量、可视化等）尚未桥接。
 | `GetNumSets`、`GetSetName`、`GetSetFlag` | ✅ | |
 | `GetSetIndex`、`GetGeomSet`、`GetGeomSetAtIndex` | ✅ | 按名/序号读集合成员；`GetSetIndex` 不存在返回 -1 |
 | `GetSetNames`、`SetSetName`、`SetSetFlag` | ✅ | 已通过真实浏览器/WASM 集合改名与成员标记回归 |
-| `ExecAnalysis` | ✅ | 只允许执行 `DegenGeom`/`SurfacePatches`/`MassProp`/`CompGeom`，且部分输入会被限制 |
+| `ExecAnalysis` | ✅ | 可执行 11 个分析（见下）；其余名字返回 `Unknown analysis` |
+| `ExecAnalysis('ParasiteDrag'/'WaveDrag'/'PlanarSlice'/'Projection'/'DegenGeomMesh')` | ✅ | 进程内计算，强制整模集合、关模式与文件导出；真实浏览器逐个验证出结果 |
+| `ExecAnalysis('VSPAEROComputeGeometry'/'VSPAEROSweep')` | ✅ | 见下面 VSPAERO 章节 |
+| `ExecAnalysis('DegenGeom'/'SurfacePatches'/'MassProp'/'CompGeom')` | ✅ | 最早的四个白名单分析 |
 | `SetAnalysisInputDefaults` | ✅ | 对任意有效分析调用原生初始化，可能产生初始化副作用 |
 | `ExecAnalysis('VSPAEROComputeGeometry')` | ✅ | 先写 `*.vspgeom/*.csf/*.vkey`；未设置绝对模型路径时会明确拒绝 |
 | `ExecAnalysis('VSPAEROSweep')` | ✅ | `StopBeforeRun=1` 只写 setup；完整运行会启动 `vspaero.wasm` 并读回结果 |
@@ -191,6 +194,20 @@ VSPAERO 控制面、测量、可视化等）尚未桥接。
 | `parse_results_object`、`GetResultSnapshotCapabilities`、`GetResultSnapshots` | ✅ | 见“运行机制与限制” |
 | `GetResultTree`、`parse_results_tree`、`parse_results_object_fast`、`parse_surface_patches_fast` | 🚫 | 递归结果树被固定拒绝 |
 | `ReadVSPFile`、`WriteVSPFile`、`ExportFile`、`ImportFile`、`SetVSP3FileName`、`GetVSPFileName`、`ClearVSPModel` | ✅ | 同步语义，操作引擎文件系统；相对路径解析到 `/work`（见“Python 工作区与文件 API”）。`ExportFile` 只支持原生默认可选参数；本构建无 STEP 导出 |
+
+### 可执行分析一览
+
+| 分析 | 状态 | 说明 |
+|---|---|---|
+| `DegenGeom`、`SurfacePatches`、`MassProp`、`CompGeom` | ✅ | 最早的白名单 |
+| `ParasiteDrag` | ✅ | 强制整模、`ExportSubCompFlag=0`、`FileName=''` |
+| `WaveDrag`、`PlanarSlice` | ✅ | 强制 `Set=SET_ALL`、`UseModeFlag=0` |
+| `Projection` | ✅ | 需要目标/边界设置，默认即可出结果 |
+| `DegenGeomMesh` | ✅ | 强制 `Set=SET_ALL` |
+| `BladeElement` | ⚠️ | 已放开，但没有螺旋桨时会返回原生错误 |
+| `VSPAEROComputeGeometry`、`VSPAEROSweep` | ✅ | 见下文 |
+| `EmintonLord` | ❌ | 用默认（空）面积曲线会挂死引擎线程，暂不放行 |
+| `CpSlicer`、`FeaMesh*`、`CfdMesh*`、`GeometryAnalysis`、`SurfaceIntersection`、`VSPAERODegenGeom` 等 | ❌ | 依赖外部进程、切片文件或未桥接的子分析 |
 
 ### VSPAERO 使用说明
 

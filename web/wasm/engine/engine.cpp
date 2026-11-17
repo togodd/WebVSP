@@ -2883,7 +2883,14 @@ void RunImpl( const Job &j )
     if ( j.op == "liveAnalysisDefaults" || j.op == "liveAnalysisRun" )
     {
         const bool degen = j.a == "DegenGeom", patches = j.a == "SurfacePatches", mass = j.a == "MassProp", comp = j.a == "CompGeom",
-                   aeroGeom = j.a == "VSPAEROComputeGeometry", aero = j.a == "VSPAEROSweep";
+                   aeroGeom = j.a == "VSPAEROComputeGeometry", aero = j.a == "VSPAEROSweep",
+                   // In-process analyses: they compute inside the engine and write
+                   // nothing, so only the set/mode/file inputs need forcing.
+                   parasite = j.a == "ParasiteDrag", wave = j.a == "WaveDrag", planar = j.a == "PlanarSlice",
+                   projection = j.a == "Projection", bem = j.a == "BladeElement",
+                   dgMesh = j.a == "DegenGeomMesh";
+        // EmintonLord is registered but hangs on its default (empty) area curve,
+        // so it stays refused until a caller can supply the curve.
         auto &errors = vsp::ErrorMgrSingleton::getInstance();
         if ( j.op == "liveAnalysisDefaults" )
         {
@@ -2891,7 +2898,9 @@ void RunImpl( const Job &j )
             vsp::SetAnalysisInputDefaults( j.a );
             return Result( j.id, TakeParmErrors( true ), "null" );
         }
-        if ( !degen && !patches && !mass && !comp && !aeroGeom && !aero ) return Result( j.id, "Unknown analysis", "" );
+        if ( !degen && !patches && !mass && !comp && !aeroGeom && !aero &&
+             !parasite && !wave && !planar && !projection && !bem && !dgMesh )
+            return Result( j.id, "Unknown analysis", "" );
         if ( aeroGeom || aero )
         {
             // A relative model name would scatter the products in the engine cwd;
@@ -2905,6 +2914,11 @@ void RunImpl( const Job &j )
         {
             if ( vsp::GetAnalysisInputType( j.a, name ) == vsp::INT_DATA )
                 vsp::SetIntAnalysisInput( j.a, name, { value }, 0 );
+        };
+        auto setStringIfPresent = [&]( const char *name, const string &value )
+        {
+            if ( vsp::GetAnalysisInputType( j.a, name ) == vsp::STRING_DATA )
+                vsp::SetStringAnalysisInput( j.a, name, { value }, 0 );
         };
         bool aeroStopBeforeRun = false;
         if ( aeroGeom || aero )
@@ -2929,6 +2943,29 @@ void RunImpl( const Job &j )
         {
             // Honour the caller's Set; never use modes (ModeID is a string input).
             setIntIfPresent( "UseModeFlag", 0 );
+        }
+        else if ( parasite )
+        {
+            // Whole model, no modes, and never write a sub-component file.
+            setIntIfPresent( "GeomSet", vsp::SET_ALL );
+            setIntIfPresent( "UseModeFlag", 0 );
+            setIntIfPresent( "ExportSubCompFlag", 0 );
+            setStringIfPresent( "FileName", "" );
+        }
+        else if ( wave || planar )
+        {
+            setIntIfPresent( "Set", vsp::SET_ALL );
+            setIntIfPresent( "UseModeFlag", 0 );
+        }
+        else if ( bem )
+        {
+            // The BEM export writes a file next to the model; keep it off.
+            setIntIfPresent( "ExportBEMFlag", 0 );
+            setStringIfPresent( "BEMFileName", "" );
+        }
+        else if ( dgMesh )
+        {
+            setIntIfPresent( "Set", vsp::SET_ALL );
         }
         else if ( comp )
         {
