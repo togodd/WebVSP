@@ -8,7 +8,7 @@ const LIVE_WRITES = new Set([
   'live_add_geom', 'live_delete_geom', 'live_update', 'live_parm_set', 'live_parm_set_by_id',
   'live_analysis_defaults', 'live_analysis_set_int', 'live_analysis_run', 'live_insert_xsec',
   'live_delete_xsec', 'live_change_xsec_shape', 'live_add_sub_surf', 'live_delete_sub_surf',
-  'live_set_set_name', 'live_set_set_flag', 'live_delete_result', 'live_delete_all_results',
+  'live_reorder_sub_surf', 'live_set_sub_surf_name', 'live_set_set_name', 'live_set_set_flag', 'live_delete_result', 'live_delete_all_results',
   'live_parm_set_update', 'live_set_geom_name',
 ])
 // File operations also mutate the session: ReadVSPFile replaces the model and
@@ -224,10 +224,28 @@ async function run(mode: 'script' | 'console', script?: string): Promise<unknown
           return live('liveChangeXSecShape', text('xsec_id'), String(int32('shape')))
         }
         if (op === 'live_sub_surfs') return live('liveSubSurfs', text('geom_id'))
+        if (op === 'live_sub_surfs_by_name') return live('liveSubSurfsByName', text('geom_id'), text('name'))
+        if (op === 'live_sub_surf_type') return live('liveSubSurfType', text('sub_id'))
+        if (op === 'live_sub_surf_parm_ids') return live('liveSubSurfParmIDs', text('sub_id'))
+        if (op === 'live_sub_surf_name') {
+          const subId = text('sub_id')
+          const geomId = args.geom_id
+          return geomId === undefined ? live('liveSubSurfName', subId) : live('liveSubSurfNameGeom', text('geom_id'), subId)
+        }
+        if (op === 'live_sub_surf_index') return live('liveSubSurfIndex', text('sub_id'))
+        if (op === 'live_all_sub_surfs') return live('liveAllSubSurfs')
         if (op === 'live_add_sub_surf') {
           return live('liveAddSubSurf', text('geom_id'), String(int32('type')), int32('surf_index', 0))
         }
-        if (op === 'live_delete_sub_surf') return live('liveDeleteSubSurf', text('geom_id'), text('sub_id'))
+        if (op === 'live_delete_sub_surf') {
+          return args.geom_id === undefined ? live('liveDeleteSubSurfID', text('sub_id')) : live('liveDeleteSubSurf', text('geom_id'), text('sub_id'))
+        }
+        if (op === 'live_reorder_sub_surf') return live('liveReorderSubSurf', text('geom_id'), text('sub_id'), int32('reorder_type'))
+        if (op === 'live_set_sub_surf_name') {
+          const name = text('name')
+          if (args.geom_id === undefined) return live('liveSetSubSurfNameID', text('sub_id'), name)
+          return live('liveSetSubSurfName', text('geom_id'), `${text('sub_id')}\x1f${name}`)
+        }
         if (op === 'live_num_sets') return live('liveNumSets')
         if (op === 'live_set_name') return live('liveSetName', '', '', Number(args.index))
         if (op === 'live_set_set_name') return live('liveSetSetName', '', text('name'), Number(args.index))

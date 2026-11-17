@@ -96,6 +96,24 @@ describe('live write bridge', () => {
     expect(engine.call).toHaveBeenLastCalledWith('liveAddSubSurf', 'g', '1', 0)
     worker.onmessage({ data: { type: 'done', value: 'null' } } as MessageEvent)
   })
+  it('forwards subsurface metadata and reorder/name operations', async () => {
+    void runSyncScript('')
+    const worker = FakeWorker.instance
+    engine.call.mockResolvedValue(null)
+    expect((await worker.request('live_sub_surf_type', { sub_id: 'ss' })).ok).toBe(true)
+    expect(engine.call).toHaveBeenLastCalledWith('liveSubSurfType', 'ss', '', 0)
+    expect((await worker.request('live_sub_surf_parm_ids', { sub_id: 'ss' })).ok).toBe(true)
+    expect(engine.call).toHaveBeenLastCalledWith('liveSubSurfParmIDs', 'ss', '', 0)
+    expect((await worker.request('live_sub_surf_index', { sub_id: 'ss' })).ok).toBe(true)
+    expect(engine.call).toHaveBeenLastCalledWith('liveSubSurfIndex', 'ss', '', 0)
+    expect((await worker.request('live_reorder_sub_surf', { geom_id: 'g', sub_id: 'ss', reorder_type: 2 })).ok).toBe(true)
+    expect(engine.call).toHaveBeenLastCalledWith('liveReorderSubSurf', 'g', 'ss', 2)
+    expect((await worker.request('live_set_sub_surf_name', { sub_id: 'ss', name: 'new' })).ok).toBe(true)
+    expect(engine.call).toHaveBeenLastCalledWith('liveSetSubSurfNameID', 'ss', 'new', 0)
+    expect((await worker.request('live_set_sub_surf_name', { geom_id: 'g', sub_id: 'ss', name: 'new' })).ok).toBe(true)
+    expect(engine.call).toHaveBeenLastCalledWith('liveSetSubSurfName', 'g', 'ss\x1fnew', 0)
+    worker.onmessage({ data: { type: 'done', value: 'null' } } as MessageEvent)
+  })
   it('refuses a later write after a timed-out request is abandoned', async () => {
     void runSyncScript('')
     const worker = FakeWorker.instance

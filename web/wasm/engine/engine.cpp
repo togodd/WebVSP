@@ -3138,11 +3138,43 @@ void RunImpl( const Job &j )
         const string err = TakeParmErrors( true );
         return Result( j.id, err, LiveStringArray( ids ) );
     }
+    if ( j.op == "liveSubSurfsByName" )
+    {
+        const auto ids = vsp::GetSubSurf( j.a, j.b );
+        const string err = TakeParmErrors( true );
+        return Result( j.id, err, LiveStringArray( ids ) );
+    }
     if ( j.op == "liveSubSurfType" )
     {
         const int type = vsp::GetSubSurfType( j.a );
         const string err = TakeParmErrors( true );
         return Result( j.id, err, std::to_string( type ) );
+    }
+    if ( j.op == "liveSubSurfParmIDs" )
+    {
+        const auto ids = vsp::GetSubSurfParmIDs( j.a );
+        const string err = TakeParmErrors( true );
+        return Result( j.id, err, LiveStringArray( ids ) );
+    }
+    if ( j.op == "liveSubSurfName" )
+    {
+        const string name = vsp::GetSubSurfName( j.a );
+        return Result( j.id, TakeParmErrors( true ), Quote( name ) );
+    }
+    if ( j.op == "liveSubSurfNameGeom" )
+    {
+        const string name = vsp::GetSubSurfName( j.a, j.b );
+        return Result( j.id, TakeParmErrors( true ), Quote( name ) );
+    }
+    if ( j.op == "liveSubSurfIndex" )
+    {
+        const int index = vsp::GetSubSurfIndex( j.a );
+        return Result( j.id, TakeParmErrors( true ), std::to_string( index ) );
+    }
+    if ( j.op == "liveAllSubSurfs" )
+    {
+        const auto ids = vsp::GetAllSubSurfIDs();
+        return Result( j.id, TakeParmErrors( true ), LiveStringArray( ids ) );
     }
     if ( j.op == "liveAddSubSurf" )
     {
@@ -3157,6 +3189,29 @@ void RunImpl( const Job &j )
     if ( j.op == "liveDeleteSubSurf" )
     {
         vsp::DeleteSubSurf( j.a, j.b );
+        return Result( j.id, TakeParmErrors( true ), "null" );
+    }
+    if ( j.op == "liveDeleteSubSurfID" )
+    {
+        vsp::DeleteSubSurf( j.a );
+        return Result( j.id, TakeParmErrors( true ), "null" );
+    }
+    if ( j.op == "liveReorderSubSurf" )
+    {
+        if ( !live_int_value( j.value ) ) return Result( j.id, "Invalid reorder type", "" );
+        vsp::ReorderSubSurf( j.a, j.b, static_cast< int >( j.value ) );
+        return Result( j.id, TakeParmErrors( true ), "null" );
+    }
+    if ( j.op == "liveSetSubSurfName" )
+    {
+        const size_t sep = j.b.find( '\x1f' );
+        if ( sep == string::npos ) return Result( j.id, "Invalid subsurface name", "" );
+        vsp::SetSubSurfName( j.a, j.b.substr( 0, sep ), j.b.substr( sep + 1 ) );
+        return Result( j.id, TakeParmErrors( true ), "null" );
+    }
+    if ( j.op == "liveSetSubSurfNameID" )
+    {
+        vsp::SetSubSurfName( j.a, j.b );
         return Result( j.id, TakeParmErrors( true ), "null" );
     }
     if ( j.op == "liveNumSets" )

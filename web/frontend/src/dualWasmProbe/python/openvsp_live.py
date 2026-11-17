@@ -49,7 +49,7 @@ _LIVE_WRITES = frozenset({
     'live_add_geom', 'live_delete_geom', 'live_update', 'live_parm_set', 'live_parm_set_by_id',
     'live_analysis_defaults', 'live_analysis_set_int', 'live_analysis_run', 'live_insert_xsec',
     'live_delete_xsec', 'live_change_xsec_shape', 'live_add_sub_surf', 'live_delete_sub_surf',
-    'live_set_set_name', 'live_set_set_flag', 'read_file', 'write_file', 'import_file',
+    'live_reorder_sub_surf', 'live_set_sub_surf_name', 'live_set_set_name', 'live_set_set_flag', 'read_file', 'write_file', 'import_file',
     'export_file', 'set_vsp_file_name', 'clear_model', 'live_delete_result',
     'live_delete_all_results', 'live_parm_set_update', 'live_set_geom_name',
 })
@@ -405,16 +405,60 @@ def GetNumSubSurf(geom_id):
     return len(GetSubSurfIDVec(geom_id))
 
 
-def GetSubSurf(geom_id, index):
-    return _indexed_id(GetSubSurfIDVec(geom_id), index)
+def GetSubSurf(geom_id, index_or_name):
+    """Return a sub-surface ID by index, or all IDs with a matching name."""
+    if isinstance(index_or_name, str):
+        return _call('live_sub_surfs_by_name', geom_id=geom_id, name=index_or_name)
+    return _indexed_id(GetSubSurfIDVec(geom_id), index_or_name)
 
 
 def AddSubSurf(geom_id, type, surfindex=0):
     return _call('live_add_sub_surf', geom_id=geom_id, type=type, surf_index=surfindex)
 
 
-def DeleteSubSurf(geom_id, sub_id):
-    return _call('live_delete_sub_surf', geom_id=geom_id, sub_id=sub_id)
+def DeleteSubSurf(*args):
+    """Delete by ``(geom_id, sub_id)`` or the native ``(sub_id,)`` overload."""
+    if len(args) == 1:
+        return _call('live_delete_sub_surf', sub_id=args[0])
+    if len(args) == 2:
+        return _call('live_delete_sub_surf', geom_id=args[0], sub_id=args[1])
+    raise TypeError('DeleteSubSurf expects (sub_id) or (geom_id, sub_id)')
+
+
+def ReorderSubSurf(geom_id, sub_id, reorder_type):
+    return _call('live_reorder_sub_surf', geom_id=geom_id, sub_id=sub_id, reorder_type=reorder_type)
+
+
+def GetSubSurfType(sub_id):
+    return _call('live_sub_surf_type', sub_id=sub_id)
+
+
+def GetSubSurfParmIDs(sub_id):
+    return _call('live_sub_surf_parm_ids', sub_id=sub_id)
+
+
+def GetSubSurfName(*args):
+    if len(args) == 1:
+        return _call('live_sub_surf_name', sub_id=args[0])
+    if len(args) == 2:
+        return _call('live_sub_surf_name', geom_id=args[0], sub_id=args[1])
+    raise TypeError('GetSubSurfName expects (sub_id) or (geom_id, sub_id)')
+
+
+def SetSubSurfName(*args):
+    if len(args) == 2:
+        return _call('live_set_sub_surf_name', sub_id=args[0], name=args[1])
+    if len(args) == 3:
+        return _call('live_set_sub_surf_name', geom_id=args[0], sub_id=args[1], name=args[2])
+    raise TypeError('SetSubSurfName expects (sub_id, name) or (geom_id, sub_id, name)')
+
+
+def GetSubSurfIndex(sub_id):
+    return _call('live_sub_surf_index', sub_id=sub_id)
+
+
+def GetAllSubSurfIDs():
+    return _call('live_all_sub_surfs')
 
 
 # ---------------------------------------------------------------- sets
