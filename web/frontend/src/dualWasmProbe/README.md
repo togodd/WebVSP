@@ -118,6 +118,8 @@ helper（[上游入口](../../../../src/python_api/packages/openvsp/openvsp/__in
 | `GetXSecIDVec`、`InsertXSecByID`、`CutXSecByID` | ✅ | 已通过真实浏览器/WASM 插入与删除回归 |
 | `GetXSecSurfIDVec`、`GetXSecParm`、`GetXSecWidth`/`Height`、`SetXSecWidth`/`Height`/`WidthHeight` | ✅ | 截面尺寸及参数查询已通过真实浏览器回归；曲面 ID 列表有主机桥接测试 |
 | `CopyXSec`、`CopyXSecByID`、`PasteXSec`、`PasteXSecByID` | ✅ | 真实浏览器验证剪贴板快照及目标替换 |
+| `GetXSecAlias`、`SetXSecAlias`、`GetXSecCurveAlias`、`SetXSecCurveAlias` | ✅ | 真实浏览器验证读写与恢复 |
+| `GetXSecContinuity`、`SetXSecContinuity`、`GetXSecTanAngles`/`Slews`/`Strengths`、`GetXSecCurvatures` 及对应 setter | 🟨 | 只作用于原生 `SkinXSec`（自定义几何截面）；本版机翼截面是 `XSecCurve`，原生直接报错。浏览器已验证该错误路径，成功路径尚未覆盖 |
 | `GetNumSubSurf`、`GetSubSurf`、`DeleteSubSurf`、`ReorderSubSurf`、`GetSubSurfType`、`GetSubSurfParmIDs`、`GetSubSurfName`、`SetSubSurfName`、`GetSubSurfIndex` | ✅ | 已通过真实浏览器/WASM 名称、顺序、参数与删除回归 |
 | `GetSubSurfIDVec`、`AddSubSurf` | ✅ | |
 | `GetNumSets`、`GetSetName`、`GetSetFlag` | ✅ | |
