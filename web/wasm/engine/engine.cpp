@@ -3057,6 +3057,39 @@ void RunImpl( const Job &j )
         return Result( j.id, "", Num( actual ) );
     }
     // ---- Live XSec / subsurface / set access (in-process mode) -------------
+    if ( j.op == "liveXSecSurfIDs" )
+    {
+        const auto ids = vsp::GetXSecSurfIDVec( j.a );
+        const string err = TakeParmErrors( true );
+        return Result( j.id, err, LiveStringArray( ids ) );
+    }
+    if ( j.op == "liveXSecWidth" || j.op == "liveXSecHeight" )
+    {
+        const double value = j.op == "liveXSecWidth" ? vsp::GetXSecWidth( j.a ) : vsp::GetXSecHeight( j.a );
+        const string err = TakeParmErrors( true );
+        return Result( j.id, err, Num( value ) );
+    }
+    if ( j.op == "liveXSecParm" )
+    {
+        const string id = vsp::GetXSecParm( j.a, j.b );
+        const string err = TakeParmErrors( true );
+        return Result( j.id, err, Quote( id ) );
+    }
+    if ( j.op == "liveXSecSetWidth" || j.op == "liveXSecSetHeight" || j.op == "liveXSecSetWidthHeight" )
+    {
+        if ( !std::isfinite( j.value ) ) return Result( j.id, "Invalid XSec dimension", "" );
+        if ( j.op == "liveXSecSetWidthHeight" )
+        {
+            char *end = nullptr;
+            const double height = std::strtod( j.b.c_str(), &end );
+            if ( j.b.empty() || end != j.b.c_str() + j.b.size() || !std::isfinite( height ) )
+                return Result( j.id, "Invalid XSec height", "" );
+            vsp::SetXSecWidthHeight( j.a, j.value, height );
+        }
+        else if ( j.op == "liveXSecSetWidth" ) vsp::SetXSecWidth( j.a, j.value );
+        else vsp::SetXSecHeight( j.a, j.value );
+        return Result( j.id, TakeParmErrors( true ), "null" );
+    }
     if ( j.op == "liveXSecSurfs" )
     {
         vector< string > out;

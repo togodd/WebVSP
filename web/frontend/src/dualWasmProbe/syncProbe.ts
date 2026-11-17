@@ -8,6 +8,7 @@ const LIVE_WRITES = new Set([
   'live_add_geom', 'live_delete_geom', 'live_update', 'live_parm_set', 'live_parm_set_by_id',
   'live_analysis_defaults', 'live_analysis_set_int', 'live_analysis_run', 'live_insert_xsec',
   'live_delete_xsec', 'live_insert_xsec_by_id', 'live_delete_xsec_by_id',
+  'live_xsec_set_width', 'live_xsec_set_height', 'live_xsec_set_width_height',
   'live_copy_xsec', 'live_copy_xsec_by_id', 'live_paste_xsec', 'live_paste_xsec_by_id',
   'live_change_xsec_shape', 'live_add_sub_surf', 'live_delete_sub_surf',
   'live_reorder_sub_surf', 'live_set_sub_surf_name', 'live_set_set_name', 'live_set_set_flag', 'live_delete_result', 'live_delete_all_results',
@@ -205,7 +206,19 @@ async function run(mode: 'script' | 'console', script?: string): Promise<unknown
           if (typeof args.value !== 'number' || !Number.isFinite(args.value)) throw new WasmEngineError(400, 'Invalid parameter value', 'not_written')
           return live('liveParmSetById', text('parm_id'), '', args.value as number)
         }
+        if (op === 'live_xsec_surf_ids') return live('liveXSecSurfIDs', text('geom_id'))
         if (op === 'live_xsec_surfs') return live('liveXSecSurfs', text('geom_id'))
+        if (op === 'live_xsec_width') return live('liveXSecWidth', text('xsec_id'))
+        if (op === 'live_xsec_height') return live('liveXSecHeight', text('xsec_id'))
+        if (op === 'live_xsec_parm') return live('liveXSecParm', text('xsec_id'), text('name'))
+        if (op === 'live_xsec_set_width' || op === 'live_xsec_set_height' || op === 'live_xsec_set_width_height') {
+          const width = args.width, height = args.height
+          if (op !== 'live_xsec_set_height' && (typeof width !== 'number' || !Number.isFinite(width))) throw new WasmEngineError(400, 'Invalid width', 'not_written')
+          if (op !== 'live_xsec_set_width' && (typeof height !== 'number' || !Number.isFinite(height))) throw new WasmEngineError(400, 'Invalid height', 'not_written')
+          if (op === 'live_xsec_set_width') return live('liveXSecSetWidth', text('xsec_id'), '', width as number)
+          if (op === 'live_xsec_set_height') return live('liveXSecSetHeight', text('xsec_id'), '', height as number)
+          return live('liveXSecSetWidthHeight', text('xsec_id'), String(height), width as number)
+        }
         if (op === 'live_xsecs') return live('liveXSecs', text('xsec_surf_id'))
         if (op === 'live_xsec_ids') return live('liveXSecIDs', text('xsec_surf_id'))
         if (op === 'live_xsec_shape') return live('liveXSecShape', text('xsec_id'))

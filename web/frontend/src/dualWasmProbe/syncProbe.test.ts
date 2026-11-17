@@ -98,6 +98,37 @@ describe('live write bridge', () => {
     expect(engine.call).toHaveBeenLastCalledWith('liveAddSubSurf', 'g', '1', 0)
     worker.onmessage({ data: { type: 'done', value: 'null' } } as MessageEvent)
   })
+  it('forwards native XSec dimensions and validates writes', async () => {
+    void runSyncScript('')
+    const worker = FakeWorker.instance
+    engine.call.mockResolvedValue(null)
+    for (const [op, args, native, a, b, value] of [
+      ['live_xsec_surf_ids', { geom_id: 'g' }, 'liveXSecSurfIDs', 'g', '', 0],
+      ['live_xsec_width', { xsec_id: 'x' }, 'liveXSecWidth', 'x', '', 0],
+      ['live_xsec_height', { xsec_id: 'x' }, 'liveXSecHeight', 'x', '', 0],
+      ['live_xsec_parm', { xsec_id: 'x', name: 'Width' }, 'liveXSecParm', 'x', 'Width', 0],
+      ['live_xsec_set_width', { xsec_id: 'x', width: 2 }, 'liveXSecSetWidth', 'x', '', 2],
+      ['live_xsec_set_height', { xsec_id: 'x', height: 3 }, 'liveXSecSetHeight', 'x', '', 3],
+      ['live_xsec_set_width_height', { xsec_id: 'x', width: 2, height: 3 }, 'liveXSecSetWidthHeight', 'x', '3', 2],
+      ['live_parm_set_by_id', { parm_id: 'p', value: 4 }, 'liveParmSetById', 'p', '', 4],
+      ['live_parm_set', { geom_id: 'g', key: 'grp\x1fn', value: 5 }, 'liveParmSet', 'g', 'grp\x1fn', 5],
+    ] as const) {
+      expect((await worker.request(op, args)).ok).toBe(true)
+      expect(engine.call).toHaveBeenLastCalledWith(native, a, b, value)
+    }
+    engine.call.mockClear()
+    for (const [op, args] of [
+      ['live_xsec_set_width', { xsec_id: 'x', width: null }],
+      ['live_xsec_set_height', { xsec_id: 'x', height: '2' }],
+      ['live_xsec_set_width_height', { xsec_id: 'x', width: 2, height: null }],
+    ] as const) expect((await worker.request(op, args)).error.outcome).toBe('not_written')
+    expect(engine.call).not.toHaveBeenCalled()
+    engine.call.mockRejectedValueOnce(new Error('native failure'))
+    const error = (await worker.request('live_xsec_set_width', { xsec_id: 'x', width: 2 })).error
+    expect(error.outcome).toBe('unknown')
+    expect(error.message).toContain('native failure')
+    worker.onmessage({ data: { type: 'done', value: 'null' } } as MessageEvent)
+  })
   it('forwards XSec clipboard calls and propagates native errors', async () => {
     void runSyncScript('')
     const worker = FakeWorker.instance

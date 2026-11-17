@@ -81,7 +81,7 @@ helper（[上游入口](../../../../src/python_api/packages/openvsp/openvsp/__in
 
 | 类别 | 代表接口及证据边界 |
 | --- | --- |
-| 原生函数形状 | `AddGeom`、`SetParmVal`、`GetNumXSec`、`ExecAnalysis`、`GetNumData` 可与[原生声明](../../../../src/geom_api/VSP_Geom_API.h)对照；门面只桥接其中一部分，例如 `SetParmVal` 仅四参数形式，而原生另有按 ID 重载。测试范围逐项见下表，不等于桌面语义全面一致。 |
+| 原生函数形状 | `AddGeom`、`SetParmVal`、`GetNumXSec`、`ExecAnalysis`、`GetNumData` 可与[原生声明](../../../../src/geom_api/VSP_Geom_API.h)对照；门面只桥接其中一部分，例如 `SetParmVal` 支持按 ID 和按名称两种原生重载。测试范围逐项见下表，不等于桌面语义全面一致。 |
 | 浏览器扩展 | `GetParmInfo`/`GetParmInfoByName`、`GetParmValByID`/`SetParmValByID`、`GetXSecSurfIDs`/`GetXSecIDs`、`GetResultShape`/`GetBinaryResults`、`GetResultSnapshotCapabilities`/`GetResultSnapshots` 是门面提供的便利或诊断接口，不能当作桌面原生同名 API；例如原生截面列表使用 `GetXSecSurfIDVec`。批量快照有明确大小和一致性边界，见上文。 |
 | 明确不支持或受限 | `SetDoubleAnalysisInput`、`SetStringAnalysisInput` 未桥接；`ExecAnalysis` 仅开放四种分析，`ListAnalysis` 并非可执行清单。文件 API 使用引擎虚拟文件系统，`WriteVSPFile` 只接受 `SET_ALL`，导入父几何及 STEP 导出不支持；超时不取消任务。递归结果树接口主动拒绝。细节见下方清单和文件 API。 |
 | 未验证 | 已桥接但未单独测试的截面、子表面及集合接口，以及 `get_wing_reference_quantities`、`get_propeller_thrust_vectors` 等 helper，不能由源码存在或依赖已测推断为可用。主机测试可能使用模拟桥；真实浏览器脚本的证据仅覆盖各自场景，见[几何测试](../../scripts/test-live-geometry.py)及文末测试表。 |
@@ -106,7 +106,7 @@ helper（[上游入口](../../../../src/python_api/packages/openvsp/openvsp/__in
 | `FindGeoms`、`FindGeom`、`GetGeomName`、`GetGeomTypeName` | ✅ | 直接读引擎线程，改名后同一段脚本内即可见 |
 | `GetGeomParent`、`GetGeomChildren`、`SetGeomName` | ✅ | 顶层父级是 `'NONE'`；自命名（Clone 等）拒绝改名 |
 | `GetGeomParmIDs` | ✅ | |
-| `GetParmVal`、`SetParmVal` | ✅ | `GetParmVal` 支持单参数重载；`SetParmVal` 只支持四参数形式且不触发更新，按 ID 设置用 `SetParmValByID` |
+| `GetParmVal`、`SetParmVal` | ✅ | `GetParmVal` 支持单参数重载；`SetParmVal` 支持两参数和四参数重载，均不触发更新 |
 | `GetParmInfo`、`GetParmInfoByName`、`GetParmValByID`、`SetParmValByID` | ✅ | `GetParmInfo` 另含 `active`、`lower`、`upper`、`groupName` |
 | `GetParmType`、`GetParmLowerLimit`/`UpperLimit`、`GetParmActiveFlag` | ✅ | 限制为 `None` 表示无界 |
 | `FindParm`、`GetParmName`、`GetParmGroupName`、`GetParmDisplayGroupName` | ✅ | `FindParm`/`GetParmVal` 用内部组名；显示组名见 `GetParmDisplayGroupName` |
@@ -114,6 +114,7 @@ helper（[上游入口](../../../../src/python_api/packages/openvsp/openvsp/__in
 | `GetNumXSecSurfs`、`GetXSecSurf`、`GetXSec`、`GetXSecParmIDs`、`DeleteXSec`、`ChangeXSecShape(ByID)` | 🟨 | 已桥接，未单独测试 |
 | `GetXSecSurfIDs`、`GetNumXSec`、`GetXSecIDs`、`GetXSecShape`、`InsertXSec`、`CutXSec` | ✅ | 真实浏览器已验证典型插入/删除/形状查询路径 |
 | `GetXSecIDVec`、`InsertXSecByID`、`CutXSecByID` | ✅ | 已通过真实浏览器/WASM 插入与删除回归 |
+| `GetXSecSurfIDVec`、`GetXSecParm`、`GetXSecWidth`/`Height`、`SetXSecWidth`/`Height`/`WidthHeight` | ✅ | 主机和模拟桥测试覆盖透传与参数校验；尚未单独完成真实浏览器验证 |
 | `GetNumSubSurf`、`GetSubSurf`、`DeleteSubSurf`、`ReorderSubSurf`、`GetSubSurfType`、`GetSubSurfParmIDs`、`GetSubSurfName`、`SetSubSurfName`、`GetSubSurfIndex` | ✅ | 已通过真实浏览器/WASM 名称、顺序、参数与删除回归 |
 | `GetSubSurfIDVec`、`AddSubSurf` | ✅ | |
 | `GetNumSets`、`GetSetName`、`GetSetFlag` | ✅ | |

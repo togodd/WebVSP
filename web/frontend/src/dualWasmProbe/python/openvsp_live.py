@@ -51,6 +51,7 @@ _LIVE_WRITES = frozenset({
     'live_add_geom', 'live_delete_geom', 'live_update', 'live_parm_set', 'live_parm_set_by_id',
     'live_analysis_defaults', 'live_analysis_set_int', 'live_analysis_run', 'live_insert_xsec',
     'live_delete_xsec', 'live_insert_xsec_by_id', 'live_delete_xsec_by_id',
+    'live_xsec_set_width', 'live_xsec_set_height', 'live_xsec_set_width_height',
     'live_change_xsec_shape', 'live_add_sub_surf', 'live_delete_sub_surf',
     'live_reorder_sub_surf', 'live_set_sub_surf_name', 'live_set_set_name', 'live_set_set_flag', 'read_file', 'write_file', 'import_file',
     'export_file', 'set_vsp_file_name', 'clear_model', 'live_delete_result',
@@ -331,7 +332,11 @@ def SetParmValUpdate(*args):
     return _call('live_parm_set_update', parm_id=parm_id, value=number)
 
 
-def SetParmVal(geom_id, name, group, value):
+def SetParmVal(geom_id, name, group=None, value=None):
+    if group is None and value is None:
+        return _call('live_parm_set_by_id', parm_id=geom_id, value=float(name))
+    if group is None or value is None:
+        raise TypeError('SetParmVal expects (parm_id, value) or (geom_id, name, group, value)')
     return _call('live_parm_set', geom_id=geom_id, key=group + '\x1f' + name, value=float(value))
 
 
@@ -352,6 +357,10 @@ def _indexed_id(ids, index):
 
 def GetXSecSurf(geom_id, index):
     return _indexed_id(_call('live_xsec_surfs', geom_id=geom_id), index)
+
+
+def GetXSecSurfIDVec(geom_id):
+    return _call('live_xsec_surf_ids', geom_id=geom_id)
 
 
 def GetXSecSurfIDs(geom_id):
@@ -380,6 +389,30 @@ def GetXSecShape(xsec_id):
 
 def GetXSecParmIDs(xsec_id):
     return _call('live_xsec_parm_ids', xsec_id=xsec_id)
+
+
+def GetXSecParm(xsec_id, name):
+    return _call('live_xsec_parm', xsec_id=xsec_id, name=name)
+
+
+def GetXSecWidth(xsec_id):
+    return _call('live_xsec_width', xsec_id=xsec_id)
+
+
+def GetXSecHeight(xsec_id):
+    return _call('live_xsec_height', xsec_id=xsec_id)
+
+
+def SetXSecWidth(xsec_id, width):
+    return _call('live_xsec_set_width', xsec_id=xsec_id, width=float(width))
+
+
+def SetXSecHeight(xsec_id, height):
+    return _call('live_xsec_set_height', xsec_id=xsec_id, height=float(height))
+
+
+def SetXSecWidthHeight(xsec_id, width, height):
+    return _call('live_xsec_set_width_height', xsec_id=xsec_id, width=float(width), height=float(height))
 
 
 def InsertXSec(geom_id, index, type):

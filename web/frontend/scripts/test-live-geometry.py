@@ -73,6 +73,27 @@ class GeometryApiTest(unittest.TestCase):
         vsp.CutXSecByID('new')
         self.assertEqual(self.calls[-1], ('live_delete_xsec_by_id', {'xsec_id': 'new'}))
 
+    def test_xsec_dimensions_and_native_parm_forwarding(self):
+        for func, args, op, payload in (
+            (vsp.GetXSecSurfIDVec, ('g',), 'live_xsec_surf_ids', {'geom_id': 'g'}),
+            (vsp.GetXSecWidth, ('x',), 'live_xsec_width', {'xsec_id': 'x'}),
+            (vsp.GetXSecHeight, ('x',), 'live_xsec_height', {'xsec_id': 'x'}),
+            (vsp.GetXSecParm, ('x', 'Width'), 'live_xsec_parm', {'xsec_id': 'x', 'name': 'Width'}),
+            (vsp.SetXSecWidth, ('x', 2), 'live_xsec_set_width', {'xsec_id': 'x', 'width': 2.0}),
+            (vsp.SetXSecHeight, ('x', 3), 'live_xsec_set_height', {'xsec_id': 'x', 'height': 3.0}),
+            (vsp.SetXSecWidthHeight, ('x', 2, 3), 'live_xsec_set_width_height', {'xsec_id': 'x', 'width': 2.0, 'height': 3.0}),
+            (vsp.SetParmVal, ('p', 2), 'live_parm_set_by_id', {'parm_id': 'p', 'value': 2.0}),
+            (vsp.SetParmVal, ('g', 'n', 'grp', 3), 'live_parm_set', {'geom_id': 'g', 'key': 'grp\x1fn', 'value': 3.0}),
+        ):
+            func(*args)
+            self.assertEqual(self.calls[-1], (op, payload))
+        with self.assertRaises(TypeError):
+            vsp.SetParmVal('p')
+        for func, args in ((vsp.SetXSecWidth, ('x', float('nan'))), (vsp.SetXSecWidthHeight, ('x', 1, float('inf')))):
+            with self.assertRaises(vsp.OpenVSPError) as ctx:
+                func(*args)
+            self.assertEqual(ctx.exception.outcome, 'not_written')
+
     def test_xsec_clipboard_forwarding(self):
         for func, args, op, payload in (
             (vsp.CopyXSec, ('g', 2), 'live_copy_xsec', {'geom_id': 'g', 'index': 2}),
