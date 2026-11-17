@@ -49,6 +49,19 @@ class GeometryApiTest(unittest.TestCase):
         vsp.GetGeomChildren('g')
         self.assertEqual(self.calls[-1], ('geom_children', {'geom_id': 'g'}))
 
+    def test_surface_queries(self):
+        u, w = 0.12345678901234566, 0.9876543210987654
+        self.reply['value'] = [u, w, -u]
+        for func, op in ((vsp.CompPnt01, 'live_comp_pnt01'), (vsp.CompNorm01, 'live_comp_norm01')):
+            result = func(geom_id='g', surf_indx=2, u=u, w=w)
+            self.assertEqual((result.x(), result.y(), result.z()), (u, w, -u))
+            self.assertEqual(self.calls[-1], (op, {'geom_id': 'g', 'surf_indx': 2, 'u': u, 'w': w}))
+        self.reply = {'ok': False, 'error': {'message': 'invalid surface'}}
+        with self.assertRaisesRegex(vsp.OpenVSPError, 'invalid surface'):
+            vsp.CompPnt01('g', -1, u, w)
+        with self.assertRaises(vsp.OpenVSPError):
+            vsp.CompNorm01('g', 0, float('nan'), w)
+
     def test_section_and_subsurface_indices(self):
         self.reply['value'] = ['first', 'last']
         for get in (vsp.GetXSecSurf, vsp.GetXSec, vsp.GetSubSurf):

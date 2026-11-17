@@ -113,6 +113,14 @@ def GetNumMainSurfs(geom_id):
     return _call('live_num_main_surfs', geom_id=geom_id)
 
 
+def CompPnt01(geom_id, surf_indx, u, w):
+    return _Vec3d(_call('live_comp_pnt01', geom_id=geom_id, surf_indx=surf_indx, u=u, w=w))
+
+
+def CompNorm01(geom_id, surf_indx, u, w):
+    return _Vec3d(_call('live_comp_norm01', geom_id=geom_id, surf_indx=surf_indx, u=u, w=w))
+
+
 def UpdateGeom(geom_id):
     return _call('live_update_geom', geom_id=geom_id)
 

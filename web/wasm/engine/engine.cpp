@@ -25,6 +25,7 @@
 //   mesh(a=geom id)                     binary "VSPM" mesh (format: web/frontend/src/api/mesh.ts)
 //   addGeom(a=type, b=parent)           {"id":...}
 //   deleteGeoms(a=comma-separated ids), liveDeleteGeom(a=geom id, value=clone delete policy)
+//   liveCompPnt01 / liveCompNorm01(a=id,b="surface index,w",value=u) -> [x,y,z]
 //   liveNumMainSurfs(a=id), liveUpdateGeom(a=id), liveSetGeomParent(a=id,b=parent)
 //   liveCopyGeom(a=id), liveCutGeom(a=id,value=clone policy), livePasteGeom(a=parent)
 //   guardedSetGeomName(a=geom id, b=name), guardedDeleteGeom(a=geom id)
@@ -3460,6 +3461,27 @@ void RunImpl( const Job &j )
         string err = TakeErrors();
         if ( !err.empty() ) return Result( j.id, err, "" );
         return Result( j.id, "", Quote( parent ) );
+    }
+    if ( j.op == "liveCompPnt01" || j.op == "liveCompNorm01" )
+    {
+        // b holds an integer surface index and a round-trip decimal w; value holds u.
+        const size_t sep = j.b.find( ',' );
+        if ( j.a.empty() || sep == string::npos || sep == 0 || sep + 1 == j.b.size() || !std::isfinite( j.value ) )
+            return Result( j.id, "Invalid surface query arguments", "" );
+        char *end = nullptr;
+        errno = 0;
+        const long index = std::strtol( j.b.c_str(), &end, 10 );
+        if ( errno || end != j.b.c_str() + sep || index < std::numeric_limits<int>::min() || index > std::numeric_limits<int>::max() )
+            return Result( j.id, "Invalid surface index", "" );
+        const char *start = j.b.c_str() + sep + 1;
+        const double w = std::strtod( start, &end );
+        if ( end == start || *end != '\0' || !std::isfinite( w ) )
+            return Result( j.id, "Invalid surface coordinate", "" );
+        const vec3d v = j.op == "liveCompPnt01" ? vsp::CompPnt01( j.a, static_cast<int>( index ), j.value, w )
+                                                  : vsp::CompNorm01( j.a, static_cast<int>( index ), j.value, w );
+        const string err = TakeErrors();
+        if ( !err.empty() ) return Result( j.id, err, "" );
+        return Result( j.id, "", "[" + Num( v.x() ) + "," + Num( v.y() ) + "," + Num( v.z() ) + "]" );
     }
     if ( j.op == "liveNumMainSurfs" )
     {

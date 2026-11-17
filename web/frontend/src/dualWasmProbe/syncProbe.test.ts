@@ -90,6 +90,24 @@ describe('live write bridge', () => {
     expect(engine.call).not.toHaveBeenCalled()
     worker.onmessage({ data: { type: 'done', value: 'null' } } as MessageEvent)
   })
+  it('forwards surface queries without losing coordinate precision', async () => {
+    void runSyncScript('')
+    const worker = FakeWorker.instance
+    const u = 0.12345678901234566, w = 0.9876543210987654
+    for (const [op, native] of [['live_comp_pnt01', 'liveCompPnt01'], ['live_comp_norm01', 'liveCompNorm01']] as const) {
+      engine.call.mockResolvedValueOnce([u, w, -u])
+      expect((await worker.request(op, { geom_id: 'g', surf_indx: 1, u, w })).value).toEqual([u, w, -u])
+      expect(engine.call).toHaveBeenLastCalledWith(native, 'g', `1,${w}`, u)
+    }
+    engine.call.mockClear()
+    for (const args of [
+      { geom_id: '', surf_indx: 0, u, w }, { geom_id: 'g', surf_indx: 1.5, u, w },
+      { geom_id: 'g', surf_indx: 2147483648, u, w }, { geom_id: 'g', surf_indx: 0, u: null, w },
+      { geom_id: 'g', surf_indx: 0, u, w: '0.5' },
+    ]) expect((await worker.request('live_comp_pnt01', args)).ok).toBe(false)
+    expect(engine.call).not.toHaveBeenCalled()
+    worker.onmessage({ data: { type: 'done', value: 'null' } } as MessageEvent)
+  })
   it('forwards geometry queries and clipboard edits with write outcome semantics', async () => {
     void runSyncScript('')
     const worker = FakeWorker.instance

@@ -157,6 +157,12 @@ async function run(mode: 'script' | 'console', script?: string): Promise<unknown
           return id
         }
         if (op === 'live_geom_types') return live('geomTypes')
+        if (op === 'live_comp_pnt01' || op === 'live_comp_norm01') {
+          const id = text('geom_id'), index = args.surf_indx, u = args.u, w = args.w
+          if (typeof index !== 'number' || !Number.isInteger(index) || index < -2147483648 || index > 2147483647) throw new WasmEngineError(400, 'Invalid surf_indx')
+          if (typeof u !== 'number' || !Number.isFinite(u) || typeof w !== 'number' || !Number.isFinite(w)) throw new WasmEngineError(400, 'Invalid surface coordinate')
+          return live(op === 'live_comp_pnt01' ? 'liveCompPnt01' : 'liveCompNorm01', id, `${index},${w}`, u)
+        }
         if (op === 'live_num_main_surfs') return live('liveNumMainSurfs', text('geom_id'))
         if (op === 'live_update_geom' || op === 'live_copy_geom') {
           await live(op === 'live_update_geom' ? 'liveUpdateGeom' : 'liveCopyGeom', text('geom_id'))
