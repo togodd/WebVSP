@@ -295,6 +295,10 @@ scope.onmessage = (event: MessageEvent<ConsoleMessage>) => {
     if (event.data.mode === 'script') {
       await setupLive(pyodide)
       const script = event.data.script ?? ''
+      // Script mode is the "paste a script" path, so it needs the same __file__
+      // as the console: upstream examples derive paths from it.
+      pyodide.globals.set('__file__', '/work/script.py')
+      pyodide.globals.set('__name__', '__main__')
       await ensureImportedPackages(pyodide, script)
       const value = await pyodide.runPythonAsync(script)
       let text: string
