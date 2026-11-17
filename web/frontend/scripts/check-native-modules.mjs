@@ -27,10 +27,17 @@ for (const file of [
   if (!a.equals(b)) throw new Error(`Original Python module drift: ${file}`)
 }
 // Example scripts import Constants at the top level, so it ships with the console.
-const constantsSource = resolve(frontend, '../../examples/scripts/python_scripts/Constants.py')
+// The Docker frontend stage only copies web/frontend, so the comparison is skipped
+// there; a source checkout always has the original.
+const constantsSource = resolve(process.env.VSP_EXAMPLES_DIR ?? resolve(frontend, '../../examples'),
+  'scripts/python_scripts/Constants.py')
 const constantsBundled = resolve(frontend, 'src/dualWasmProbe/python/Constants.py')
-if (!(await readFile(constantsSource)).equals(await readFile(constantsBundled))) {
-  throw new Error('Bundled example Constants.py drifted from examples/scripts/python_scripts/Constants.py')
+try {
+  if (!(await readFile(constantsSource)).equals(await readFile(constantsBundled))) {
+    throw new Error('Bundled example Constants.py drifted from examples/scripts/python_scripts/Constants.py')
+  }
+} catch (error) {
+  if (error.code !== 'ENOENT') throw error
 }
 const apiDir = process.env.VSP_API_DIR ?? resolve(frontend, '../../src/geom_api')
 const defines = await readFile(resolve(apiDir, 'APIDefines.h'), 'utf8')
