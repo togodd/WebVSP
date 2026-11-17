@@ -16,6 +16,8 @@ import { Viewport } from './viewport/Viewport'
 import { ResultsSaveToast } from './viewer/ResultsSaveToast'
 import { ResultsViewer } from './viewer/ResultsViewer'
 import { PythonConsole } from './console/PythonConsole'
+import { WorkspacePanel } from './workspace/WorkspacePanel'
+import { useWorkspaceFiles } from './workspace/store'
 import { useConsole } from './console/consoleStore'
 import { WasmToolbar } from './WasmToolbar'
 
@@ -125,6 +127,14 @@ export default function App() {
         <button className="console-open" onClick={() => useConsole.getState().openConsole()} data-testid="console-open">
           {t('console.open')}
         </button>
+        <button
+          className="console-open"
+          onClick={() => useWorkspaceFiles.getState().toggle()}
+          title={t('workspace.title')}
+          data-testid="workspace-open"
+        >
+          {t('workspace.open')}
+        </button>
         <LanguageSwitch />
         <WasmToolbar />
         {!mirrorEnabled && connected && <span className="hint">{t('app.mirrorUnavailable')}</span>}
@@ -143,6 +153,7 @@ export default function App() {
         ))}
         <ResultsViewer />
         <PythonConsole />
+        <WorkspacePanel />
       </div>
       <DialogHost />
       <DeleteConfirm />

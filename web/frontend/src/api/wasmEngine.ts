@@ -74,7 +74,12 @@ export function getEngineSessionId(): string {
   return engineSessionId
 }
 
-let modulePromise: Promise<VspModule> | null = null
+// The engine is one instance per page, so the promise is cached on globalThis:
+// a second evaluation of this module (dev-server module duplication, or a
+// lazily imported copy) must not boot another 30 MB engine next to it.
+const ENGINE_KEY = '__webvspEnginePromise'
+type EngineGlobal = typeof globalThis & { [ENGINE_KEY]?: Promise<VspModule> | null }
+let modulePromise: Promise<VspModule> | null = (globalThis as EngineGlobal)[ENGINE_KEY] ?? null
 let nextId = 1
 const pending = new Map<number, Pending>()
 let fastDrainOutstanding = 0
@@ -90,7 +95,12 @@ function emit(e: SocketMessage) {
 }
 
 function load(): Promise<VspModule> {
-  modulePromise ??= (async () => {
+  // One engine per page. The promise is published on globalThis before the await
+  // so a second module copy cannot start a competing instance.
+  const published = (globalThis as EngineGlobal)[ENGINE_KEY]
+  if (published) return (modulePromise = published)
+  if (modulePromise) return modulePromise
+  modulePromise = (async () => {
     // Served as static files (web/frontend/public/wasm), not bundled: large and optional.
     const url = new URL(`${import.meta.env.BASE_URL}wasm/vsp.js`, window.location.href).href
     const { default: createVspModule } = await import(/* @vite-ignore */ url)
@@ -109,6 +119,7 @@ function load(): Promise<VspModule> {
     setInterval(tick, 16)
     return vsp
   })()
+  ;(globalThis as EngineGlobal)[ENGINE_KEY] = modulePromise
   return modulePromise
 }
 
@@ -707,6 +718,13 @@ export async function engineListFiles(root: string): Promise<EngineFileInfo[]> {
   }
   walk(root)
   return out
+}
+
+/** Remove a file from the engine file system (the workspace's delete). */
+export async function engineDeleteFile(path: string): Promise<void> {
+  const vsp = await load()
+  if (!vsp.FS.analyzePath(path).exists) throw new Error(`File not found: ${path}`)
+  vsp.FS.unlink(path)
 }
 
 export async function engineStatFile(path: string): Promise<{ size: number; mtime: number } | null> {

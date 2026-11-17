@@ -140,6 +140,8 @@ export const ZH: Record<string, string> = {
   'solver.unknown': '结果未知（已运行 {time}）',
 
 
+  'workspace.open': '工作区',
+  'workspace.title': '工作区 · 浏览 /work 里的文件',
   'console.title': 'Python 控制台',
   'console.open': 'Python',
   'console.close': '关闭',

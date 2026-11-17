@@ -140,6 +140,8 @@ export const EN: Record<string, string> = {
   'solver.unknown': 'Outcome unknown after {time}',
 
 
+  'workspace.open': 'Workspace',
+  'workspace.title': 'Workspace: browse the files in /work',
   'console.title': 'Python console',
   'console.open': 'Python',
   'console.close': 'Close',
