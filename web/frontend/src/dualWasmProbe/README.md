@@ -112,8 +112,8 @@ helper（[上游入口](../../../../src/python_api/packages/openvsp/openvsp/__in
 | `FindParm`、`GetParmName`、`GetParmGroupName`、`GetParmDisplayGroupName` | ✅ | `FindParm`/`GetParmVal` 用内部组名；显示组名见 `GetParmDisplayGroupName` |
 | `SetParmValUpdate`（两个重载） | ✅ | 触发模型更新；不做 limits/active 预检（原生语义） |
 | `GetNumXSecSurfs`、`GetXSecSurf`、`GetXSec`、`GetXSecParmIDs`、`DeleteXSec`、`ChangeXSecShape(ByID)` | 🟨 | 已桥接，未单独测试 |
-| `GetXSecSurfIDs`、`GetNumXSec`、`GetXSecIDs`、`GetXSecShape`、`InsertXSec`、`CutXSec` | ✅ | |
-| `GetNumSubSurf`、`GetSubSurf`、`DeleteSubSurf` | 🟨 | 已桥接，未单独测试 |
+| `GetXSecSurfIDs`、`GetNumXSec`、`GetXSecIDs`、`GetXSecShape`、`InsertXSec`、`CutXSec` | ✅ | 真实浏览器已验证典型插入/删除/形状查询路径 |
+| `GetNumSubSurf`、`GetSubSurf`、`DeleteSubSurf`、`ReorderSubSurf`、`GetSubSurfType`、`GetSubSurfParmIDs`、`GetSubSurfName`、`SetSubSurfName`、`GetSubSurfIndex` | 🟨 | 已桥接；SubSurf 类型/错误路径有真实测试，名称、顺序和参数 ID 仍需单独浏览器回归 |
 | `GetSubSurfIDVec`、`AddSubSurf` | ✅ | |
 | `GetNumSets`、`GetSetName`、`GetSetFlag` | ✅ | |
 | `GetSetIndex`、`GetGeomSet`、`GetGeomSetAtIndex` | ✅ | 按名/序号读集合成员；`GetSetIndex` 不存在返回 -1 |
