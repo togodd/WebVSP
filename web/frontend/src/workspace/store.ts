@@ -19,7 +19,7 @@ interface WorkspaceState {
   files: WorkspaceFile[]
   query: string
   sort: SortKey
-  /** Newest first for size/time; name is always ascending. */
+  /** Sort direction; descending reverses the selected primary key. */
   descending: boolean
   busy: boolean
   message: string
@@ -163,11 +163,22 @@ export interface FilterState { files: WorkspaceFile[]; query: string; sort: Sort
 export function visibleFiles(state: FilterState): WorkspaceFile[] {
   const needle = state.query.trim().toLowerCase()
   const filtered = needle ? state.files.filter((f) => f.rel.toLowerCase().includes(needle)) : state.files.slice()
-  const sign = state.descending && state.sort !== 'name' ? -1 : 1
+  const compareName = (a: WorkspaceFile, b: WorkspaceFile) => {
+    const byRelativePath = a.rel.localeCompare(b.rel, undefined, { numeric: true, sensitivity: 'base' })
+    // Base sensitivity and numeric comparison can treat distinct paths as equal.
+    return byRelativePath || (a.rel < b.rel ? -1 : a.rel > b.rel ? 1 : 0)
+  }
+  const sign = state.descending ? -1 : 1
   filtered.sort((a, b) => {
-    if (state.sort === 'size') return (a.size - b.size) * sign
-    if (state.sort === 'time') return (a.mtime - b.mtime) * sign
-    return a.rel.localeCompare(b.rel, undefined, { numeric: true, sensitivity: 'base' })
+    let primary = 0
+    if (state.sort === 'size') primary = a.size - b.size
+    else if (state.sort === 'time') primary = a.mtime - b.mtime
+    else primary = compareName(a, b)
+
+    // Reverse only the selected key. Equal size/mtime entries always use the
+    // same ascending name order, making results deterministic in either direction.
+    if (primary !== 0) return primary * sign
+    return state.sort === 'name' ? 0 : compareName(a, b)
   })
   return filtered
 }

@@ -56,6 +56,9 @@ try {
   assert.equal((await page.textContent('[data-testid="ws-count"]') ?? '').trim(), '3 个文件')
   assert.equal(await page.locator('.ws-kind-model').count(), 1)
   assert.equal(await page.locator('.ws-kind-table').count(), 1)
+  assert.equal(await page.locator('.ws-row button[title="查看"] svg').count(), 3)
+  assert.equal(await page.locator('.ws-row button[title="下载"] svg').count(), 3)
+  assert.equal(await page.locator('.ws-row button[title="删除"] svg').count(), 3)
   console.log('PASS lists files with typed icons')
 
   // Filtering narrows the list and an empty result explains itself.
@@ -70,8 +73,47 @@ try {
   await page.waitForTimeout(150)
   console.log('PASS filters by name')
 
+  // Both directions must sort the real byte size, and the arrow follows it.
+  const names = () => page.locator('.ws-row .ws-name').allTextContents()
+  const sizeHeader = page.locator('.ws-head button.ws-size')
+  await sizeHeader.click()
+  assert.deepEqual(await names(), ['demo/sweep.csv', 'demo/notes.txt', 'demo/model.vsp3'])
+  assert.match(await sizeHeader.innerText(), /↓/)
+  await sizeHeader.click()
+  assert.deepEqual(await names(), ['demo/model.vsp3', 'demo/notes.txt', 'demo/sweep.csv'])
+  assert.match(await sizeHeader.innerText(), /↑/)
+  const timeHeader = page.locator('.ws-head button.ws-time')
+  await timeHeader.click()
+  assert.match(await timeHeader.innerText(), /↓/)
+  await timeHeader.click()
+  assert.match(await timeHeader.innerText(), /↑/)
+  console.log('PASS toggles numeric size and time sorting')
+
+  // Header and row columns use identical grid tracks even with a scrollbar.
+  const aligned = await page.locator('.ws-list').evaluate((list) => {
+    const head = list.querySelector('.ws-head')
+    const row = list.querySelector('.ws-row')
+    return [...head.children].map((cell, i) => Math.abs(cell.getBoundingClientRect().x - row.children[i].getBoundingClientRect().x))
+  })
+  assert.ok(aligned.every((delta) => delta < 1), `misaligned columns: ${aligned}`)
+  console.log('PASS aligns table header and rows')
+
+  // Dragging adjusts the docked width and persists it only after release.
+  const panel = page.locator('[data-testid="workspace-panel"]')
+  const handle = panel.locator('.ws-resize')
+  const beforeWidth = (await panel.boundingBox()).width
+  const handleBox = await handle.boundingBox()
+  await page.mouse.move(handleBox.x + 4, handleBox.y + 40)
+  await page.mouse.down()
+  await page.mouse.move(handleBox.x - 76, handleBox.y + 40, { steps: 8 })
+  await page.mouse.up()
+  const afterWidth = (await panel.boundingBox()).width
+  assert.ok(afterWidth > beforeWidth + 50, `resize failed: ${beforeWidth} -> ${afterWidth}`)
+  assert.ok(Math.abs(Number(await page.evaluate(() => localStorage.getItem('webvsp.workspace.width'))) - afterWidth) < 2)
+  console.log('PASS drags and persists sidebar width')
+
   // Preview shows file contents.
-  await page.click('.ws-row:has-text("sweep.csv") button:has-text("查看")')
+  await page.click('.ws-row:has-text("sweep.csv") button[title="查看"]')
   await page.waitForSelector('.ws-preview-text', { timeout: 10000 })
   assert.match((await page.textContent('.ws-preview-text')) ?? '', /Alpha,CLtot/)
   await page.click('.ws-modal-foot button:has-text("关闭")')
@@ -85,19 +127,19 @@ try {
   })
   // The side panel observes engine writes without a manual refresh.
   await page.locator('.ws-row:has-text("run.adb")').waitFor({ timeout: 6000 })
-  await page.click('.ws-row:has-text("run.adb") button:has-text("查看")')
+  await page.click('.ws-row:has-text("run.adb") button[title="查看"]')
   await page.waitForTimeout(400)
   assert.match((await page.textContent('.ws-modal-body')) ?? '', /二进制文件/)
   await page.click('.ws-modal-foot button:has-text("关闭")')
   console.log('PASS refuses to preview a binary file')
 
   // Delete asks first, then removes the file.
-  await page.click('.ws-row:has-text("notes.txt") button:has-text("删除")')
+  await page.click('.ws-row:has-text("notes.txt") button[title="删除"]')
   await page.waitForSelector('.ws-confirm', { timeout: 5000 })
   await page.click('.ws-confirm button:has-text("取消")')
   await page.waitForTimeout(200)
   assert.equal(await page.locator('.ws-row').count(), 4)
-  await page.click('.ws-row:has-text("notes.txt") button:has-text("删除")')
+  await page.click('.ws-row:has-text("notes.txt") button[title="删除"]')
   await page.waitForSelector('.ws-confirm', { timeout: 5000 })
   await page.click('.ws-confirm .danger')
   await page.waitForTimeout(600)

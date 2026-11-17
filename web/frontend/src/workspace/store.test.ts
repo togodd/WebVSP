@@ -69,9 +69,34 @@ describe('visibleFiles', () => {
     expect(visibleFiles(state({})).map((f) => f.rel)).toEqual(['a.vsp3', 'b.csv', 'dir/c.txt'])
   })
 
-  it('sorts by size and time, newest largest first when descending', () => {
+  it('sorts every key in both directions', () => {
+    expect(visibleFiles(state({ sort: 'name', descending: false })).map((f) => f.rel)).toEqual(['a.vsp3', 'b.csv', 'dir/c.txt'])
+    expect(visibleFiles(state({ sort: 'name', descending: true })).map((f) => f.rel)).toEqual(['dir/c.txt', 'b.csv', 'a.vsp3'])
+    expect(visibleFiles(state({ sort: 'size', descending: false })).map((f) => f.rel)).toEqual(['a.vsp3', 'dir/c.txt', 'b.csv'])
     expect(visibleFiles(state({ sort: 'size', descending: true })).map((f) => f.rel)).toEqual(['b.csv', 'dir/c.txt', 'a.vsp3'])
-    expect(visibleFiles(state({ sort: 'time' })).map((f) => f.rel)).toEqual(['a.vsp3', 'dir/c.txt', 'b.csv'])
+    expect(visibleFiles(state({ sort: 'time', descending: false })).map((f) => f.rel)).toEqual(['a.vsp3', 'dir/c.txt', 'b.csv'])
+    expect(visibleFiles(state({ sort: 'time', descending: true })).map((f) => f.rel)).toEqual(['b.csv', 'dir/c.txt', 'a.vsp3'])
+  })
+
+  it('orders names that compare equally with base sensitivity deterministically', () => {
+    const files = [file('a.txt'), file('A.txt')]
+    expect(visibleFiles(state({ files })).map((f) => f.rel)).toEqual(['A.txt', 'a.txt'])
+    expect(visibleFiles(state({ files, descending: true })).map((f) => f.rel)).toEqual(['a.txt', 'A.txt'])
+  })
+
+  it('uses ascending names as a deterministic tie-break for size and time', () => {
+    const files = [file('z.txt', 20, 1000), file('a.txt', 20, 1000), file('m.txt', 10, 2000)]
+    const duplicateState = (patch: Partial<FilterState>): FilterState => ({
+      files,
+      query: '',
+      sort: 'size',
+      descending: false,
+      ...patch,
+    })
+    expect(visibleFiles(duplicateState({ sort: 'size' })).map((f) => f.rel)).toEqual(['m.txt', 'a.txt', 'z.txt'])
+    expect(visibleFiles(duplicateState({ sort: 'size', descending: true })).map((f) => f.rel)).toEqual(['a.txt', 'z.txt', 'm.txt'])
+    expect(visibleFiles(duplicateState({ sort: 'time' })).map((f) => f.rel)).toEqual(['a.txt', 'z.txt', 'm.txt'])
+    expect(visibleFiles(duplicateState({ sort: 'time', descending: true })).map((f) => f.rel)).toEqual(['m.txt', 'a.txt', 'z.txt'])
   })
 
   it('filters on any part of the relative path, case-insensitively', () => {

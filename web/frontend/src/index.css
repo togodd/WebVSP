@@ -630,10 +630,10 @@ input:focus, select:focus, textarea:focus, button:focus-visible {
 .ws-count { font-size: 11px; color: var(--fg-3); }
 .ws-search { flex: 1; min-width: 90px; height: 20px; font-size: 11px; padding: 0 6px; }
 .ws-head, .ws-row {
-  display: flex; align-items: center; gap: 6px; padding: 2px 8px; font-size: 11px;
-  border-bottom: 1px solid var(--line);
+  display: grid; grid-template-columns: 14px minmax(0, 1fr) 62px 70px 78px; align-items: center; gap: 6px;
+  padding: 2px 8px; font-size: 11px; border-bottom: 1px solid var(--line);
 }
-.ws-head { flex: none; color: var(--fg-3); background: var(--bg-2); }
+.ws-head { position: sticky; top: 0; z-index: 1; flex: none; color: var(--fg-3); background: var(--bg-2); }
 .ws-row { cursor: default; }
 .ws-row:hover { background: var(--bg-2); }
 .ws-list { flex: 1; overflow: auto; min-height: 0; }
@@ -645,18 +645,19 @@ input:focus, select:focus, textarea:focus, button:focus-visible {
 .ws-kind-script { color: #7fd9c4; }
 .ws-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .ws-size { width: 62px; flex: none; text-align: right; color: var(--fg-3); }
-.ws-time { width: 58px; flex: none; text-align: right; color: var(--fg-3); }
-.ws-ops { width: 132px; flex: none; display: flex; gap: 2px; justify-content: flex-end; }
+.ws-time { width: 70px; flex: none; text-align: right; color: var(--fg-3); }
+.ws-ops { width: 78px; min-width: 0; display: flex; gap: 2px; justify-content: flex-end; }
+.ws-action { display: inline-grid; place-items: center; width: 24px; height: 22px; padding: 2px; }
+.ws-action svg { display: block; }
 .ws-sort { background: none; border: 0; padding: 0; font: inherit; color: inherit; cursor: pointer; }
 .ws-sort.ws-size { width: 62px; text-align: right; }
-.ws-sort.ws-time { width: 58px; text-align: right; }
+.ws-sort.ws-time { width: 70px; text-align: right; }
 .ws-head, .ws-row { min-width: 360px; }
 .ws-head { overflow: hidden; }
 @media (max-width: 700px) {
   .ws-panel { min-width: 0; max-width: 70vw; }
-  .ws-head, .ws-row { min-width: 0; }
-  .ws-size, .ws-time { display: none; }
-  .ws-ops { width: auto; }
+  .ws-list { overflow: auto; }
+  .ws-head, .ws-row { min-width: 300px; }
 }
 .ws-empty { padding: 14px 10px; font-size: 11px; color: var(--fg-3); line-height: 1.6; }
 .ws-status {

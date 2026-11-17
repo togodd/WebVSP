@@ -30,16 +30,33 @@ export function WorkspacePanel() {
       return Number.isFinite(saved) ? Math.min(MAX_W, Math.max(MIN_W, saved)) : 420
     } catch { return 420 }
   })
+  const [viewportWidth, setViewportWidth] = useState(() => window.innerWidth)
+  const maxWidth = Math.min(MAX_W, Math.floor(viewportWidth * (viewportWidth <= 700 ? 0.7 : 0.45)))
+  const minWidth = Math.min(MIN_W, maxWidth)
+  const actualWidth = Math.min(maxWidth, Math.max(minWidth, width))
+  const persistWidth = (value: number) => {
+    try { localStorage.setItem(WIDTH_KEY, String(value)) } catch { /* Storage can be unavailable. */ }
+  }
+  const widthRef = useRef(actualWidth)
+  widthRef.current = actualWidth
   const [preview, setPreview] = useState<WorkspaceFile | null>(null)
   const [pending, setPending] = useState<WorkspaceFile | null>(null)
   const [menu, setMenu] = useState<{ file: WorkspaceFile; x: number; y: number } | null>(null)
   const resize = useRef<{ x: number; width: number } | null>(null)
 
   useEffect(() => {
-    try { localStorage.setItem(WIDTH_KEY, String(width)) } catch { /* Storage can be unavailable. */ }
-  }, [width])
+    const onResize = () => setViewportWidth(window.innerWidth)
+    window.addEventListener('resize', onResize)
+    return () => window.removeEventListener('resize', onResize)
+  }, [])
+
+  useEffect(() => {
+    if (width !== actualWidth) setWidth(actualWidth)
+  }, [actualWidth, width])
 
   const descending = useWorkspaceFiles((s) => s.descending)
+  const sortLabel = (key: 'name' | 'size' | 'time', label: string) =>
+    `${label}，${sort === key ? (descending ? '降序' : '升序') : '未排序'}`
   const shown = useMemo(() => visibleFiles({ files, query, sort, descending }), [files, query, sort, descending])
 
   useEffect(() => {
@@ -71,16 +88,16 @@ export function WorkspacePanel() {
       <span className="ws-size">{formatSize(file.size)}</span>
       <span className="ws-time">{formatTime(file.mtime)}</span>
       <span className="ws-ops">
-        <button className="ghost" onClick={() => setPreview(file)}>查看</button>
-        <button className="ghost" disabled={busy} onClick={() => void download(file)}>下载</button>
-        <button className="ghost" disabled={busy} onClick={() => setPending(file)}>删除</button>
+        <button className="ghost ws-action" aria-label={`查看 ${file.name}`} title="查看" onClick={() => setPreview(file)}><Icon name="view" /></button>
+        <button className="ghost ws-action" aria-label={`下载 ${file.name}`} title="下载" disabled={busy} onClick={() => void download(file)}><Icon name="download" /></button>
+        <button className="ghost ws-action" aria-label={`删除 ${file.name}`} title="删除" disabled={busy} onClick={() => setPending(file)}><Icon name="delete" /></button>
       </span>
     </div>
   ))
 
   return (
     <>
-      <aside className="ws-panel" style={{ width }} data-testid="workspace-panel">
+      <aside className="ws-panel" style={{ width: actualWidth }} data-testid="workspace-panel">
         <div className="ws-title">
           <span>工作区 · /work</span>
           <span className="results-titlebuttons">
@@ -99,15 +116,14 @@ export function WorkspacePanel() {
           />
         </div>
 
-        <div className="ws-head">
-          <span className="ws-icon" />
-          <button className="ws-sort" onClick={() => setSort('name')}>名称{sort === 'name' ? ' ↑' : ''}</button>
-          <button className="ws-sort ws-size" onClick={() => setSort('size')}>大小{sort === 'size' ? ' ↓' : ''}</button>
-          <button className="ws-sort ws-time" onClick={() => setSort('time')}>修改时间{sort === 'time' ? ' ↓' : ''}</button>
-          <span className="ws-ops">操作</span>
-        </div>
-
         <div className="ws-list" data-testid="ws-list">
+          <div className="ws-head">
+            <span className="ws-icon" />
+            <button className="ws-sort ws-name" aria-label={sortLabel('name', '名称')} onClick={() => setSort('name')}>名称{sort === 'name' ? (descending ? ' ↓' : ' ↑') : ''}</button>
+            <button className="ws-sort ws-size" aria-label={sortLabel('size', '大小')} onClick={() => setSort('size')}>大小{sort === 'size' ? (descending ? ' ↓' : ' ↑') : ''}</button>
+            <button className="ws-sort ws-time" aria-label={sortLabel('time', '修改时间')} onClick={() => setSort('time')}>修改时间{sort === 'time' ? (descending ? ' ↓' : ' ↑') : ''}</button>
+            <span className="ws-ops">操作</span>
+          </div>
           {rows(shown)}
           {shown.length === 0 && (
             <div className="ws-empty">
@@ -127,21 +143,35 @@ export function WorkspacePanel() {
           role="separator"
           aria-label="调整工作区宽度"
           aria-orientation="vertical"
-          aria-valuemin={MIN_W}
-          aria-valuemax={MAX_W}
-          aria-valuenow={width}
+          aria-valuemin={minWidth}
+          aria-valuemax={maxWidth}
+          aria-valuenow={actualWidth}
+          aria-valuetext={`${actualWidth} 像素`}
           tabIndex={0}
           onKeyDown={(e) => {
             if (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight') return
             e.preventDefault()
-            setWidth((w) => Math.min(MAX_W, Math.max(MIN_W, w + (e.key === 'ArrowLeft' ? 20 : -20))))
+            setWidth((w) => {
+              const next = Math.min(maxWidth, Math.max(minWidth, w + (e.key === 'ArrowLeft' ? 20 : -20)))
+              persistWidth(next)
+              return next
+            })
           }}
-          onPointerDown={(e) => { e.currentTarget.setPointerCapture(e.pointerId); resize.current = { x: e.clientX, width } }}
+          onPointerDown={(e) => {
+            if (e.button !== 0) return
+            e.preventDefault()
+            e.currentTarget.setPointerCapture(e.pointerId)
+            resize.current = { x: e.clientX, width: actualWidth }
+          }}
           onPointerMove={(e) => {
             const start = resize.current
-            if (start) setWidth(Math.min(MAX_W, Math.max(MIN_W, start.width + start.x - e.clientX)))
+            if (start) {
+              const next = Math.min(maxWidth, Math.max(minWidth, start.width + start.x - e.clientX))
+              widthRef.current = next
+              setWidth(next)
+            }
           }}
-          onPointerUp={() => { resize.current = null }}
+          onPointerUp={() => { resize.current = null; persistWidth(widthRef.current) }}
           onPointerCancel={() => { resize.current = null }}
           onLostPointerCapture={() => { resize.current = null }}
         />
@@ -173,6 +203,14 @@ export function WorkspacePanel() {
       )}
     </>
   )
+}
+
+function Icon({ name }: { name: 'view' | 'download' | 'delete' }) {
+  return <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+    {name === 'view' && <><path d="M2 12s3.5-6 10-6 10 6 10 6-3.5 6-10 6S2 12 2 12Z" /><circle cx="12" cy="12" r="2.5" /></>}
+    {name === 'download' && <><path d="M12 3v12m-4-4 4 4 4-4" /><path d="M4 17v3h16v-3" /></>}
+    {name === 'delete' && <><path d="M4 7h16M9 7V4h6v3m3 0-1 13H7L6 7m4 4v5m4-5v5" /></>}
+  </svg>
 }
 
 function glyph(kind: WorkspaceFile['kind']): string {
