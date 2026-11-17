@@ -25,6 +25,8 @@
 //   mesh(a=geom id)                     binary "VSPM" mesh (format: web/frontend/src/api/mesh.ts)
 //   addGeom(a=type, b=parent)           {"id":...}
 //   deleteGeoms(a=comma-separated ids), liveDeleteGeom(a=geom id, value=clone delete policy)
+//   liveNumMainSurfs(a=id), liveUpdateGeom(a=id), liveSetGeomParent(a=id,b=parent)
+//   liveCopyGeom(a=id), liveCutGeom(a=id,value=clone policy), livePasteGeom(a=parent)
 //   guardedSetGeomName(a=geom id, b=name), guardedDeleteGeom(a=geom id)
 //   setParm(a=parm id, value)           legacy unscoped write
 //   geomSetParm(a=geom id, b=parm id, value), xsecSetParm(a=xsec id, b=parm id, value)
@@ -3418,6 +3420,31 @@ void RunImpl( const Job &j )
         string err = TakeErrors();
         if ( !err.empty() ) return Result( j.id, err, "" );
         return Result( j.id, "", Quote( parent ) );
+    }
+    if ( j.op == "liveNumMainSurfs" )
+    {
+        const int count = vsp::GetNumMainSurfs( j.a );
+        const string err = TakeErrors();
+        if ( !err.empty() ) return Result( j.id, err, "" );
+        return Result( j.id, "", std::to_string( count ) );
+    }
+    if ( j.op == "liveUpdateGeom" || j.op == "liveSetGeomParent" ||
+         j.op == "liveCopyGeom" || j.op == "liveCutGeom" || j.op == "livePasteGeom" )
+    {
+        if ( j.op == "liveCutGeom" && ( !std::isfinite( j.value ) || std::floor( j.value ) != j.value ||
+             j.value < 0 || j.value >= vsp::CLONE_DELETE_NUM_TYPES ) )
+            return ParmWriteFailure( j.id, "Invalid clone_delete", "not_written", "null" );
+        if ( !BeginGuardedWrite() ) return;
+        vector< string > pasted;
+        if ( j.op == "liveUpdateGeom" ) vsp::UpdateGeom( j.a );
+        else if ( j.op == "liveSetGeomParent" ) vsp::SetGeomParent( j.a, j.b );
+        else if ( j.op == "liveCopyGeom" ) vsp::CopyGeomToClipboard( j.a );
+        else if ( j.op == "liveCutGeom" ) vsp::CutGeomToClipboard( j.a, static_cast<int>( j.value ) );
+        else pasted = vsp::PasteGeomClipboard( j.a );
+        DrainedErrors errors = TakeWriteErrors();
+        Watch( "Geometry edit", true );
+        if ( errors.had_errors ) return ParmWriteFailure( j.id, errors.message, "unknown", "null" );
+        return Result( j.id, "", j.op == "livePasteGeom" ? LiveStringArray( pasted ) : "null" );
     }
     if ( j.op == "liveSetGeomName" )
     {

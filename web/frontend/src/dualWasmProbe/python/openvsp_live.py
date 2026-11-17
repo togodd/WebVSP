@@ -56,6 +56,7 @@ _LIVE_WRITES = frozenset({
     'live_reorder_sub_surf', 'live_set_sub_surf_name', 'live_set_set_name', 'live_set_set_flag', 'read_file', 'write_file', 'import_file',
     'export_file', 'set_vsp_file_name', 'clear_model', 'live_delete_result',
     'live_delete_all_results', 'live_parm_set_update', 'live_set_geom_name',
+    'live_update_geom', 'live_set_geom_parent', 'live_copy_geom', 'live_cut_geom', 'live_paste_geom',
 })
 
 
@@ -102,6 +103,34 @@ CLONE_DELETE_NUM_TYPES = 3
 
 def DeleteGeom(geom_id, clone_delete=CLONE_DELETE_LEAVE_EMPTY):
     return _call('live_delete_geom', geom_id=geom_id, clone_delete=clone_delete)
+
+
+def GetGeomTypes():
+    return _call('live_geom_types')
+
+
+def GetNumMainSurfs(geom_id):
+    return _call('live_num_main_surfs', geom_id=geom_id)
+
+
+def UpdateGeom(geom_id):
+    return _call('live_update_geom', geom_id=geom_id)
+
+
+def SetGeomParent(geom_id, parent_id):
+    return _call('live_set_geom_parent', geom_id=geom_id, parent_id=parent_id)
+
+
+def CopyGeomToClipboard(geom_id):
+    return _call('live_copy_geom', geom_id=geom_id)
+
+
+def CutGeomToClipboard(geom_id, clone_delete=CLONE_DELETE_LEAVE_EMPTY):
+    return _call('live_cut_geom', geom_id=geom_id, clone_delete=clone_delete)
+
+
+def PasteGeomClipboard(parent=''):
+    return _call('live_paste_geom', parent=parent)
 
 
 def Update(update_managers=True):

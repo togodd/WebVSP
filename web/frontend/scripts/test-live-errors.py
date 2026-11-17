@@ -23,6 +23,41 @@ class LiveErrorsTest(unittest.TestCase):
         self.assertEqual([args['clone_delete'] for _, args in calls], [0, 0, 1, 2, 99])
         self.assertTrue(all(op == 'live_delete_geom' for op, _ in calls))
 
+    def test_geometry_facade_forwards_arguments_and_write_outcomes(self):
+        calls = []
+        def request(op, payload):
+            calls.append((op, json.loads(payload)))
+            return json.dumps({'ok': True, 'value': ['POD'] if op == 'live_geom_types' else
+                               1 if op == 'live_num_main_surfs' else
+                               ['new'] if op == 'live_paste_geom' else None})
+        vsp.request = request
+        self.assertEqual(vsp.GetGeomTypes(), ['POD'])
+        self.assertEqual(vsp.GetNumMainSurfs('g'), 1)
+        self.assertIsNone(vsp.UpdateGeom('g'))
+        self.assertIsNone(vsp.SetGeomParent('g', ''))
+        self.assertIsNone(vsp.CopyGeomToClipboard('g'))
+        self.assertIsNone(vsp.CutGeomToClipboard('g'))
+        self.assertIsNone(vsp.CutGeomToClipboard('g', 2))
+        self.assertEqual(vsp.PasteGeomClipboard(), ['new'])
+        self.assertEqual(vsp.PasteGeomClipboard('p'), ['new'])
+        self.assertEqual(calls, [
+            ('live_geom_types', {}), ('live_num_main_surfs', {'geom_id': 'g'}),
+            ('live_update_geom', {'geom_id': 'g'}), ('live_set_geom_parent', {'geom_id': 'g', 'parent_id': ''}),
+            ('live_copy_geom', {'geom_id': 'g'}), ('live_cut_geom', {'geom_id': 'g', 'clone_delete': 0}),
+            ('live_cut_geom', {'geom_id': 'g', 'clone_delete': 2}),
+            ('live_paste_geom', {'parent': ''}), ('live_paste_geom', {'parent': 'p'}),
+        ])
+        vsp.request = lambda *_: (_ for _ in ()).throw(RuntimeError('transport'))
+        for operation in (lambda: vsp.UpdateGeom('g'), lambda: vsp.SetGeomParent('g', ''),
+                          lambda: vsp.CopyGeomToClipboard('g'), lambda: vsp.CutGeomToClipboard('g'),
+                          lambda: vsp.PasteGeomClipboard()):
+            with self.assertRaises(vsp.OpenVSPError) as caught:
+                operation()
+            self.assertEqual(caught.exception.outcome, 'unknown')
+        with self.assertRaises(vsp.OpenVSPError) as caught:
+            vsp.GetNumMainSurfs('g')
+        self.assertIsNone(caught.exception.outcome)
+
     def test_propagates_engine_error_metadata(self):
         vsp.request = lambda *_: json.dumps({'ok': False, 'error': {'message': 'rejected', 'outcome': 'not_written', 'actual': 2, 'code': 'GUARD'}})
         with self.assertRaises(vsp.OpenVSPError) as caught:

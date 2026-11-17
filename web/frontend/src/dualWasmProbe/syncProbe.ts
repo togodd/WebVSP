@@ -13,6 +13,7 @@ const LIVE_WRITES = new Set([
   'live_change_xsec_shape', 'live_add_sub_surf', 'live_delete_sub_surf',
   'live_reorder_sub_surf', 'live_set_sub_surf_name', 'live_set_set_name', 'live_set_set_flag', 'live_delete_result', 'live_delete_all_results',
   'live_parm_set_update', 'live_set_geom_name',
+  'live_update_geom', 'live_set_geom_parent', 'live_copy_geom', 'live_cut_geom', 'live_paste_geom',
 ])
 // File operations also mutate the session: ReadVSPFile replaces the model and
 // WriteVSPFile renames it, so both carry write-outcome semantics.
@@ -154,6 +155,31 @@ async function run(mode: 'script' | 'console', script?: string): Promise<unknown
           const id = (result as { id?: string })?.id
           if (!id) throw new Error('Geometry creation returned no ID')
           return id
+        }
+        if (op === 'live_geom_types') return live('geomTypes')
+        if (op === 'live_num_main_surfs') return live('liveNumMainSurfs', text('geom_id'))
+        if (op === 'live_update_geom' || op === 'live_copy_geom') {
+          await live(op === 'live_update_geom' ? 'liveUpdateGeom' : 'liveCopyGeom', text('geom_id'))
+          return null
+        }
+        if (op === 'live_set_geom_parent') {
+          const parent = args.parent_id
+          if (typeof parent !== 'string') throw new WasmEngineError(400, 'Invalid parent_id', 'not_written')
+          await live('liveSetGeomParent', text('geom_id'), parent)
+          return null
+        }
+        if (op === 'live_paste_geom') {
+          const parent = args.parent === undefined ? '' : args.parent
+          if (typeof parent !== 'string') throw new WasmEngineError(400, 'Invalid parent', 'not_written')
+          return live('livePasteGeom', parent)
+        }
+        if (op === 'live_cut_geom') {
+          const id = text('geom_id'), policy = args.clone_delete
+          if (typeof policy !== 'number' || !Number.isInteger(policy) || policy < 0 || policy > 2) {
+            throw new WasmEngineError(400, 'Invalid clone_delete policy', 'not_written')
+          }
+          await live('liveCutGeom', id, '', policy)
+          return null
         }
         if (op === 'live_delete_geom') {
           const id = text('geom_id')

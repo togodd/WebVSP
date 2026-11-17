@@ -69,6 +69,34 @@ describe('live write bridge', () => {
     expect(engine.call).not.toHaveBeenCalled()
     worker.onmessage({ data: { type: 'done', value: 'null' } } as MessageEvent)
   })
+  it('forwards geometry queries and clipboard edits with write outcome semantics', async () => {
+    void runSyncScript('')
+    const worker = FakeWorker.instance
+    for (const [op, args, native, a, b, value, result] of [
+      ['live_geom_types', {}, 'geomTypes', '', '', 0, ['POD']],
+      ['live_num_main_surfs', { geom_id: 'g' }, 'liveNumMainSurfs', 'g', '', 0, 1],
+      ['live_update_geom', { geom_id: 'g' }, 'liveUpdateGeom', 'g', '', 0, null],
+      ['live_set_geom_parent', { geom_id: 'g', parent_id: '' }, 'liveSetGeomParent', 'g', '', 0, null],
+      ['live_copy_geom', { geom_id: 'g' }, 'liveCopyGeom', 'g', '', 0, null],
+      ['live_cut_geom', { geom_id: 'g', clone_delete: 2 }, 'liveCutGeom', 'g', '', 2, null],
+      ['live_paste_geom', { parent: 'p' }, 'livePasteGeom', 'p', '', 0, ['copy']],
+      ['live_paste_geom', {}, 'livePasteGeom', '', '', 0, []],
+    ] as const) {
+      engine.call.mockResolvedValueOnce(result)
+      expect((await worker.request(op, args)).value).toEqual(result)
+      expect(engine.call).toHaveBeenLastCalledWith(native, a, b, value)
+    }
+    engine.call.mockClear()
+    for (const policy of [-1, 3, 1.5, '1', null, true]) {
+      expect((await worker.request('live_cut_geom', { geom_id: 'g', clone_delete: policy })).error.outcome).toBe('not_written')
+    }
+    expect((await worker.request('live_set_geom_parent', { geom_id: 'g', parent_id: null })).error.outcome).toBe('not_written')
+    expect((await worker.request('live_paste_geom', { parent: 3 })).error.outcome).toBe('not_written')
+    expect(engine.call).not.toHaveBeenCalled()
+    engine.call.mockRejectedValueOnce(new Error('native failure'))
+    expect((await worker.request('live_copy_geom', { geom_id: 'g' })).error.outcome).toBe('unknown')
+    worker.onmessage({ data: { type: 'done', value: 'null' } } as MessageEvent)
+  })
   it('validates XSec and subsurface integer arguments before dispatch', async () => {
     void runSyncScript('')
     const worker = FakeWorker.instance
