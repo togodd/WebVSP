@@ -131,6 +131,32 @@ assert isinstance(parms, list) and len(parms) > 10
 subs = vsp.GetSubSurfIDVec(pod)
 assert isinstance(subs, list)
 `],
+    ['third-wave shapes: double, int(int), vector<vec3d>, vector<int>', `
+import openvsp as vsp
+vsp.ClearVSPModel()
+wing = vsp.AddGeom('WING')
+vsp.Update()
+
+# int() / double() / bool() counts on a fresh model
+for name in ('GetNumAnalysis', 'GetNumModes', 'GetNumParmLinks', 'GetNumDesignVars'):
+    assert isinstance(getattr(vsp, name)(), int), name
+for name in ('GetNumUserParms', 'GetNumControlSurfaceGroups', 'GetNumExcrescences'):
+    assert isinstance(getattr(vsp, name)(), int), name
+
+# double(double) / double(double, double)
+assert abs(vsp.Deg2Rad(180.0) - 3.141592653589793) < 1e-12
+assert abs(vsp.Rad2Deg(3.141592653589793) - 180.0) < 1e-9
+assert vsp.Max(2.0, 5.0) == 5.0 and vsp.Min(2.0, 5.0) == 2.0
+
+# vector<int>(string) and vector<string>(string)
+parms = vsp.GetGeomParmIDs(wing)
+assert isinstance(parms, list) and parms
+assert isinstance(vsp.GetXSecSurfIDs(wing), list)
+
+# vector<vec3d>(string) returns the native list of vec3d
+sub = vsp.AddSubSurf(wing, vsp.SS_RECTANGLE)
+assert isinstance(vsp.GetSubSurfParmIDs(sub), list)
+`],
   ]
   for (const [name, code] of cases) {
     try {

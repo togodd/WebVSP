@@ -3274,6 +3274,52 @@ void RunImpl( const Job &j )
             return !items[i].empty() && end == items[i].c_str() + items[i].size() && std::isfinite( out );
         };
         auto missing = [ & ]() { return Result( j.id, "Unknown API function or wrong arguments: " + j.a, "" ); };
+        // Vector arguments ride in one item: entries separated by '\n', each
+        // entry holding its components separated by ','.
+        auto as_vec3d_list = [ & ]( const string &text, vector< vec3d > &out )
+        {
+            out.clear();
+            size_t pos = 0;
+            while ( pos <= text.size() )
+            {
+                const size_t nl = text.find( '\n', pos );
+                const string entry = text.substr( pos, nl == string::npos ? string::npos : nl - pos );
+                if ( !entry.empty() )
+                {
+                    const size_t c1 = entry.find( ',' ), c2 = entry.find( ',', c1 + 1 );
+                    if ( c1 == string::npos || c2 == string::npos ) return false;
+                    char *e1 = nullptr, *e2 = nullptr, *e3 = nullptr;
+                    const string xs = entry.substr( 0, c1 ), ys = entry.substr( c1 + 1, c2 - c1 - 1 ), zs = entry.substr( c2 + 1 );
+                    const double x = std::strtod( xs.c_str(), &e1 ), y = std::strtod( ys.c_str(), &e2 ), z = std::strtod( zs.c_str(), &e3 );
+                    if ( xs.empty() || ys.empty() || zs.empty() || *e1 || *e2 || *e3 ||
+                         !std::isfinite( x ) || !std::isfinite( y ) || !std::isfinite( z ) ) return false;
+                    out.push_back( vec3d( x, y, z ) );
+                }
+                if ( nl == string::npos ) break;
+                pos = nl + 1;
+            }
+            return true;
+        };
+        auto as_double_list = [ & ]( const string &text, vector< double > &out )
+        {
+            out.clear();
+            size_t pos = 0;
+            while ( pos <= text.size() )
+            {
+                const size_t nl = text.find( '\n', pos );
+                const string entry = text.substr( pos, nl == string::npos ? string::npos : nl - pos );
+                if ( !entry.empty() )
+                {
+                    char *end = nullptr;
+                    const double value = std::strtod( entry.c_str(), &end );
+                    if ( end != entry.c_str() + entry.size() || !std::isfinite( value ) ) return false;
+                    out.push_back( value );
+                }
+                if ( nl == string::npos ) break;
+                pos = nl + 1;
+            }
+            return true;
+        };
         auto call_void_string = [ & ]( const std::map< string, std::function< void( const string & ) > > &table )
         {
             const auto it = table.find( j.a );
@@ -3350,6 +3396,155 @@ void RunImpl( const Job &j )
             const auto it = kApi_B0.find( j.a );
             if ( it == kApi_B0.end() ) return missing();
             return Result( j.id, TakeErrors(), it->second() ? "true" : "false" );
+        }
+        if ( shape == "D0" )
+        {
+            if ( !need( 0 ) ) return missing();
+            const auto it = kApi_D0.find( j.a );
+            if ( it == kApi_D0.end() ) return missing();
+            return Result( j.id, TakeErrors(), Num( it->second() ) );
+        }
+        if ( shape == "d" || shape == "I1" || shape == "D1" || shape == "Dd" || shape == "Ddd" )
+        {
+            if ( !need( shape == "Ddd" ? 2 : 1 ) ) return missing();
+            double a = 0;
+            if ( !as_double( 0, a ) ) return Result( j.id, "Invalid numeric argument", "" );
+            if ( shape == "d" )
+            {
+                const auto it = kApi_d.find( j.a );
+                if ( it == kApi_d.end() ) return missing();
+                it->second( a );
+                return Result( j.id, TakeErrors(), "null" );
+            }
+            if ( shape == "I1" )
+            {
+                if ( std::floor( a ) != a || a < -2147483648.0 || a > 2147483647.0 ) return Result( j.id, "Invalid integer argument", "" );
+                const auto it = kApi_I1.find( j.a );
+                if ( it == kApi_I1.end() ) return missing();
+                return Result( j.id, TakeErrors(), std::to_string( it->second( static_cast< int >( a ) ) ) );
+            }
+            if ( shape == "D1" )
+            {
+                if ( std::floor( a ) != a || a < -2147483648.0 || a > 2147483647.0 ) return Result( j.id, "Invalid integer argument", "" );
+                const auto it = kApi_D1.find( j.a );
+                if ( it == kApi_D1.end() ) return missing();
+                return Result( j.id, TakeErrors(), Num( it->second( static_cast< int >( a ) ) ) );
+            }
+            if ( shape == "Dd" )
+            {
+                const auto it = kApi_Dd.find( j.a );
+                if ( it == kApi_Dd.end() ) return missing();
+                return Result( j.id, TakeErrors(), Num( it->second( a ) ) );
+            }
+            double b = 0;
+            if ( !as_double( 1, b ) ) return Result( j.id, "Invalid numeric argument", "" );
+            const auto it = kApi_Ddd.find( j.a );
+            if ( it == kApi_Ddd.end() ) return missing();
+            return Result( j.id, TakeErrors(), Num( it->second( a, b ) ) );
+        }
+        if ( shape == "Vint" )
+        {
+            if ( !need( 1 ) ) return missing();
+            const auto it = kApi_Vint.find( j.a );
+            if ( it == kApi_Vint.end() ) return missing();
+            const vector< int > values = it->second( items[0] );
+            string out = "[";
+            for ( size_t i = 0; i < values.size(); ++i ) out += ( i ? "," : "" ) + std::to_string( values[i] );
+            return Result( j.id, TakeErrors(), out + "]" );
+        }
+        if ( shape == "Ev" || shape == "EvI" )
+        {
+            if ( shape == "Ev" ? !need( 1 ) : !need( 2 ) ) return missing();
+            vector< vec3d > values;
+            if ( shape == "Ev" )
+            {
+                const auto it = kApi_Ev.find( j.a );
+                if ( it == kApi_Ev.end() ) return missing();
+                values = it->second( items[0] );
+            }
+            else
+            {
+                int b;
+                if ( !as_int( 1, b ) ) return Result( j.id, "Invalid integer argument", "" );
+                const auto it = kApi_EvI.find( j.a );
+                if ( it == kApi_EvI.end() ) return missing();
+                values = it->second( items[0], b );
+            }
+            const string out = LiveVec3dArray( values );
+            if ( out.empty() && !values.empty() ) return Result( j.id, "Non-finite vector result", "" );
+            return Result( j.id, TakeErrors(), out );
+        }
+        if ( shape == "sv" || shape == "sL" || shape == "sidd" || shape == "ssi" || shape == "iss" )
+        {
+            if ( shape == "sv" || shape == "sidd" )
+            {
+                if ( !need( shape == "sv" ? 2 : 4 ) ) return missing();
+            }
+            else if ( !need( 3 ) ) return missing();
+            if ( shape == "sv" )
+            {
+                vector< vec3d > points;
+                if ( !as_vec3d_list( items[1], points ) ) return Result( j.id, "Invalid point list", "" );
+                const auto it = kApi_sv.find( j.a );
+                if ( it == kApi_sv.end() ) return missing();
+                it->second( items[0], points );
+                return Result( j.id, TakeErrors(), "null" );
+            }
+            if ( shape == "sL" )
+            {
+                int b;
+                if ( !as_int( 1, b ) ) return Result( j.id, "Invalid integer argument", "" );
+                vector< double > values;
+                if ( !as_double_list( items[2], values ) ) return Result( j.id, "Invalid number list", "" );
+                const auto it = kApi_sL.find( j.a );
+                if ( it == kApi_sL.end() ) return missing();
+                it->second( items[0], b, values );
+                return Result( j.id, TakeErrors(), "null" );
+            }
+            if ( shape == "sidd" )
+            {
+                int b;
+                double c, d;
+                if ( !as_int( 1, b ) || !as_double( 2, c ) || !as_double( 3, d ) ) return Result( j.id, "Invalid argument", "" );
+                const auto it = kApi_sidd.find( j.a );
+                if ( it == kApi_sidd.end() ) return missing();
+                it->second( items[0], b, c, d );
+                return Result( j.id, TakeErrors(), "null" );
+            }
+            if ( shape == "ssi" )
+            {
+                int c;
+                if ( !as_int( 2, c ) ) return Result( j.id, "Invalid integer argument", "" );
+                const auto it = kApi_ssi.find( j.a );
+                if ( it == kApi_ssi.end() ) return missing();
+                it->second( items[0], items[1], c );
+                return Result( j.id, TakeErrors(), "null" );
+            }
+            int a;
+            if ( !as_int( 0, a ) ) return Result( j.id, "Invalid integer argument", "" );
+            const auto it = kApi_iss.find( j.a );
+            if ( it == kApi_iss.end() ) return missing();
+            it->second( a, items[1], items[2] );
+            return Result( j.id, TakeErrors(), "null" );
+        }
+        if ( shape == "Ei" || shape == "Ed" )
+        {
+            if ( !need( 2 ) ) return missing();
+            if ( shape == "Ei" )
+            {
+                int b;
+                if ( !as_int( 1, b ) ) return Result( j.id, "Invalid integer argument", "" );
+                const auto it = kApi_Ei.find( j.a );
+                if ( it == kApi_Ei.end() ) return missing();
+                const vec3d v = it->second( items[0], b );
+                return Result( j.id, TakeErrors(), "[" + Num( v.x() ) + "," + Num( v.y() ) + "," + Num( v.z() ) + "]" );
+            }
+            double b;
+            if ( !as_double( 1, b ) ) return Result( j.id, "Invalid numeric argument", "" );
+            const auto it = kApi_Ed.find( j.a );
+            if ( it == kApi_Ed.end() ) return missing();
+            const vec3d v = it->second( items[0], b );
+            return Result( j.id, TakeErrors(), "[" + Num( v.x() ) + "," + Num( v.y() ) + "," + Num( v.z() ) + "]" );
         }
         if ( shape == "V" )
         {

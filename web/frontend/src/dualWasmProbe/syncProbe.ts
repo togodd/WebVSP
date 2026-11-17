@@ -180,6 +180,7 @@ async function run(mode: 'script' | 'console', script?: string): Promise<unknown
             if (typeof value === 'string') return value
             if (typeof value === 'boolean') return value ? '1' : '0'
             if (typeof value === 'number' && Number.isFinite(value)) return String(value)
+            if (Array.isArray(value)) return value.map(entry => Array.isArray(entry) ? entry.join(',') : String(entry)).join('\n')
             throw new WasmEngineError(400, 'Invalid API argument', 'not_written')
           })
           const packet = `${packed.length};` + packed.map(v => `${encoder.encode(v).length}:${v}`).join('')

@@ -10,11 +10,27 @@
 
 // B0: bool ()  -- 4 functions
 
+// D0: double ()  -- 2 functions
+
+// D1: double (int)  -- 4 functions
+
+// Dd: double (double)  -- 2 functions
+
+// Ddd: double (double, double)  -- 2 functions
+
 // E: vec3d (string)  -- 2 functions
+
+// Ed: vec3d (string, double)  -- 4 functions
+
+// Ev: vector<vec3d> (string)  -- 10 functions
+
+// EvI: vector<vec3d> (string, int)  -- 3 functions
 
 // I: int (string)  -- 28 functions
 
 // I0: int ()  -- 26 functions
+
+// I1: int (int)  -- 4 functions
 
 // Ii: int (string, int)  -- 4 functions
 
@@ -36,11 +52,17 @@
 
 // Vi: vector<string> (int)  -- 7 functions
 
+// Vint: vector<int> (string)  -- 6 functions
+
 // Vs: vector<string> (string)  -- 38 functions
+
+// d: void (double)  -- 3 functions
 
 // i: void (int)  -- 19 functions
 
 // ib: void (int, bool)  -- 3 functions
+
+// iss: void (int, string, string)  -- 3 functions
 
 // n: void (string, int)  -- 28 functions
 
@@ -50,17 +72,25 @@
 
 // s: void (string)  -- 92 functions
 
+// sL: void (string, int, vector<double>)  -- 4 functions
+
 // sb: void (string, bool)  -- 7 functions
 
 // sd: void (string, double)  -- 3 functions
 
 // sdd: void (string, double, double)  -- 2 functions
 
+// sidd: void (string, int, double, double)  -- 3 functions
+
 // sii: void (string, int, int)  -- 4 functions
 
 // sis: void (string, int, string)  -- 10 functions
 
 // ss: void (string, string)  -- 76 functions
+
+// ssi: void (string, string, int)  -- 3 functions
+
+// sv: void (string, vector<vec3d>)  -- 5 functions
 
 // v: void ()  -- 50 functions
 
@@ -88,9 +118,60 @@ static const std::map< string, std::function< bool() > > kApi_B0 = {
 static const std::map< string, std::function< double(const string &a) > > kApi_D = {
 };
 
+static const std::map< string, std::function< double() > > kApi_D0 = {
+    { "GetFitModelDist", [](  ) { return vsp::GetFitModelDist(); } },
+    { "UpdateFitModelDist", [](  ) { return vsp::UpdateFitModelDist(); } },
+};
+
+static const std::map< string, std::function< double(int a) > > kApi_D1 = {
+    { "GetCFDMeshVal", []( int a ) { return vsp::GetCFDMeshVal(a); } },
+    { "GetFitModelTargetPtDist", []( int a ) { return vsp::GetFitModelTargetPtDist(a); } },
+    { "GetFitModelTargetPtU", []( int a ) { return vsp::GetFitModelTargetPtU(a); } },
+    { "GetFitModelTargetPtW", []( int a ) { return vsp::GetFitModelTargetPtW(a); } },
+};
+
+static const std::map< string, std::function< double(double a) > > kApi_Dd = {
+    { "Deg2Rad", []( double a ) { return vsp::Deg2Rad(a); } },
+    { "Rad2Deg", []( double a ) { return vsp::Rad2Deg(a); } },
+};
+
+static const std::map< string, std::function< double(double a, double b) > > kApi_Ddd = {
+    { "Max", []( double a, double b ) { return vsp::Max(a, b); } },
+    { "Min", []( double a, double b ) { return vsp::Min(a, b); } },
+};
+
 static const std::map< string, std::function< vec3d(const string &a) > > kApi_E = {
     { "GetMainRoutingPtCoord", []( const string &a ) { return vsp::GetMainRoutingPtCoord(a); } },
     { "MirrorGeomOrigin", []( const string &a ) { return vsp::MirrorGeomOrigin(a); } },
+};
+
+static const std::map< string, std::function< vec3d(const string &a, double b) > > kApi_Ed = {
+    { "ComputeBORXSecPnt", []( const string &a, double b ) { return vsp::ComputeBORXSecPnt(a, b); } },
+    { "ComputeBORXSecTan", []( const string &a, double b ) { return vsp::ComputeBORXSecTan(a, b); } },
+    { "ComputeXSecPnt", []( const string &a, double b ) { return vsp::ComputeXSecPnt(a, b); } },
+    { "ComputeXSecTan", []( const string &a, double b ) { return vsp::ComputeXSecTan(a, b); } },
+};
+
+static const std::map< string, std::function< vec3d(const string &a, int b) > > kApi_Ei = {
+};
+
+static const std::map< string, std::function< vector<vec3d>(const string &a) > > kApi_Ev = {
+    { "GetAirfoilLowerPnts", []( const string &a ) { return vsp::GetAirfoilLowerPnts(a); } },
+    { "GetAirfoilUpperPnts", []( const string &a ) { return vsp::GetAirfoilUpperPnts(a); } },
+    { "GetAttributeVec3dVal", []( const string &a ) { return vsp::GetAttributeVec3dVal(a); } },
+    { "GetBORAirfoilLowerPnts", []( const string &a ) { return vsp::GetBORAirfoilLowerPnts(a); } },
+    { "GetBORAirfoilUpperPnts", []( const string &a ) { return vsp::GetBORAirfoilUpperPnts(a); } },
+    { "GetBORXSecPnts", []( const string &a ) { return vsp::GetBORXSecPnts(a); } },
+    { "GetFeatureLinePnts", []( const string &a ) { return vsp::GetFeatureLinePnts(a); } },
+    { "GetPtCloudPnts", []( const string &a ) { return vsp::GetPtCloudPnts(a); } },
+    { "GetXSecPnts", []( const string &a ) { return vsp::GetXSecPnts(a); } },
+    { "MirrorFeatureLines", []( const string &a ) { return vsp::MirrorFeatureLines(a); } },
+};
+
+static const std::map< string, std::function< vector<vec3d>(const string &a, int b) > > kApi_EvI = {
+    { "ControlSurfaceHingeLine", []( const string &a, int b ) { return vsp::ControlSurfaceHingeLine(a, b); } },
+    { "GetAllRoutingPtCoords", []( const string &a, int b ) { return vsp::GetAllRoutingPtCoords(a, b); } },
+    { "GetRoutingCurve", []( const string &a, int b ) { return vsp::GetRoutingCurve(a, b); } },
 };
 
 static const std::map< string, std::function< int(const string &a) > > kApi_I = {
@@ -151,6 +232,13 @@ static const std::map< string, std::function< int() > > kApi_I0 = {
     { "NumFeaAssemblies", [](  ) { return vsp::NumFeaAssemblies(); } },
     { "NumFeaStructures", [](  ) { return vsp::NumFeaStructures(); } },
     { "OptimizeFitModel", [](  ) { return vsp::OptimizeFitModel(); } },
+};
+
+static const std::map< string, std::function< int(int a) > > kApi_I1 = {
+    { "GetDesignVarType", []( int a ) { return vsp::GetDesignVarType(a); } },
+    { "GetFitModelTargetPtSurfIndx", []( int a ) { return vsp::GetFitModelTargetPtSurfIndx(a); } },
+    { "GetFitModelTargetPtUType", []( int a ) { return vsp::GetFitModelTargetPtUType(a); } },
+    { "GetFitModelTargetPtWType", []( int a ) { return vsp::GetFitModelTargetPtWType(a); } },
 };
 
 static const std::map< string, std::function< int(const string &a, int b) > > kApi_Ii = {
@@ -389,6 +477,15 @@ static const std::map< string, std::function< vector<string>(int a) > > kApi_Vi 
     { "GetUnsteadyGroupCompIDs", []( int a ) { return vsp::GetUnsteadyGroupCompIDs(a); } },
 };
 
+static const std::map< string, std::function< vector<int>(const string &a) > > kApi_Vint = {
+    { "GetActiveCSReflectVec", []( const string &a ) { return vsp::GetActiveCSReflectVec(a); } },
+    { "GetAttributeBoolVal", []( const string &a ) { return vsp::GetAttributeBoolVal(a); } },
+    { "GetAttributeIntVal", []( const string &a ) { return vsp::GetAttributeIntVal(a); } },
+    { "GetAvailableCSReflectVec", []( const string &a ) { return vsp::GetAvailableCSReflectVec(a); } },
+    { "GetDriverGroupByID", []( const string &a ) { return vsp::GetDriverGroupByID(a); } },
+    { "GetUnsteadyGroupSurfIndexesByID", []( const string &a ) { return vsp::GetUnsteadyGroupSurfIndexesByID(a); } },
+};
+
 static const std::map< string, std::function< vector<string>(const string &a) > > kApi_Vs = {
     { "FindAttributeNamesInCollection", []( const string &a ) { return vsp::FindAttributeNamesInCollection(a); } },
     { "FindAttributesByName", []( const string &a ) { return vsp::FindAttributesByName(a); } },
@@ -430,6 +527,12 @@ static const std::map< string, std::function< vector<string>(const string &a) > 
     { "PasteAttribute", []( const string &a ) { return vsp::PasteAttribute(a); } },
 };
 
+static const std::map< string, std::function< void(double a) > > kApi_d = {
+    { "AdjustAllCFDSourceLen", []( double a ) { vsp::AdjustAllCFDSourceLen(a); } },
+    { "AdjustAllCFDSourceRad", []( double a ) { vsp::AdjustAllCFDSourceRad(a); } },
+    { "MirrorPump", []( double a ) { vsp::MirrorPump(a); } },
+};
+
 static const std::map< string, std::function< void(int a) > > kApi_i = {
     { "DelAdvLink", []( int a ) { vsp::DelAdvLink(a); } },
     { "DelAllAdvLinkInputs", []( int a ) { vsp::DelAllAdvLinkInputs(a); } },
@@ -456,6 +559,12 @@ static const std::map< string, std::function< void(int a, bool b) > > kApi_ib = 
     { "SetGUIElementDisable", []( int a, bool b ) { vsp::SetGUIElementDisable(a, b); } },
     { "SetGUIScreenDisable", []( int a, bool b ) { vsp::SetGUIScreenDisable(a, b); } },
     { "SetGeomScreenDisable", []( int a, bool b ) { vsp::SetGeomScreenDisable(a, b); } },
+};
+
+static const std::map< string, std::function< void(int a, const string &b, const string &c) > > kApi_iss = {
+    { "AddAdvLinkInput", []( int a, const string &b, const string &c ) { vsp::AddAdvLinkInput(a, b, c); } },
+    { "AddAdvLinkOutput", []( int a, const string &b, const string &c ) { vsp::AddAdvLinkOutput(a, b, c); } },
+    { "SearchReplaceAdvLinkCode", []( int a, const string &b, const string &c ) { vsp::SearchReplaceAdvLinkCode(a, b, c); } },
 };
 
 static const std::map< string, std::function< void(const string &a, int b) > > kApi_n = {
@@ -604,6 +713,13 @@ static const std::map< string, std::function< void(const string &a) > > kApi_s =
     { "WriteXDDMFile", []( const string &a ) { vsp::WriteXDDMFile(a); } },
 };
 
+static const std::map< string, std::function< void(const string &a, int b, const vector<double> &c) > > kApi_sL = {
+    { "SetBORLowerCST", []( const string &a, int b, const vector<double> &c ) { vsp::SetBORLowerCST(a, b, c); } },
+    { "SetBORUpperCST", []( const string &a, int b, const vector<double> &c ) { vsp::SetBORUpperCST(a, b, c); } },
+    { "SetLowerCST", []( const string &a, int b, const vector<double> &c ) { vsp::SetLowerCST(a, b, c); } },
+    { "SetUpperCST", []( const string &a, int b, const vector<double> &c ) { vsp::SetUpperCST(a, b, c); } },
+};
+
 static const std::map< string, std::function< void(const string &a, bool b) > > kApi_sb = {
     { "MirrorPickGeom", []( const string &a, bool b ) { vsp::MirrorPickGeom(a, b); } },
     { "SetAttributeBool", []( const string &a, bool b ) { vsp::SetAttributeBool(a, b); } },
@@ -623,6 +739,12 @@ static const std::map< string, std::function< void(const string &a, double b) > 
 static const std::map< string, std::function< void(const string &a, double b, double c) > > kApi_sdd = {
     { "ConvertEtatoU", []( const string &a, double b, double c ) { vsp::ConvertEtatoU(a, b, c); } },
     { "ConvertUtoEta", []( const string &a, double b, double c ) { vsp::ConvertUtoEta(a, b, c); } },
+};
+
+static const std::map< string, std::function< void(const string &a, int b, double c, double d) > > kApi_sidd = {
+    { "AddDesignVarLimits", []( const string &a, int b, double c, double d ) { vsp::AddDesignVarLimits(a, b, c, d); } },
+    { "ConvertLtoR", []( const string &a, int b, double c, double d ) { vsp::ConvertLtoR(a, b, c, d); } },
+    { "ConvertRtoL", []( const string &a, int b, double c, double d ) { vsp::ConvertRtoL(a, b, c, d); } },
 };
 
 static const std::map< string, std::function< void(const string &a, int b, int c) > > kApi_sii = {
@@ -722,6 +844,20 @@ static const std::map< string, std::function< void(const string &a, const string
     { "SetSkinSpineNameByID", []( const string &a, const string &b ) { vsp::SetSkinSpineNameByID(a, b); } },
     { "SetVSPAEROControlGroupNameByID", []( const string &a, const string &b ) { vsp::SetVSPAEROControlGroupNameByID(a, b); } },
     { "WriteResultsCSVFile", []( const string &a, const string &b ) { vsp::WriteResultsCSVFile(a, b); } },
+};
+
+static const std::map< string, std::function< void(const string &a, const string &b, int c) > > kApi_ssi = {
+    { "AddSubSurfToCSGroup", []( const string &a, const string &b, int c ) { vsp::AddSubSurfToCSGroup(a, b, c); } },
+    { "RemoveSubSurfFromCSGroup", []( const string &a, const string &b, int c ) { vsp::RemoveSubSurfFromCSGroup(a, b, c); } },
+    { "ReorderFeaLayer", []( const string &a, const string &b, int c ) { vsp::ReorderFeaLayer(a, b, c); } },
+};
+
+static const std::map< string, std::function< void(const string &a, const vector<vec3d> &b) > > kApi_sv = {
+    { "SetAirfoilLowerPnts", []( const string &a, const vector<vec3d> &b ) { vsp::SetAirfoilLowerPnts(a, b); } },
+    { "SetAirfoilUpperPnts", []( const string &a, const vector<vec3d> &b ) { vsp::SetAirfoilUpperPnts(a, b); } },
+    { "SetAttributeVec3d", []( const string &a, const vector<vec3d> &b ) { vsp::SetAttributeVec3d(a, b); } },
+    { "SetBORAirfoilLowerPnts", []( const string &a, const vector<vec3d> &b ) { vsp::SetBORAirfoilLowerPnts(a, b); } },
+    { "SetBORAirfoilUpperPnts", []( const string &a, const vector<vec3d> &b ) { vsp::SetBORAirfoilUpperPnts(a, b); } },
 };
 
 static const std::map< string, std::function< void() > > kApi_v = {

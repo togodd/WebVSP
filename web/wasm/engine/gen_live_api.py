@@ -49,6 +49,22 @@ SHAPES = {
     'L': ['string'],
     'Li': ['string', 'int'],
     'E': ['string'],
+    'D0': [],
+    'd': ['double'],
+    'I1': ['int'],
+    'D1': ['int'],
+    'Dd': ['double'],
+    'Ddd': ['double', 'double'],
+    'Ei': ['string', 'int'],
+    'Ed': ['string', 'double'],
+    'Vint': ['string'],
+    'ssi': ['string', 'string', 'int'],
+    'iss': ['int', 'string', 'string'],
+    'sidd': ['string', 'int', 'double', 'double'],
+    'Ev': ['string'],
+    'EvI': ['string', 'int'],
+    'sv': ['string', 'vector<vec3d>'],
+    'sL': ['string', 'int', 'vector<double>'],
     'S': ['string'],
     'I': ['string'],
     'D': ['string'],
@@ -64,20 +80,27 @@ SHAPES = {
 
 RETURNS = {'v': 'void', 's': 'void', 'i': 'void', 'n': 'void', 'ss': 'void', 'sb': 'void',
            'ns': 'void', 'nn': 'void', 'ib': 'void', 'sii': 'void',
-           'sis': 'void', 'sd': 'void', 'sdd': 'void',
+           'sis': 'void', 'sd': 'void', 'sdd': 'void', 'ssi': 'void', 'iss': 'void',
+           'sidd': 'void', 'sv': 'void', 'sL': 'void', 'd': 'void',
            'S': 'string', 'SS': 'string', 'Si': 'string', 'N': 'string', 'S0': 'string',
            'I': 'int', 'Ii': 'int', 'D': 'double', 'B': 'bool', 'I0': 'int', 'B0': 'bool',
            'L': 'vector<double>', 'Li': 'vector<double>', 'E': 'vec3d',
+           'Ei': 'vec3d', 'Ed': 'vec3d', 'Vint': 'vector<int>', 'Ev': 'vector<vec3d>',
+           'EvI': 'vector<vec3d>', 'D0': 'double', 'D1': 'double', 'Dd': 'double',
+           'Ddd': 'double', 'I1': 'int',
            'V': 'vector<string>', 'Vs': 'vector<string>', 'Vi': 'vector<string>',
            'V0': 'vector<string>'}
 
 # Coordinates out-parameters (`double &u_out`) are not representable here; those
 # APIs keep their hand-written bridges.
 def is_output_param(raw):
+    """A non-const reference parameter writes back; those APIs stay hand-written."""
     raw = raw.split('=')[0].strip()
-    if not raw.endswith('&'):
+    parts = [p for p in raw.split() if p]
+    if len(parts) < 2:
         return False
-    return not re.search(r'\bconst\b', raw)
+    type_text = ' '.join(parts[:-1])
+    return '&' in type_text and not re.search(r'\bconst\b', type_text)
 
 
 TEMPLATES = ('vector<string>', 'vector<double>', 'vector<int>', 'vector<vec3d>', 'vector<vec2d>',
@@ -169,14 +192,27 @@ def write_cpp(rows):
               'ns': 'int a, const string &b', 'nn': 'int a, int b', 'ib': 'int a, bool b',
               'sii': 'const string &a, int b, int c',
               'sdd': 'const string &a, double b, double c',
+              'dd': 'double a, double b',
+              'si': 'const string &a, int b',
+              'sd': 'const string &a, double b',
+              'ssi': 'const string &a, const string &b, int c',
+              'iss': 'int a, const string &b, const string &c',
+              'sidd': 'const string &a, int b, double c, double d',
+              'd': 'double a',
+              'sv': 'const string &a, const vector<vec3d> &b',
+              'sL': 'const string &a, int b, const vector<double> &c',
               'sis': 'const string &a, int b, const string &c', 'sd': 'const string &a, double b'}
     call = {'v': '', 's': 'a', 'i': 'a', 'n': 'a, b', 'ss': 'a, b', 'sb': 'a, b',
             'ns': 'a, b', 'nn': 'a, b', 'ib': 'a, b', 'sii': 'a, b, c',
-            'sis': 'a, b, c', 'sd': 'a, b', 'sdd': 'a, b, c'}
+            'sis': 'a, b, c', 'sd': 'a, b', 'sdd': 'a, b, c', 'ssi': 'a, b, c',
+            'dd': 'a, b', 'si': 'a, b',
+            'iss': 'a, b, c', 'sidd': 'a, b, c, d', 'd': 'a', 'sv': 'a, b', 'sL': 'a, b, c'}
     # Shapes with the same parameters share one argument signature.
     alias = {'S': 's', 'I': 's', 'D': 's', 'B': 's', 'SS': 'ss', 'Si': 'n', 'Ii': 'n',
              'N': 'i', 'Vi': 'i', 'V': 'v', 'Vs': 's', 'S0': 'v', 'I0': 'v', 'B0': 'v',
-             'V0': 'v', 'L': 's', 'Li': 'n', 'E': 's'}
+             'V0': 'v', 'L': 's', 'Li': 'n', 'E': 's', 'D0': 'v', 'I1': 'i',
+             'D1': 'i', 'Dd': 'd', 'Ddd': 'dd', 'Ei': 'si', 'Ed': 'sd', 'Vint': 's',
+             'Ev': 's', 'EvI': 'si'}
     for shape in sorted(SHAPES):
         names = groups.get(shape, [])
         argshape = alias.get(shape, shape)

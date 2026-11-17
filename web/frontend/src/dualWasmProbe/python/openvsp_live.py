@@ -913,6 +913,10 @@ def _api_wrappers():
                     values.append(value)
                 elif kind == 'bool':
                     values.append(bool(value))
+                elif kind == 'vector<vec3d>':
+                    values.append('\n'.join('%r,%r,%r' % (p[0], p[1], p[2]) for p in value))
+                elif kind == 'vector<double>':
+                    values.append('\n'.join(repr(float(v)) for v in value))
                 else:
                     values.append(float(value))
             result = _call('live_api_write' if write else 'live_api',
