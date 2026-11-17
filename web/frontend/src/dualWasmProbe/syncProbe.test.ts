@@ -80,6 +80,20 @@ describe('live write bridge', () => {
     expect(engine.call).not.toHaveBeenCalled()
     worker.onmessage({ data: { type: 'done', value: 'null' } } as MessageEvent)
   })
+  it('forwards point cloud filters', async () => {
+    void runSyncScript('')
+    const worker = FakeWorker.instance
+    engine.call.mockResolvedValue(null)
+    expect((await worker.request('live_point_cloud', { parts: ['unique', '0,0,0\n1,0,0', 1e-6] })).ok).toBe(true)
+    expect(engine.call).toHaveBeenLastCalledWith('livePtCloud', '', 'unique\x1f0,0,0\n1,0,0\x1f0.000001', 0)
+    expect((await worker.request('live_point_cloud', { parts: ['union', '0,0,0', '1,0,0', 0.5] })).ok).toBe(true)
+    expect(engine.call).toHaveBeenLastCalledWith('livePtCloud', '', 'union\x1f0,0,0\x1f1,0,0\x1f0.5', 0)
+    engine.call.mockClear()
+    expect((await worker.request('live_point_cloud', { parts: ['union'] })).error.outcome).toBe('not_written')
+    expect((await worker.request('live_point_cloud', { parts: ['union', {}] })).error.outcome).toBe('not_written')
+    expect(engine.call).not.toHaveBeenCalled()
+    worker.onmessage({ data: { type: 'done', value: 'null' } } as MessageEvent)
+  })
   it('forwards probes, rulers and protractors', async () => {
     void runSyncScript('')
     const worker = FakeWorker.instance

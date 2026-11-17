@@ -25,6 +25,7 @@ const LIVE_WRITES = new Set([
   'live_api_write',
   'live_attribute_set_matrix', 'live_attribute_add',
   'live_add_probe', 'live_add_rst_probe', 'live_add_ruler', 'live_add_protractor',
+  'live_point_cloud',
   'live_vspaero_set_ref_wing', 'live_vspaero_set_mode', 'live_vspaero_set_cg_mode',
   'live_vspaero_add_cs_group', 'live_vspaero_auto_group', 'live_vspaero_delete_cs_group',
   'live_vspaero_add_all_cs_group', 'live_vspaero_remove_all_cs_group', 'live_vspaero_set_cs_name',
@@ -236,6 +237,16 @@ async function run(mode: 'script' | 'console', script?: string): Promise<unknown
           const index = args.surf_indx, u = args.u, w = args.w
           if (typeof index !== 'number' || !Number.isInteger(index)) throw new WasmEngineError(400, 'Invalid surf_indx')
           return live(op === 'live_xsec_tangent_u' ? 'liveXSecTangentU' : 'liveXSecTangentW', text('geom_id'), numbers([u, w], 2), index)
+        }
+        if (op === 'live_point_cloud') {
+          const parts = args.parts
+          if (!Array.isArray(parts) || parts.length < 2) throw new WasmEngineError(400, 'Invalid point cloud arguments', 'not_written')
+          const packed = parts.map(part => {
+            if (typeof part === 'string') return part
+            if (typeof part === 'number' && Number.isFinite(part)) return String(part)
+            throw new WasmEngineError(400, 'Invalid point cloud argument', 'not_written')
+          })
+          return live('livePtCloud', '', packed.join('\x1f'), 0)
         }
         if (op === 'live_add_probe' || op === 'live_add_rst_probe') {
           const index = args.surf_indx

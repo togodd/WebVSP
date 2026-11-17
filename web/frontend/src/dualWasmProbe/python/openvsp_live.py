@@ -71,6 +71,7 @@ _LIVE_WRITES = frozenset({
     'live_vspaero_add_cs_group', 'live_vspaero_auto_group', 'live_vspaero_delete_cs_group',
     'live_vspaero_add_all_cs_group', 'live_vspaero_remove_all_cs_group', 'live_vspaero_set_cs_name',
     'live_add_probe', 'live_add_rst_probe', 'live_add_ruler', 'live_add_protractor',
+    'live_point_cloud',
     'live_api_write', 'live_attribute_set_matrix', 'live_attribute_add',
 })
 
@@ -600,6 +601,88 @@ def GetXSecParmIDs(xsec_id):
 
 def GetXSecParm(xsec_id, name):
     return _call('live_xsec_parm', xsec_id=xsec_id, name=name)
+
+
+# ---------------------------------------------------------------- point clouds
+
+def _points_text(points):
+    out = []
+    for point in points:
+        out.append('%r,%r,%r' % (float(point[0]), float(point[1]), float(point[2])))
+    return '\n'.join(out)
+
+
+def _ptcloud(kind, *parts):
+    return _vec3d_list(_call('live_point_cloud', parts=[kind, *parts]))
+
+
+def _ptcloud_points(points):
+    values = list(points)
+    if not values:
+        raise ValueError('A non-empty point list is required')
+    return _points_text(values)
+
+
+def CreatePtCloudGeomFromPts(points, name=''):
+    """Create a point-cloud geometry from 3D points; returns its geom ID."""
+    return _call('live_point_cloud', parts=['create', _ptcloud_points(points),
+                                            'created', name])
+
+
+def KeepPtsInBBox(points, bbox_min, bbox_max):
+    return _ptcloud('bbox', _ptcloud_points(points), _points_text([bbox_min]), _points_text([bbox_max]), 'keep')
+
+
+def RemovePtsInBBox(points, bbox_min, bbox_max):
+    return _ptcloud('bbox', _ptcloud_points(points), _points_text([bbox_min]), _points_text([bbox_max]), 'remove')
+
+
+def KeepPtsInRange(points, iaxis, min_value, max_value):
+    return _ptcloud('range', _ptcloud_points(points), int(iaxis), float(min_value), float(max_value), 'keep')
+
+
+def RemovePtsInRange(points, iaxis, min_value, max_value):
+    return _ptcloud('range', _ptcloud_points(points), int(iaxis), float(min_value), float(max_value), 'remove')
+
+
+def KeepPtsAbove(points, iaxis, value):
+    return _ptcloud('above', _ptcloud_points(points), int(iaxis), float(value))
+
+
+def KeepPtsBelow(points, iaxis, value):
+    return _ptcloud('below', _ptcloud_points(points), int(iaxis), float(value))
+
+
+def KeepPtsNearPt(points, point, distance):
+    return _ptcloud('neartp', _ptcloud_points(points), _points_text([point]), float(distance), 'keep')
+
+
+def RemovePtsNearPt(points, point, distance):
+    return _ptcloud('neartp', _ptcloud_points(points), _points_text([point]), float(distance), 'remove')
+
+
+def KeepPtsNearGeom(points, geom_id, surf_indx, distance):
+    return _ptcloud('neargeom', _ptcloud_points(points), geom_id, int(surf_indx), float(distance), 'keep')
+
+
+def RemovePtsNearGeom(points, geom_id, surf_indx, distance):
+    return _ptcloud('neargeom', _ptcloud_points(points), geom_id, int(surf_indx), float(distance), 'remove')
+
+
+def UniquePts(points, tolerance):
+    return _ptcloud('unique', _ptcloud_points(points), float(tolerance))
+
+
+def UnionPts(points_a, points_b, tolerance):
+    return _ptcloud('union', _ptcloud_points(points_a), _ptcloud_points(points_b), float(tolerance))
+
+
+def IntersectPts(points_a, points_b, tolerance):
+    return _ptcloud('intersect', _ptcloud_points(points_a), _ptcloud_points(points_b), float(tolerance))
+
+
+def SubtractPts(points_a, points_b, tolerance):
+    return _ptcloud('subtract', _ptcloud_points(points_a), _ptcloud_points(points_b), float(tolerance))
 
 
 # ---------------------------------------------------------------- measurement

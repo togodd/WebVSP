@@ -4212,6 +4212,137 @@ void RunImpl( const Job &j )
         if ( !err.empty() ) return Result( j.id, err, "" );
         return Result( j.id, "", "[" + Num( v.x() ) + "," + Num( v.y() ) + "," + Num( v.z() ) + "]" );
     }
+    // ---- Point cloud filters ------------------------------------------------
+    // A point list travels as "x,y,z" lines; b splits into those lines plus the
+    // operation's extra scalars, separated by \x1f.
+    auto live_points = []( const string &text, vector< vec3d > &out )
+    {
+        out.clear();
+        size_t pos = 0;
+        while ( pos <= text.size() )
+        {
+            const size_t nl = text.find( '\n', pos );
+            const string entry = text.substr( pos, nl == string::npos ? string::npos : nl - pos );
+            if ( !entry.empty() )
+            {
+                const size_t c1 = entry.find( ',' ), c2 = entry.find( ',', c1 + 1 );
+                if ( c1 == string::npos || c2 == string::npos ) return false;
+                char *e1 = nullptr, *e2 = nullptr, *e3 = nullptr;
+                const string xs = entry.substr( 0, c1 ), ys = entry.substr( c1 + 1, c2 - c1 - 1 ), zs = entry.substr( c2 + 1 );
+                const double x = std::strtod( xs.c_str(), &e1 ), y = std::strtod( ys.c_str(), &e2 ), z = std::strtod( zs.c_str(), &e3 );
+                if ( xs.empty() || ys.empty() || zs.empty() || *e1 || *e2 || *e3 ||
+                     !std::isfinite( x ) || !std::isfinite( y ) || !std::isfinite( z ) ) return false;
+                out.push_back( vec3d( x, y, z ) );
+            }
+            if ( nl == string::npos ) break;
+            pos = nl + 1;
+        }
+        return true;
+    };
+    if ( j.op == "livePtCloud" )
+    {
+        // b = operation + \x1f + points + \x1f + arguments; a is unused.
+        vector< string > parts;
+        size_t pos = 0;
+        while ( pos <= j.b.size() )
+        {
+            const size_t sep = j.b.find( '\x1f', pos );
+            parts.push_back( j.b.substr( pos, sep == string::npos ? string::npos : sep - pos ) );
+            if ( sep == string::npos ) break;
+            pos = sep + 1;
+        }
+        if ( parts.size() < 2 ) return Result( j.id, "Invalid point cloud arguments", "" );
+        const string kind = parts[0];
+        vector< vec3d > points, other;
+        if ( !live_points( parts[1], points ) ) return Result( j.id, "Invalid point list", "" );
+        auto number = [ & ]( size_t i, double &value )
+        {
+            if ( i >= parts.size() ) return false;
+            char *end = nullptr;
+            value = std::strtod( parts[i].c_str(), &end );
+            return !parts[i].empty() && end == parts[i].c_str() + parts[i].size() && std::isfinite( value );
+        };
+        auto point3 = [ & ]( size_t i, vec3d &value )
+        {
+            if ( i >= parts.size() ) return false;
+            vector< vec3d > one;
+            if ( !live_points( parts[i], one ) || one.size() != 1 ) return false;
+            value = one[0];
+            return true;
+        };
+        vector< vec3d > result;
+        if ( kind == "create" )
+        {
+            if ( parts.size() != 4 ) return Result( j.id, "Invalid point cloud arguments", "" );
+            if ( !BeginGuardedWrite() ) return;
+            const string id = vsp::CreatePtCloudGeomFromPts( points, parts[3] );
+            DrainedErrors errors = TakeWriteErrors();
+            Watch( "Point cloud geometry", true );
+            if ( errors.had_errors ) return ParmWriteFailure( j.id, errors.message, "unknown", "" );
+            return Result( j.id, "", Quote( id ) );
+        }
+        if ( kind == "bbox" || kind == "neartp" )
+        {
+            vec3d a, b;
+            double distance = 0;
+            if ( kind == "bbox" ? !point3( 2, a ) || !point3( 3, b ) : !point3( 2, a ) || !number( 3, distance ) )
+                return Result( j.id, "Invalid point cloud arguments", "" );
+            if ( kind == "bbox" )
+                result = parts.size() > 4 && parts[4] == "remove" ? vsp::RemovePtsInBBox( points, a, b )
+                                                                  : vsp::KeepPtsInBBox( points, a, b );
+            else
+                result = parts.size() > 4 && parts[4] == "remove" ? vsp::RemovePtsNearPt( points, a, distance )
+                                                                  : vsp::KeepPtsNearPt( points, a, distance );
+        }
+        else if ( kind == "range" )
+        {
+            double axis, low, high;
+            if ( !number( 2, axis ) || !number( 3, low ) || !number( 4, high ) )
+                return Result( j.id, "Invalid point cloud arguments", "" );
+            result = parts.size() > 5 && parts[5] == "remove"
+                ? vsp::RemovePtsInRange( points, static_cast<int>( axis ), low, high )
+                : vsp::KeepPtsInRange( points, static_cast<int>( axis ), low, high );
+        }
+        else if ( kind == "above" || kind == "below" )
+        {
+            double axis, value;
+            if ( !number( 2, axis ) || !number( 3, value ) ) return Result( j.id, "Invalid point cloud arguments", "" );
+            result = kind == "above" ? vsp::KeepPtsAbove( points, static_cast<int>( axis ), value )
+                                     : vsp::KeepPtsBelow( points, static_cast<int>( axis ), value );
+        }
+        else if ( kind == "neargeom" )
+        {
+            double axis, distance;
+            if ( parts.size() < 5 || !number( 3, axis ) || !number( 4, distance ) )
+                return Result( j.id, "Invalid point cloud arguments", "" );
+            result = parts.size() > 5 && parts[5] == "remove"
+                ? vsp::RemovePtsNearGeom( points, parts[2], static_cast<int>( axis ), distance )
+                : vsp::KeepPtsNearGeom( points, parts[2], static_cast<int>( axis ), distance );
+        }
+        else if ( kind == "unique" )
+        {
+            double tolerance;
+            if ( !number( 2, tolerance ) ) return Result( j.id, "Invalid point cloud arguments", "" );
+            result = vsp::UniquePts( points, tolerance );
+        }
+        else if ( kind == "union" || kind == "intersect" || kind == "subtract" )
+        {
+            if ( parts.size() < 3 || !live_points( parts[2], other ) ) return Result( j.id, "Invalid point list", "" );
+            double tolerance;
+            if ( !number( 3, tolerance ) ) return Result( j.id, "Invalid point cloud arguments", "" );
+            if ( kind == "union" ) result = vsp::UnionPts( points, other, tolerance );
+            else if ( kind == "intersect" ) result = vsp::IntersectPts( points, other, tolerance );
+            else result = vsp::SubtractPts( points, other, tolerance );
+        }
+        else if ( kind == "create_given" )
+        {
+            return Result( j.id, "Invalid point cloud arguments", "" );
+        }
+        else return Result( j.id, "Unknown point cloud operation: " + kind, "" );
+        const string err = TakeErrors();
+        if ( !err.empty() ) return Result( j.id, err, "" );
+        return Result( j.id, "", LiveVec3dArray( result ) );
+    }
     // ---- Measurement tools --------------------------------------------------
     if ( j.op == "liveAddProbe" || j.op == "liveAddRSTProbe" )
     {
