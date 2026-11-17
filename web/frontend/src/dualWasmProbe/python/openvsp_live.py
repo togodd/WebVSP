@@ -398,6 +398,22 @@ def CutXSecByID(xsec_id):
     return _call('live_delete_xsec_by_id', xsec_id=xsec_id)
 
 
+def CopyXSec(geom_id, index):
+    return _call('live_copy_xsec', geom_id=geom_id, index=index)
+
+
+def CopyXSecByID(xsec_id):
+    return _call('live_copy_xsec_by_id', xsec_id=xsec_id)
+
+
+def PasteXSec(geom_id, index):
+    return _call('live_paste_xsec', geom_id=geom_id, index=index)
+
+
+def PasteXSecByID(xsec_id):
+    return _call('live_paste_xsec_by_id', xsec_id=xsec_id)
+
+
 def DeleteXSec(geom_id, index):
     """Desktop name for removing a section by index on a geom."""
     return CutXSec(geom_id, index)

@@ -3145,6 +3145,19 @@ void RunImpl( const Job &j )
         vsp::CutXSec( j.a, static_cast< int >( j.value ) );
         return Result( j.id, TakeParmErrors( true ), "null" );
     }
+    if ( j.op == "liveCopyXSec" || j.op == "livePasteXSec" )
+    {
+        if ( !live_int_value( j.value ) ) return Result( j.id, "Invalid XSec index", "" );
+        if ( j.op == "liveCopyXSec" ) vsp::CopyXSec( j.a, static_cast< int >( j.value ) );
+        else vsp::PasteXSec( j.a, static_cast< int >( j.value ) );
+        return Result( j.id, TakeParmErrors( true ), "null" );
+    }
+    if ( j.op == "liveCopyXSecByID" || j.op == "livePasteXSecByID" )
+    {
+        if ( j.op == "liveCopyXSecByID" ) vsp::CopyXSecByID( j.a );
+        else vsp::PasteXSecByID( j.a );
+        return Result( j.id, TakeParmErrors( true ), "null" );
+    }
     if ( j.op == "liveChangeXSecShape" )
     {
         int shape;

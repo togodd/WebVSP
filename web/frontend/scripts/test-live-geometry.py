@@ -73,6 +73,16 @@ class GeometryApiTest(unittest.TestCase):
         vsp.CutXSecByID('new')
         self.assertEqual(self.calls[-1], ('live_delete_xsec_by_id', {'xsec_id': 'new'}))
 
+    def test_xsec_clipboard_forwarding(self):
+        for func, args, op, payload in (
+            (vsp.CopyXSec, ('g', 2), 'live_copy_xsec', {'geom_id': 'g', 'index': 2}),
+            (vsp.CopyXSecByID, ('x',), 'live_copy_xsec_by_id', {'xsec_id': 'x'}),
+            (vsp.PasteXSec, ('g', 3), 'live_paste_xsec', {'geom_id': 'g', 'index': 3}),
+            (vsp.PasteXSecByID, ('x',), 'live_paste_xsec_by_id', {'xsec_id': 'x'}),
+        ):
+            self.assertIsNone(func(*args))
+            self.assertEqual(self.calls[-1], (op, payload))
+
     def test_rename(self):
         self.assertIsNone(vsp.SetGeomName('g', 'MainWing'))
         self.assertEqual(self.calls[-1], ('live_set_geom_name', {'geom_id': 'g', 'name': 'MainWing'}))

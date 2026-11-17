@@ -8,6 +8,7 @@ const LIVE_WRITES = new Set([
   'live_add_geom', 'live_delete_geom', 'live_update', 'live_parm_set', 'live_parm_set_by_id',
   'live_analysis_defaults', 'live_analysis_set_int', 'live_analysis_run', 'live_insert_xsec',
   'live_delete_xsec', 'live_insert_xsec_by_id', 'live_delete_xsec_by_id',
+  'live_copy_xsec', 'live_copy_xsec_by_id', 'live_paste_xsec', 'live_paste_xsec_by_id',
   'live_change_xsec_shape', 'live_add_sub_surf', 'live_delete_sub_surf',
   'live_reorder_sub_surf', 'live_set_sub_surf_name', 'live_set_set_name', 'live_set_set_flag', 'live_delete_result', 'live_delete_all_results',
   'live_parm_set_update', 'live_set_geom_name',
@@ -228,6 +229,10 @@ async function run(mode: 'script' | 'console', script?: string): Promise<unknown
         if (op === 'live_delete_xsec_by_id') {
           return live('liveDeleteXSecByID', text('xsec_id'))
         }
+        if (op === 'live_copy_xsec') return live('liveCopyXSec', text('geom_id'), '', int32('index'))
+        if (op === 'live_copy_xsec_by_id') return live('liveCopyXSecByID', text('xsec_id'))
+        if (op === 'live_paste_xsec') return live('livePasteXSec', text('geom_id'), '', int32('index'))
+        if (op === 'live_paste_xsec_by_id') return live('livePasteXSecByID', text('xsec_id'))
         if (op === 'live_change_xsec_shape') {
           return live('liveChangeXSecShape', text('xsec_id'), String(int32('shape')))
         }

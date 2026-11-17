@@ -77,6 +77,8 @@ describe('live write bridge', () => {
       ['live_insert_xsec', { geom_id: 'g', index: 0, shape: 1 }, 'index'],
       ['live_insert_xsec', { geom_id: 'g', index: 0, shape: 1 }, 'shape'],
       ['live_delete_xsec', { xsec_surf_id: 'g', index: 0 }, 'index'],
+      ['live_copy_xsec', { geom_id: 'g', index: 0 }, 'index'],
+      ['live_paste_xsec', { geom_id: 'g', index: 0 }, 'index'],
       ['live_change_xsec_shape', { xsec_id: 'x', shape: 1 }, 'shape'],
       ['live_add_sub_surf', { geom_id: 'g', type: 1, surf_index: 0 }, 'type'],
       ['live_add_sub_surf', { geom_id: 'g', type: 1, surf_index: 0 }, 'surf_index'],
@@ -94,6 +96,23 @@ describe('live write bridge', () => {
     }
     expect((await worker.request('live_add_sub_surf', { geom_id: 'g', type: 1 })).ok).toBe(true)
     expect(engine.call).toHaveBeenLastCalledWith('liveAddSubSurf', 'g', '1', 0)
+    worker.onmessage({ data: { type: 'done', value: 'null' } } as MessageEvent)
+  })
+  it('forwards XSec clipboard calls and propagates native errors', async () => {
+    void runSyncScript('')
+    const worker = FakeWorker.instance
+    engine.call.mockResolvedValue(null)
+    for (const [op, args, native, id, index] of [
+      ['live_copy_xsec', { geom_id: 'g', index: 2 }, 'liveCopyXSec', 'g', 2],
+      ['live_copy_xsec_by_id', { xsec_id: 'x' }, 'liveCopyXSecByID', 'x', 0],
+      ['live_paste_xsec', { geom_id: 'g', index: 3 }, 'livePasteXSec', 'g', 3],
+      ['live_paste_xsec_by_id', { xsec_id: 'x' }, 'livePasteXSecByID', 'x', 0],
+    ] as const) {
+      expect((await worker.request(op, args)).value).toBeNull()
+      expect(engine.call).toHaveBeenLastCalledWith(native, id, '', index)
+    }
+    engine.call.mockRejectedValueOnce(new Error('invalid XSec'))
+    expect((await worker.request('live_paste_xsec_by_id', { xsec_id: 'missing' })).error.message).toContain('invalid XSec')
     worker.onmessage({ data: { type: 'done', value: 'null' } } as MessageEvent)
   })
   it('forwards subsurface metadata and reorder/name operations', async () => {
