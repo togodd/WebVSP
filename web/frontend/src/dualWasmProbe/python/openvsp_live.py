@@ -680,16 +680,31 @@ def GetStringAnalysisInput(analysis, name, index=0):
 
 
 def _set_analysis_input(kind, analysis, name, values, index):
-    if type(index) is not int or index != 0 or not isinstance(values, (list, tuple)) or len(values) != 1:
-        raise ValueError('Only one value and index=0 are supported for analysis setters')
-    value = values[0]
-    if kind == 'int' and (type(value) is not int or not -2147483648 <= value <= 2147483647):
-        raise ValueError('Expected a 32-bit integer analysis input')
-    if kind == 'double' and type(value) not in (int, float):
-        raise ValueError('Expected a numeric analysis input')
-    if kind == 'string' and (not isinstance(value, str) or '\0' in value):
-        raise ValueError('Expected a string analysis input without NUL')
-    return _call('live_analysis_set_' + kind, analysis=analysis, name=name, value=value)
+    if type(index) is not int or not 0 <= index <= 2147483647:
+        raise ValueError('Analysis input index must be a non-negative 32-bit integer')
+    if not isinstance(analysis, str) or not analysis:
+        raise ValueError('An analysis name is required')
+    if not isinstance(name, str) or not name or '\0' in name:
+        raise ValueError('An analysis input name is required')
+    if not isinstance(values, (list, tuple)):
+        raise ValueError('Analysis input values must be a list or tuple')
+    items = list(values)
+    if kind == 'int':
+        for value in items:
+            if type(value) is not int or not -2147483648 <= value <= 2147483647:
+                raise ValueError('Expected 32-bit integer analysis input values')
+        items = [int(value) for value in items]
+    elif kind == 'double':
+        for value in items:
+            if type(value) not in (int, float):
+                raise ValueError('Expected numeric analysis input values')
+        items = [float(value) for value in items]
+    else:
+        for value in items:
+            if not isinstance(value, str) or '\0' in value:
+                raise ValueError('Expected string analysis input values without NUL')
+    return _call('live_analysis_set_' + kind, analysis=analysis, name=name,
+                 index=index, values=items)
 
 
 def SetIntAnalysisInput(analysis, name, values, index=0):

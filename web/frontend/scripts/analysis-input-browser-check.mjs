@@ -77,24 +77,37 @@ try:
     vsp.SetStringAnalysisInput('MassProp', 'ModeID', ['explicit'], 0)
     assert list(vsp.GetStringAnalysisInput('MassProp', 'ModeID')) == ['explicit']
 
-    # The current setters deliberately accept only one element and index zero.
-    rejects('empty double vector', lambda: vsp.SetDoubleAnalysisInput('ParasiteDrag', 'Vinf', []))
-    rejects('multiple doubles', lambda: vsp.SetDoubleAnalysisInput('ParasiteDrag', 'Vinf', [1.0, 2.0]))
-    rejects('empty string vector', lambda: vsp.SetStringAnalysisInput('MassProp', 'ModeID', []))
-    rejects('multiple strings', lambda: vsp.SetStringAnalysisInput('MassProp', 'ModeID', ['a', 'b']))
+    # Full vectors now go through in one call. CpSlicer/YSlicePosVec is a real
+    # multi-element input; CpSlicer itself is never executed here.
+    cuts_before = list(vsp.GetDoubleAnalysisInput('CpSlicer', 'YSlicePosVec'))
+    cuts = [2.0, 4.5, 8.0]
+    vsp.SetDoubleAnalysisInput('CpSlicer', 'YSlicePosVec', cuts)
+    assert list(vsp.GetDoubleAnalysisInput('CpSlicer', 'YSlicePosVec')) == cuts
+    vsp.SetDoubleAnalysisInput('CpSlicer', 'YSlicePosVec', [])
+    assert list(vsp.GetDoubleAnalysisInput('CpSlicer', 'YSlicePosVec')) == []
+    vsp.SetDoubleAnalysisInput('CpSlicer', 'YSlicePosVec', [0.1 + 0.2, 1e-9, 1234567.890123])
+    assert list(vsp.GetDoubleAnalysisInput('CpSlicer', 'YSlicePosVec')) == [0.1 + 0.2, 1e-9, 1234567.890123]
+    vsp.SetDoubleAnalysisInput('CpSlicer', 'YSlicePosVec', cuts_before)
+    assert list(vsp.GetDoubleAnalysisInput('CpSlicer', 'YSlicePosVec')) == cuts_before
+
+    vsp.SetStringAnalysisInput('MassProp', 'ModeID', ['first', 'second'])
+    assert list(vsp.GetStringAnalysisInput('MassProp', 'ModeID')) == ['first', 'second']
+    # Framing characters inside values must survive the byte-length packet.
+    vsp.SetStringAnalysisInput('MassProp', 'ModeID', ['a;b:c', 'x\ny', '中文 😀'])
+    assert list(vsp.GetStringAnalysisInput('MassProp', 'ModeID')) == ['a;b:c', 'x\ny', '中文 😀']
 
     # Index identifies an existing same-name data entry, not a vector element.
     rejects('int index 1', lambda: vsp.GetIntAnalysisInput('MassProp', 'Set', 1))
     rejects('double index 1', lambda: vsp.GetDoubleAnalysisInput('ParasiteDrag', 'Vinf', 1))
     rejects('string index 1', lambda: vsp.GetStringAnalysisInput('MassProp', 'ModeID', 1))
     rejects('negative index', lambda: vsp.GetStringAnalysisInput('MassProp', 'ModeID', -1))
-    rejects('double setter index 1', lambda: vsp.SetDoubleAnalysisInput('ParasiteDrag', 'Vinf', [99.0], 1))
-    rejects('string setter index 1', lambda: vsp.SetStringAnalysisInput('MassProp', 'ModeID', ['bad'], 1))
+    rejects('negative setter index', lambda: vsp.SetDoubleAnalysisInput('ParasiteDrag', 'Vinf', [99.0], -1))
+    rejects('setter index past end', lambda: vsp.SetStringAnalysisInput('MassProp', 'ModeID', ['bad'], 1))
     rejects('wrong double input type', lambda: vsp.SetDoubleAnalysisInput('MassProp', 'Set', [1.0]))
     rejects('wrong string input type', lambda: vsp.SetStringAnalysisInput('MassProp', 'Set', ['bad']))
     rejects('unknown input', lambda: vsp.GetStringAnalysisInput('MassProp', 'NoSuchInput'))
     assert list(vsp.GetDoubleAnalysisInput('ParasiteDrag', 'Vinf')) == [3.5]
-    assert list(vsp.GetStringAnalysisInput('MassProp', 'ModeID')) == ['explicit']
+    assert list(vsp.GetStringAnalysisInput('MassProp', 'ModeID')) == ['a;b:c', 'x\ny', '中文 😀']
     assert list(vsp.GetIntAnalysisInput('MassProp', 'Set')) == set_before
 finally:
     # Separate finally blocks ensure that a failed string restore does not skip double restore.
@@ -108,7 +121,10 @@ assert list(vsp.GetDoubleAnalysisInput('ParasiteDrag', 'Vinf')) == vinf_before
 json.dumps({'checks': checks, 'restored': True})
 `))
   const v = typeof r === 'string' ? JSON.parse(r) : r
-  if (!v?.restored || v.checks?.length !== 13) failures.push(`analysis input checks: ${JSON.stringify(v)}`)
+  const expectedChecks = ['int index 1', 'double index 1', 'string index 1', 'negative index',
+    'negative setter index', 'setter index past end', 'wrong double input type',
+    'wrong string input type', 'unknown input']
+  if (!v?.restored || JSON.stringify(v.checks) !== JSON.stringify(expectedChecks)) failures.push(`analysis input checks: ${JSON.stringify(v)}`)
   if (errors.length) failures.push(`page errors: ${JSON.stringify(errors.slice(0, 3))}`)
   if (external.length) failures.push(`external requests: ${JSON.stringify(external.slice(0, 3))}`)
   if (failures.length) { console.error(JSON.stringify({ failures }, null, 2)); process.exitCode = 1 }

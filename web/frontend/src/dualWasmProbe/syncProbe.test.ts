@@ -16,6 +16,8 @@ vi.mock('../api/wasmEngine', () => ({
 }))
 import { runSyncScript } from './syncProbe'
 
+const encoder = new TextEncoder()
+
 class FakeWorker {
   static instance: FakeWorker
   onmessage!: (event: MessageEvent) => void
@@ -61,15 +63,19 @@ describe('live write bridge', () => {
       expect((await worker.request('live_analysis_get_' + kind, { analysis: 'A', name: 'N', index: 2 })).ok).toBe(true)
       expect(engine.call).toHaveBeenLastCalledWith('liveAnalysisGet' + native, 'A', 'N', 2)
     }
-    for (const value of ['', '你好\n😀']) {
-      expect((await worker.request('live_analysis_set_string', { analysis: 'A', name: 'N', value })).ok).toBe(true)
-      expect(engine.call).toHaveBeenLastCalledWith('liveAnalysisSetString', 'A', 'N\n' + value, 0)
+    for (const value of ['', '你好\n😀', 'a;b:c']) {
+      expect((await worker.request('live_analysis_set_string', { analysis: 'A', name: 'N', values: [value, value], index: 0 })).ok).toBe(true)
+      const packet = `${3};1:N${encoder.encode(value).length}:${value}${encoder.encode(value).length}:${value}`
+      expect(engine.call).toHaveBeenLastCalledWith('liveAnalysisSetString', 'A', packet, 0)
     }
-    expect((await worker.request('live_analysis_set_double', { analysis: 'A', name: 'N', value: 1.5 })).ok).toBe(true)
-    expect(engine.call).toHaveBeenLastCalledWith('liveAnalysisSetDouble', 'A', 'N', 1.5)
+    expect((await worker.request('live_analysis_set_double', { analysis: 'A', name: 'N', values: [1.5, -2.25], index: 2 })).ok).toBe(true)
+    expect(engine.call).toHaveBeenLastCalledWith('liveAnalysisSetDouble', 'A', '3;1:N3:1.55:-2.25', 2)
+    expect((await worker.request('live_analysis_set_int', { analysis: 'A', name: 'N', values: [] })).ok).toBe(true)
+    expect(engine.call).toHaveBeenLastCalledWith('liveAnalysisSetInt', 'A', '1;1:N', 0)
     engine.call.mockClear()
-    expect((await worker.request('live_analysis_set_string', { analysis: 'A', name: 'N', value: '\0' })).error.outcome).toBe('not_written')
-    expect((await worker.request('live_analysis_set_int', { analysis: 'A', name: 'N', value: 2147483648 })).error.outcome).toBe('not_written')
+    expect((await worker.request('live_analysis_set_string', { analysis: 'A', name: 'N', values: ['\0'] })).error.outcome).toBe('not_written')
+    expect((await worker.request('live_analysis_set_int', { analysis: 'A', name: 'N', values: [2147483648] })).error.outcome).toBe('not_written')
+    expect((await worker.request('live_analysis_set_double', { analysis: 'A', name: 'N', values: [1.5], index: -1 })).error.outcome).toBe('not_written')
     expect((await worker.request('live_analysis_get_int', { analysis: 'A', name: 'N', index: -1 })).ok).toBe(false)
     expect(engine.call).not.toHaveBeenCalled()
     worker.onmessage({ data: { type: 'done', value: 'null' } } as MessageEvent)

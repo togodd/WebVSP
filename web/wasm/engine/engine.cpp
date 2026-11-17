@@ -2717,43 +2717,100 @@ void RunImpl( const Job &j )
         TakeParmErrors( true ); // INVALID_TYPE is the discovery API's unknown-name sentinel.
         return Result( j.id, "", std::to_string( type ) );
     }
+    // Length-prefixed UTF-8 packet: "<count>;<len>:<bytes>" repeated count times.
+    // Lengths count bytes, so values may hold ';', ':' and newlines. Item 0 is
+    // the input name; the rest are the values. The engine used a newline-joined
+    // single value before, which could not carry a vector.
+    const auto live_packet = []( const string &text, vector< string > &items )
+    {
+        size_t pos = 0;
+        auto number = [&]( char stop, size_t &value )
+        {
+            const size_t start = pos;
+            while ( pos < text.size() && text[pos] >= '0' && text[pos] <= '9' ) ++pos;
+            if ( start == pos || pos >= text.size() || text[pos] != stop ) return false;
+            if ( pos - start > 9 ) return false;
+            value = static_cast< size_t >( std::stoul( text.substr( start, pos - start ) ) );
+            ++pos;
+            return true;
+        };
+        size_t count;
+        if ( !number( ';', count ) || count > 1024 ) return false;
+        items.clear();
+        items.reserve( count );
+        for ( size_t i = 0; i < count; ++i )
+        {
+            size_t len;
+            if ( !number( ':', len ) || len > text.size() - pos ) return false;
+            items.push_back( text.substr( pos, len ) );
+            pos += len;
+        }
+        return pos == text.size();
+    };
     if ( j.op == "liveAnalysisGetInt" || j.op == "liveAnalysisGetDouble" || j.op == "liveAnalysisGetString" ||
          j.op == "liveAnalysisSetInt" || j.op == "liveAnalysisSetDouble" || j.op == "liveAnalysisSetString" )
     {
         const bool set = j.op.find( "liveAnalysisSet" ) == 0;
-        string name = j.b, str;
-        if ( j.op == "liveAnalysisSetString" )
-        {
-            const size_t sep = j.b.find( '\n' );
-            if ( sep == string::npos ) return Result( j.id, "Invalid analysis input", "" );
-            name = j.b.substr( 0, sep ); str = j.b.substr( sep + 1 );
-        }
+        const int expected = j.op.find( "Int" ) != string::npos ? vsp::INT_DATA :
+                             j.op.find( "Double" ) != string::npos ? vsp::DOUBLE_DATA : vsp::STRING_DATA;
+        vector< string > items;
+        string name = j.b;
+        if ( set && ( !live_packet( j.b, items ) || items.empty() || items[0].empty() ) )
+            return Result( j.id, "Invalid analysis input", "" );
+        if ( set ) name = items[0];
         if ( j.a.empty() || name.empty() ) return Result( j.id, "Invalid analysis input", "" );
         TakeParmErrors( true );
         const int type = vsp::GetAnalysisInputType( j.a, name );
         const string typeErr = TakeParmErrors( true );
-        const int expected = j.op.find( "Int" ) != string::npos ? vsp::INT_DATA :
-                             j.op.find( "Double" ) != string::npos ? vsp::DOUBLE_DATA : vsp::STRING_DATA;
         if ( !typeErr.empty() || type != expected ) return Result( j.id, "Unsupported analysis input", "" );
-        if ( !set && ( !std::isfinite( j.value ) || j.value < 0 || j.value > 2147483647 || std::floor( j.value ) != j.value ) )
+        if ( !std::isfinite( j.value ) || j.value < 0 || j.value > 2147483647 || std::floor( j.value ) != j.value )
             return Result( j.id, "Invalid analysis input index", "" );
-        const int index = set ? 0 : static_cast< int >( j.value );
+        const int index = static_cast< int >( j.value );
         const int count = vsp::GetNumAnalysisInputData( j.a, name );
         const string countErr = TakeParmErrors( true );
         if ( !countErr.empty() || index >= count ) return Result( j.id, "Invalid analysis input index", "" );
         if ( set )
         {
+            std::vector< int > ints;
+            std::vector< double > doubles;
+            std::vector< string > strings;
             if ( expected == vsp::INT_DATA )
             {
-                if ( !std::isfinite( j.value ) || j.value < -2147483648.0 || j.value > 2147483647.0 || std::floor( j.value ) != j.value ) return Result( j.id, "Invalid integer", "" );
-                vsp::SetIntAnalysisInput( j.a, name, { static_cast< int >( j.value ) }, index );
+                for ( size_t i = 1; i < items.size(); ++i )
+                {
+                    const string &text = items[i];
+                    char *end = nullptr;
+                    const long long value = std::strtoll( text.c_str(), &end, 10 );
+                    if ( text.empty() || end != text.c_str() + text.size() ||
+                         value < -2147483648LL || value > 2147483647LL )
+                        return Result( j.id, "Invalid integer analysis input", "" );
+                    ints.push_back( static_cast< int >( value ) );
+                }
+                vsp::SetIntAnalysisInput( j.a, name, ints, index );
             }
             else if ( expected == vsp::DOUBLE_DATA )
             {
-                if ( !std::isfinite( j.value ) ) return Result( j.id, "Invalid double", "" );
-                vsp::SetDoubleAnalysisInput( j.a, name, { j.value }, index );
+                for ( size_t i = 1; i < items.size(); ++i )
+                {
+                    const string &text = items[i];
+                    char *end = nullptr;
+                    const double value = std::strtod( text.c_str(), &end );
+                    if ( text.empty() || end != text.c_str() + text.size() || !std::isfinite( value ) )
+                        return Result( j.id, "Invalid double analysis input", "" );
+                    doubles.push_back( value );
+                }
+                vsp::SetDoubleAnalysisInput( j.a, name, doubles, index );
             }
-            else vsp::SetStringAnalysisInput( j.a, name, { str }, index );
+            else
+            {
+                for ( size_t i = 1; i < items.size(); ++i )
+                {
+                    if ( items[i].find( '\0' ) != string::npos )
+                        return Result( j.id, "Invalid string analysis input", "" );
+                    strings.push_back( items[i] );
+                }
+                vsp::SetStringAnalysisInput( j.a, name, strings, index );
+            }
             return Result( j.id, TakeParmErrors( true ), "null" );
         }
         string out;

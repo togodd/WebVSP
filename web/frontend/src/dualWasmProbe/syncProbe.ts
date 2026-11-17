@@ -234,15 +234,39 @@ async function run(mode: 'script' | 'console', script?: string): Promise<unknown
           const engineOp = op === 'live_analysis_get_int' ? 'liveAnalysisGetInt' : op === 'live_analysis_get_double' ? 'liveAnalysisGetDouble' : 'liveAnalysisGetString'
           return live(engineOp, text('analysis'), text('name'), index)
         }
+        // Length-prefixed UTF-8 packet "<count>;<len>:<bytes>": item 0 is the
+        // input name, the rest are the values. Byte lengths keep values with
+        // ';', ':' or newlines unambiguous; the engine reads the same framing.
+        const packet = (items: string[]): string => {
+          const encoder = new TextEncoder()
+          return `${items.length};` + items.map(item => `${encoder.encode(item).length}:${item}`).join('')
+        }
+        const analysisValues = (kind: 'int' | 'double' | 'string'): string[] => {
+          const values = args.values
+          if (!Array.isArray(values) || values.length > 1024) throw new WasmEngineError(400, 'Invalid analysis input values', 'not_written')
+          return values.map(value => {
+            if (kind === 'string') {
+              if (typeof value !== 'string' || value.includes('\0')) throw new WasmEngineError(400, 'Invalid analysis input', 'not_written')
+              return value
+            }
+            if (typeof value !== 'number' || !Number.isFinite(value)) throw new WasmEngineError(400, 'Invalid analysis input', 'not_written')
+            if (kind === 'int' && (!Number.isInteger(value) || value < -2147483648 || value > 2147483647)) throw new WasmEngineError(400, 'Invalid analysis input', 'not_written')
+            return String(value)
+          })
+        }
+        const analysisIndex = (): number => {
+          const index = args.index === undefined ? 0 : args.index
+          if (typeof index !== 'number' || !Number.isInteger(index) || index < 0 || index > 2147483647) throw new WasmEngineError(400, 'Invalid analysis input index', 'not_written')
+          return index
+        }
         if (op === 'live_analysis_set_int' || op === 'live_analysis_set_double') {
-          const value = args.value
-          if (typeof value !== 'number' || !Number.isFinite(value) || (op === 'live_analysis_set_int' && (!Number.isInteger(value) || value < -2147483648 || value > 2147483647))) throw new WasmEngineError(400, 'Invalid analysis input', 'not_written')
-          return live(op === 'live_analysis_set_int' ? 'liveAnalysisSetInt' : 'liveAnalysisSetDouble', text('analysis'), text('name'), value)
+          const kind = op === 'live_analysis_set_int' ? 'int' : 'double'
+          return live(op === 'live_analysis_set_int' ? 'liveAnalysisSetInt' : 'liveAnalysisSetDouble', text('analysis'), packet([text('name'), ...analysisValues(kind)]), analysisIndex())
         }
         if (op === 'live_analysis_set_string') {
-          const value = args.value, name = text('name')
-          if (typeof value !== 'string' || value.includes('\0') || name.includes('\n') || name.includes('\0')) throw new WasmEngineError(400, 'Invalid analysis input', 'not_written')
-          return live('liveAnalysisSetString', text('analysis'), name + '\n' + value)
+          const name = text('name')
+          if (name.includes('\0')) throw new WasmEngineError(400, 'Invalid analysis input', 'not_written')
+          return live('liveAnalysisSetString', text('analysis'), packet([name, ...analysisValues('string')]), analysisIndex())
         }
         if (op === 'live_analysis_run') return live('liveAnalysisRun', text('analysis'))
         if (op === 'live_parm_info') return live('liveParmInfo', text('parm_id'))
