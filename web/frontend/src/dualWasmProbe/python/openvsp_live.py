@@ -964,6 +964,14 @@ def SetStringAnalysisInput(analysis, name, values, index=0):
     return _set_analysis_input('string', analysis, name, values, index)
 
 
+def GetVSPAEROFiles():
+    """Standard VSPAERO outputs for the current model, with existence and size.
+
+    Each entry is ``{'path', 'exists', 'size'}``; ``size`` is -1 when missing.
+    """
+    return _call('live_vspaero_files')
+
+
 def ExecAnalysis(analysis):
     return _call('live_analysis_run', analysis=analysis)
 

@@ -46,6 +46,11 @@ class AnalysisApiTest(unittest.TestCase):
         vsp.SetIntAnalysisInput('MassProp', 'NumMassSlices', [10])
         self.assertEqual(self.calls[-1], ('live_analysis_set_int', {'analysis': 'MassProp', 'name': 'NumMassSlices', 'index': 0, 'values': [10]}))
 
+    def test_vspaero_files_forwarding(self):
+        self.reply['value'] = [{'path': '/work/case.vspgeom', 'exists': True, 'size': 10}]
+        self.assertEqual(vsp.GetVSPAEROFiles(), [{'path': '/work/case.vspgeom', 'exists': True, 'size': 10}])
+        self.assertEqual(self.calls[-1], ('live_vspaero_files', {}))
+
     def test_typed_inputs(self):
         for kind in ('Int', 'Double', 'String'):
             getattr(vsp, 'Get' + kind + 'AnalysisInput')('AnyAnalysis', 'Input', 2)

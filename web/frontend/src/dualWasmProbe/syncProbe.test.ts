@@ -80,6 +80,14 @@ describe('live write bridge', () => {
     expect(engine.call).not.toHaveBeenCalled()
     worker.onmessage({ data: { type: 'done', value: 'null' } } as MessageEvent)
   })
+  it('forwards the VSPAERO product listing', async () => {
+    void runSyncScript('')
+    const worker = FakeWorker.instance
+    engine.call.mockResolvedValue(null)
+    expect((await worker.request('live_vspaero_files', {})).ok).toBe(true)
+    expect(engine.call).toHaveBeenLastCalledWith('liveVSPAEROFiles', '', '', 0)
+    worker.onmessage({ data: { type: 'done', value: 'null' } } as MessageEvent)
+  })
   it('forwards surface vector queries and projection', async () => {
     void runSyncScript('')
     const worker = FakeWorker.instance

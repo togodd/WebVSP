@@ -2824,7 +2824,8 @@ void RunImpl( const Job &j )
     }
     if ( j.op == "liveAnalysisDefaults" || j.op == "liveAnalysisRun" )
     {
-        const bool degen = j.a == "DegenGeom", patches = j.a == "SurfacePatches", mass = j.a == "MassProp", comp = j.a == "CompGeom";
+        const bool degen = j.a == "DegenGeom", patches = j.a == "SurfacePatches", mass = j.a == "MassProp", comp = j.a == "CompGeom",
+                   aeroGeom = j.a == "VSPAEROComputeGeometry", aero = j.a == "VSPAEROSweep";
         auto &errors = vsp::ErrorMgrSingleton::getInstance();
         if ( j.op == "liveAnalysisDefaults" )
         {
@@ -2832,14 +2833,41 @@ void RunImpl( const Job &j )
             vsp::SetAnalysisInputDefaults( j.a );
             return Result( j.id, TakeParmErrors( true ), "null" );
         }
-        if ( !degen && !patches && !mass && !comp ) return Result( j.id, "Unknown analysis", "" );
+        if ( !degen && !patches && !mass && !comp && !aeroGeom && !aero ) return Result( j.id, "Unknown analysis", "" );
+        if ( aeroGeom || aero )
+        {
+            // A relative model name would scatter the products in the engine cwd;
+            // the Python workspace writes under /work.
+            const string model = vsp::GetVSPFileName();
+            if ( model.empty() || model[0] != '/' )
+                return Result( j.id, "VSPAERO needs an absolute model path; call SetVSP3FileName('/work/<name>.vsp3') first", "" );
+        }
         TakeParmErrors( true );
         auto setIntIfPresent = [&]( const char *name, int value )
         {
             if ( vsp::GetAnalysisInputType( j.a, name ) == vsp::INT_DATA )
                 vsp::SetIntAnalysisInput( j.a, name, { value }, 0 );
         };
-        if ( mass )
+        bool aeroStopBeforeRun = false;
+        if ( aeroGeom || aero )
+        {
+            // The browser solver is single threaded and has no GUI to pick sets or
+            // modes, so the thick set is the whole model and modes are always off.
+            setIntIfPresent( "NCPU", 1 );
+            setIntIfPresent( "UseModeFlag", 0 );
+            setIntIfPresent( "GeomSet", vsp::SET_ALL );
+            setIntIfPresent( "ThinGeomSet", vsp::SET_NONE );
+            if ( aero && vsp::GetAnalysisInputType( j.a, "StopBeforeRun" ) == vsp::INT_DATA )
+            {
+                const vector< int > stop = vsp::GetIntAnalysisInput( j.a, "StopBeforeRun", 0 );
+                aeroStopBeforeRun = !stop.empty() && stop[0] != 0;
+            }
+            // Launching the solver needs the long-call bridge; that is enabled in
+            // the next step. Writing the setup files is safe in a normal call.
+            if ( aero && !aeroStopBeforeRun )
+                return Result( j.id, "VSPAERO solver runs are not enabled yet; set StopBeforeRun=1 to write the setup files", "" );
+        }
+        else if ( mass )
         {
             // Honour the caller's Set; never use modes (ModeID is a string input).
             setIntIfPresent( "UseModeFlag", 0 );
@@ -2862,6 +2890,8 @@ void RunImpl( const Job &j )
         if ( errors.GetNumTotalErrors() ) return Result( j.id, errors.PopLastError().GetErrorString(), "" );
         const string root = vsp::ExecAnalysis( j.a );
         if ( errors.GetNumTotalErrors() ) return Result( j.id, errors.PopLastError().GetErrorString(), "" );
+        // A stop-before-run sweep only writes files, so it has no root result.
+        if ( root.empty() && aeroStopBeforeRun ) return Result( j.id, "", Quote( string() ) );
         if ( root.empty() ) return Result( j.id, "Analysis returned no root result", "" );
         return Result( j.id, "", Quote( root ) );
     }
@@ -3731,6 +3761,35 @@ void RunImpl( const Job &j )
         const string err = TakeErrors();
         if ( !err.empty() ) return Result( j.id, err, "" );
         return Result( j.id, "", "[" + LiveDoubleArray( us ) + "," + LiveDoubleArray( ws ) + "]" );
+    }
+    if ( j.op == "liveVSPAEROFiles" )
+    {
+        // The standard VSPAERO products for the current model name, with whether
+        // each exists. Python needs this to tell "setup written" from "solver ran".
+        const string model = vsp::GetVSPFileName();
+        if ( model.empty() || model[0] != '/' )
+            return Result( j.id, "VSPAERO needs an absolute model path; call SetVSP3FileName('/work/<name>.vsp3') first", "" );
+        string base = model;
+        const size_t dot = base.rfind( '.' );
+        const size_t slash = base.find_last_of( "/\\" );
+        if ( dot != string::npos && ( slash == string::npos || dot > slash ) ) base.erase( dot );
+        const char *suffixes[] = { ".vspgeom", ".vspaero", ".groups", ".history", ".polar", ".lod", ".adb", ".adb.cases" };
+        string out = "[";
+        for ( size_t i = 0; i < sizeof( suffixes ) / sizeof( suffixes[0] ); ++i )
+        {
+            const string path = base + suffixes[i];
+            FILE *f = fopen( path.c_str(), "rb" );
+            long size = -1;
+            if ( f )
+            {
+                fseek( f, 0, SEEK_END );
+                size = ftell( f );
+                fclose( f );
+            }
+            out += ( i ? "," : "" ) + string( "{\"path\":" ) + Quote( path ) +
+                   ",\"exists\":" + ( size >= 0 ? "true" : "false" ) + ",\"size\":" + std::to_string( size ) + "}";
+        }
+        return Result( j.id, "", out + "]" );
     }
     if ( j.op == "liveNumMainSurfs" )
     {

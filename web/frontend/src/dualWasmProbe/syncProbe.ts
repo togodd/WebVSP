@@ -164,6 +164,7 @@ async function run(mode: 'script' | 'console', script?: string): Promise<unknown
           return id
         }
         if (op === 'live_geom_types') return live('geomTypes')
+        if (op === 'live_vspaero_files') return live('liveVSPAEROFiles')
         if (op === 'live_comp_pnt01' || op === 'live_comp_norm01') {
           const id = text('geom_id'), index = args.surf_indx, u = args.u, w = args.w
           if (typeof index !== 'number' || !Number.isInteger(index) || index < -2147483648 || index > 2147483647) throw new WasmEngineError(400, 'Invalid surf_indx')
