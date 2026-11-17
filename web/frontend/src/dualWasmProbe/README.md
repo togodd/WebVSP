@@ -111,6 +111,7 @@ helper（[上游入口](../../../../src/python_api/packages/openvsp/openvsp/__in
 | `GetParmDescript`、`SetParmDescript`、`GetParmContainer`、`SetParmValLimits` | ✅ | 真实浏览器回归覆盖描述、容器与限值钳制 |
 | `CloneGeomVec`、`DeleteGeomVec`、`CopyPasteSet`、`GetGeomSetCollection` | ✅ | 批量克隆/删除与集合复制已通过真实浏览器回归；克隆结果是原生 `Clone` 类型 |
 | `CompPnt01`、`CompNorm01` | ✅ | 已通过机身与机翼真实浏览器回归，返回支持 `x()`/`y()`/`z()` 的 vec3d |
+| `CompVecPnt01`、`CompVecNorm01`、`ProjPnt01`、`CompCurvature01`、`GetUWTess01` | ✅ | 真实浏览器回归覆盖批量点法线、投影距离与曲率；`GetUWTess01` 返回 `(us, ws)` 且两者长度可不同 |
 | `GetGeomDrawType`、`SetGeomDrawType`、`GetGeomDisplayType`、`SetGeomDisplayType`、`GetGeomWireColor`、`SetGeomWireColor` | ✅ | 真实浏览器回归覆盖读写往返与恢复 |
 | `GetGeomBBoxMin`、`GetGeomBBoxMax` | ✅ | 支持主曲面序号与绝对/相对坐标系；绝对框随位置变化已验证 |
 | `GetGeomMaterialName`、`SetGeomMaterialName` | 🟨 | 读取可用；本构建未注册任何材质，原生会拒绝所有赋值 |
