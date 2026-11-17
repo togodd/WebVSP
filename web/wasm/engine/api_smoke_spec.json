@@ -1,0 +1,3629 @@
+{
+ "AcceptGeomScale": [
+  "string"
+ ],
+ "AddAdvLink": [
+  "string"
+ ],
+ "AddAdvLinkInput": [
+  "int",
+  "string",
+  "string"
+ ],
+ "AddAdvLinkOutput": [
+  "int",
+  "string",
+  "string"
+ ],
+ "AddAllToVSPAEROControlSurfaceGroup": [
+  "int"
+ ],
+ "AddAllToVSPAEROControlSurfaceGroupByID": [
+  "string"
+ ],
+ "AddAttributeBool": [
+  "string",
+  "string",
+  "bool"
+ ],
+ "AddAttributeDouble": [
+  "string",
+  "string",
+  "double"
+ ],
+ "AddAttributeDoubleMatrix": [
+  "string",
+  "string",
+  "vector<vector<double>>"
+ ],
+ "AddAttributeGroup": [
+  "string",
+  "string"
+ ],
+ "AddAttributeInt": [
+  "string",
+  "string",
+  "int"
+ ],
+ "AddAttributeIntMatrix": [
+  "string",
+  "string",
+  "vector < vector < int > >"
+ ],
+ "AddAttributeParm": [
+  "string",
+  "string",
+  "string"
+ ],
+ "AddAttributeString": [
+  "string",
+  "string",
+  "string"
+ ],
+ "AddAttributeVec3d": [
+  "string",
+  "string",
+  "vector<vec3d>"
+ ],
+ "AddBackground3D": [],
+ "AddCFDSource": [
+  "int",
+  "string",
+  "int",
+  "double",
+  "double",
+  "double",
+  "double",
+  "double",
+  "double",
+  "double",
+  "double"
+ ],
+ "AddCpSlice": [
+  "int",
+  "double"
+ ],
+ "AddDefaultSources": [],
+ "AddDesignVar": [
+  "string",
+  "int"
+ ],
+ "AddDesignVarLimits": [
+  "string",
+  "int",
+  "double",
+  "double"
+ ],
+ "AddExcrescence": [
+  "string",
+  "int",
+  "double"
+ ],
+ "AddFeaAssembly": [],
+ "AddFeaAssemblyConnection": [
+  "string",
+  "string",
+  "string",
+  "int",
+  "string",
+  "string",
+  "int"
+ ],
+ "AddFeaAssemblyStructure": [
+  "string",
+  "string"
+ ],
+ "AddFeaBC": [
+  "string",
+  "int"
+ ],
+ "AddFeaLayer": [
+  "string"
+ ],
+ "AddFeaMaterial": [],
+ "AddFeaPart": [
+  "string",
+  "int",
+  "int"
+ ],
+ "AddFeaPartByID": [
+  "string",
+  "int"
+ ],
+ "AddFeaPolySparPt": [
+  "string"
+ ],
+ "AddFeaProperty": [
+  "int"
+ ],
+ "AddFeaStruct": [
+  "string",
+  "bool",
+  "int"
+ ],
+ "AddFeaStructure": [
+  "string",
+  "bool",
+  "int"
+ ],
+ "AddFeaStructureToAssembly": [
+  "string",
+  "string"
+ ],
+ "AddFeaSubSurf": [
+  "string",
+  "int",
+  "int"
+ ],
+ "AddFeaSubSurfByID": [
+  "string",
+  "int"
+ ],
+ "AddFeaTrimPart": [
+  "string",
+  "string"
+ ],
+ "AddFitModelTargetPt": [
+  "string",
+  "int",
+  "vec3d",
+  "int",
+  "int",
+  "double",
+  "double"
+ ],
+ "AddFitModelTargetPtFixedU": [
+  "string",
+  "int",
+  "vec3d",
+  "double"
+ ],
+ "AddFitModelTargetPtFixedUW": [
+  "string",
+  "int",
+  "vec3d",
+  "double",
+  "double"
+ ],
+ "AddFitModelTargetPtFixedW": [
+  "string",
+  "int",
+  "vec3d",
+  "double"
+ ],
+ "AddFitModelTargetPts": [
+  "string",
+  "int",
+  "vector<vec3d>"
+ ],
+ "AddFitModelTargetPtsFixedU": [
+  "string",
+  "int",
+  "vector<vec3d>",
+  "double"
+ ],
+ "AddFitModelTargetPtsFixedUW": [
+  "string",
+  "int",
+  "vector<vec3d>",
+  "double",
+  "double"
+ ],
+ "AddFitModelTargetPtsFixedUWs": [
+  "string",
+  "int",
+  "vector<vec3d>",
+  "vector<double>",
+  "vector<double>"
+ ],
+ "AddFitModelTargetPtsFixedUs": [
+  "string",
+  "int",
+  "vector<vec3d>",
+  "vector<double>"
+ ],
+ "AddFitModelTargetPtsFixedW": [
+  "string",
+  "int",
+  "vector<vec3d>",
+  "double"
+ ],
+ "AddFitModelTargetPtsFixedWs": [
+  "string",
+  "int",
+  "vector<vec3d>",
+  "vector<double>"
+ ],
+ "AddFitModelVar": [
+  "string"
+ ],
+ "AddGeom": [
+  "string",
+  "string"
+ ],
+ "AddGeometryAnalysis": [],
+ "AddGeometryAnalysisAzEl": [
+  "string",
+  "double",
+  "double"
+ ],
+ "AddGeometryAnalysisCutout": [
+  "string",
+  "string"
+ ],
+ "AddMaterial": [
+  "string",
+  "vec3d",
+  "vec3d",
+  "vec3d",
+  "vec3d",
+  "double",
+  "double"
+ ],
+ "AddParmLink": [
+  "string",
+  "string"
+ ],
+ "AddProbe": [
+  "string",
+  "int",
+  "double",
+  "double",
+  "string"
+ ],
+ "AddProtractor": [
+  "string",
+  "int",
+  "double",
+  "double",
+  "string",
+  "int",
+  "double",
+  "double",
+  "string",
+  "int",
+  "double",
+  "double",
+  "string"
+ ],
+ "AddRSTProbe": [
+  "string",
+  "int",
+  "double",
+  "double",
+  "double",
+  "string"
+ ],
+ "AddRoutingPt": [
+  "string",
+  "string",
+  "int"
+ ],
+ "AddRuler": [
+  "string",
+  "int",
+  "double",
+  "double",
+  "string",
+  "int",
+  "double",
+  "double",
+  "string"
+ ],
+ "AddSelectedToCSGroup": [
+  "vector<int>",
+  "int"
+ ],
+ "AddSkinSpine": [
+  "string",
+  "double"
+ ],
+ "AddSubSurf": [
+  "string",
+  "int",
+  "int"
+ ],
+ "AddSubSurfToCSGroup": [
+  "string",
+  "string",
+  "int"
+ ],
+ "AddUserParm": [
+  "int",
+  "string",
+  "string"
+ ],
+ "AddVSPAEROControlSurfaceGroup": [],
+ "AddVarPresetGroup": [
+  "string"
+ ],
+ "AddVarPresetParm": [
+  "string",
+  "string"
+ ],
+ "AddVarPresetSetting": [
+  "string",
+  "string"
+ ],
+ "AddWaveDragFlowSubSurf": [
+  "string"
+ ],
+ "AdjustAllCFDSourceLen": [
+  "double"
+ ],
+ "AdjustAllCFDSourceRad": [
+  "double"
+ ],
+ "ApplyModeSettings": [
+  "string"
+ ],
+ "ApplyVarPresetSetting": [
+  "string",
+  "string"
+ ],
+ "ApproximateAllPropellerPCurves": [
+  "string"
+ ],
+ "AttachGeomTexture": [
+  "string",
+  "string"
+ ],
+ "AutoGroupVSPAEROControlSurfaces": [],
+ "AxisProjPnt01": [
+  "string",
+  "int",
+  "int",
+  "vec3d",
+  "double",
+  "double"
+ ],
+ "AxisProjPnt01Guess": [
+  "string",
+  "int",
+  "int",
+  "vec3d",
+  "double",
+  "double",
+  "double",
+  "double"
+ ],
+ "AxisProjPnt01I": [
+  "string",
+  "int",
+  "vec3d",
+  "int",
+  "double",
+  "double"
+ ],
+ "AxisProjVecPnt01": [
+  "string",
+  "int",
+  "int",
+  "vector<vec3d>",
+  "vector<double>",
+  "vector<double>",
+  "vector<double>"
+ ],
+ "AxisProjVecPnt01Guess": [
+  "string",
+  "int",
+  "int",
+  "vector<vec3d>",
+  "vector<double>",
+  "vector<double>",
+  "vector<double>",
+  "vector<double>",
+  "vector<double>"
+ ],
+ "BuildAdvLinkScript": [
+  "int"
+ ],
+ "CalcAtmosphere": [
+  "double",
+  "double",
+  "int",
+  "double",
+  "double",
+  "double",
+  "double"
+ ],
+ "CanUndoFitModel": [],
+ "ChangeBORXSecShape": [
+  "string",
+  "int"
+ ],
+ "ChangeXSecShape": [
+  "string",
+  "int",
+  "int"
+ ],
+ "ChangeXSecShapeByID": [
+  "string",
+  "int"
+ ],
+ "CheckForVSPAERO": [
+  "string"
+ ],
+ "CheckForVSPHelp": [
+  "string"
+ ],
+ "ClearSkinning": [
+  "string",
+  "int"
+ ],
+ "ClearSkinningByID": [
+  "string"
+ ],
+ "ClearVSPModel": [],
+ "CloneGeomVec": [
+  "vector<string>",
+  "string"
+ ],
+ "CompCurvature01": [
+  "string",
+  "int",
+  "double",
+  "double",
+  "double",
+  "double",
+  "double",
+  "double"
+ ],
+ "CompNorm01": [
+  "string",
+  "int",
+  "double",
+  "double"
+ ],
+ "CompPnt01": [
+  "string",
+  "int",
+  "double",
+  "double"
+ ],
+ "CompPntRST": [
+  "string",
+  "int",
+  "double",
+  "double",
+  "double"
+ ],
+ "CompTanU01": [
+  "string",
+  "int",
+  "double",
+  "double"
+ ],
+ "CompTanW01": [
+  "string",
+  "int",
+  "double",
+  "double"
+ ],
+ "CompVecCurvature01": [
+  "string",
+  "int",
+  "vector<double>",
+  "vector<double>",
+  "vector<double>",
+  "vector<double>",
+  "vector<double>",
+  "vector<double>"
+ ],
+ "CompVecDegenPnt01": [
+  "string",
+  "int",
+  "int",
+  "vector<double>",
+  "vector<double>"
+ ],
+ "CompVecNorm01": [
+  "string",
+  "int",
+  "vector<double>",
+  "vector<double>"
+ ],
+ "CompVecPnt01": [
+  "string",
+  "int",
+  "vector<double>",
+  "vector<double>"
+ ],
+ "CompVecPntRST": [
+  "string",
+  "int",
+  "vector<double>",
+  "vector<double>",
+  "vector<double>"
+ ],
+ "CompareGeomSurfaces": [
+  "string",
+  "string"
+ ],
+ "ComputeBORXSecPnt": [
+  "string",
+  "double"
+ ],
+ "ComputeBORXSecTan": [
+  "string",
+  "double"
+ ],
+ "ComputeCFDMesh": [
+  "int",
+  "int",
+  "int"
+ ],
+ "ComputeCompGeom": [
+  "int",
+  "bool",
+  "int"
+ ],
+ "ComputeDegenGeom": [
+  "int",
+  "int"
+ ],
+ "ComputeFeaAssemblyMesh": [
+  "string"
+ ],
+ "ComputeFeaMesh": [
+  "string",
+  "int",
+  "int"
+ ],
+ "ComputeMassProps": [
+  "int",
+  "int",
+  "int"
+ ],
+ "ComputeMinClearanceDistance": [
+  "string",
+  "int",
+  "bool",
+  "string"
+ ],
+ "ComputePlaneSlice": [
+  "int",
+  "int",
+  "vec3d",
+  "bool",
+  "double",
+  "double",
+  "bool"
+ ],
+ "ComputeXSecPnt": [
+  "string",
+  "double"
+ ],
+ "ComputeXSecTan": [
+  "string",
+  "double"
+ ],
+ "ControlSurfaceHingeLine": [
+  "string",
+  "int"
+ ],
+ "ConvertEtatoU": [
+  "string",
+  "double",
+  "double"
+ ],
+ "ConvertFuselageToStack": [
+  "string"
+ ],
+ "ConvertLMNtoRST": [
+  "string",
+  "int",
+  "double",
+  "double",
+  "double",
+  "double",
+  "double",
+  "double"
+ ],
+ "ConvertLMNtoRSTVec": [
+  "string",
+  "int",
+  "vector<double>",
+  "vector<double>",
+  "vector<double>",
+  "vector<double>",
+  "vector<double>",
+  "vector<double>"
+ ],
+ "ConvertLtoR": [
+  "string",
+  "int",
+  "double",
+  "double"
+ ],
+ "ConvertRSTtoLMN": [
+  "string",
+  "int",
+  "double",
+  "double",
+  "double",
+  "double",
+  "double",
+  "double"
+ ],
+ "ConvertRSTtoLMNVec": [
+  "string",
+  "int",
+  "vector<double>",
+  "vector<double>",
+  "vector<double>",
+  "vector<double>",
+  "vector<double>",
+  "vector<double>"
+ ],
+ "ConvertRtoL": [
+  "string",
+  "int",
+  "double",
+  "double"
+ ],
+ "ConvertUtoEta": [
+  "string",
+  "double",
+  "double"
+ ],
+ "ConvertXSecToEdit": [
+  "string",
+  "int"
+ ],
+ "ConvertXSecToEditByID": [
+  "string"
+ ],
+ "CopyAirfoil": [
+  "string",
+  "int"
+ ],
+ "CopyAirfoilByID": [
+  "string"
+ ],
+ "CopyAttribute": [
+  "string"
+ ],
+ "CopyGeomToClipboard": [
+  "string"
+ ],
+ "CopyPasteSet": [
+  "int",
+  "int"
+ ],
+ "CopyXSec": [
+  "string",
+  "int"
+ ],
+ "CopyXSecByID": [
+  "string"
+ ],
+ "CopyXSecCurve": [
+  "string",
+  "int"
+ ],
+ "CopyXSecCurveByID": [
+  "string"
+ ],
+ "CreateAndAddBogie": [
+  "string"
+ ],
+ "CreateAndAddMode": [
+  "string",
+  "int",
+  "int"
+ ],
+ "CreateConvexHull": [
+  "string"
+ ],
+ "CreateGeomResults": [
+  "string",
+  "string"
+ ],
+ "CreateNGonMeshGeom": [
+  "string"
+ ],
+ "CreatePtCloudGeom": [
+  "string"
+ ],
+ "CreatePtCloudGeomFromPts": [
+  "vector<vec3d>",
+  "string"
+ ],
+ "CreateVSPAEROControlSurfaceGroup": [],
+ "CutAttribute": [
+  "string"
+ ],
+ "CutGeomToClipboard": [
+  "string",
+  "int"
+ ],
+ "CutXSec": [
+  "string",
+  "int"
+ ],
+ "CutXSecByID": [
+  "string"
+ ],
+ "Deg2Rad": [
+  "double"
+ ],
+ "DelAdvLink": [
+  "int"
+ ],
+ "DelAdvLinkInput": [
+  "int",
+  "string"
+ ],
+ "DelAdvLinkOutput": [
+  "int",
+  "string"
+ ],
+ "DelAllAdvLinkInputs": [
+  "int"
+ ],
+ "DelAllAdvLinkOutputs": [
+  "int"
+ ],
+ "DelAllAdvLinks": [],
+ "DelAllBackground3Ds": [],
+ "DelAllBogies": [
+  "string"
+ ],
+ "DelAllFeaPolySparPt": [
+  "string"
+ ],
+ "DelAllFitModelTargetPts": [],
+ "DelAllFitModelVars": [],
+ "DelAllModes": [],
+ "DelAllParmLinks": [],
+ "DelAllRoutingPt": [
+  "string"
+ ],
+ "DelAllSkinSpines": [
+  "string"
+ ],
+ "DelBackground3D": [
+  "string"
+ ],
+ "DelBogie": [
+  "string",
+  "string"
+ ],
+ "DelCpSlice": [
+  "int"
+ ],
+ "DelCpSliceByID": [
+  "string"
+ ],
+ "DelFeaBC": [
+  "string",
+  "string"
+ ],
+ "DelFeaPolySparPt": [
+  "string",
+  "int"
+ ],
+ "DelFeaPolySparPtByID": [
+  "string",
+  "string"
+ ],
+ "DelFitModelTargetPt": [
+  "int"
+ ],
+ "DelFitModelVar": [
+  "string"
+ ],
+ "DelMode": [
+  "string"
+ ],
+ "DelParmLink": [
+  "string"
+ ],
+ "DelProbe": [
+  "string"
+ ],
+ "DelProtractor": [
+  "string"
+ ],
+ "DelRSTProbe": [
+  "string"
+ ],
+ "DelRoutingPt": [
+  "string",
+  "int"
+ ],
+ "DelRoutingPtByID": [
+  "string",
+  "string"
+ ],
+ "DelRuler": [
+  "string"
+ ],
+ "DelSkinSpine": [
+  "string",
+  "int"
+ ],
+ "DelSkinSpineByID": [
+  "string"
+ ],
+ "DeleteAllCFDSources": [],
+ "DeleteAllCpSlices": [],
+ "DeleteAllDesignVars": [],
+ "DeleteAllExcrescences": [],
+ "DeleteAllGeometryAnalyses": [],
+ "DeleteAllGeometryAnalysisAzEl": [
+  "string"
+ ],
+ "DeleteAllProbes": [],
+ "DeleteAllProtractors": [],
+ "DeleteAllRSTProbes": [],
+ "DeleteAllResults": [],
+ "DeleteAllRulers": [],
+ "DeleteAllUserParm": [],
+ "DeleteAllVarPresetGroups": [],
+ "DeleteAllVarPresetSettings": [
+  "string"
+ ],
+ "DeleteAttribute": [
+  "string"
+ ],
+ "DeleteCFDSource": [
+  "string",
+  "int"
+ ],
+ "DeleteCFDSourceByID": [
+  "string"
+ ],
+ "DeleteDesignVar": [
+  "string"
+ ],
+ "DeleteExcrescence": [
+  "int"
+ ],
+ "DeleteFeaAssembly": [
+  "string"
+ ],
+ "DeleteFeaAssemblyConnection": [
+  "string",
+  "int"
+ ],
+ "DeleteFeaAssemblyConnectionByID": [
+  "string",
+  "string"
+ ],
+ "DeleteFeaAssemblyStructure": [
+  "string",
+  "string"
+ ],
+ "DeleteFeaLayer": [
+  "string",
+  "string"
+ ],
+ "DeleteFeaMaterial": [
+  "string"
+ ],
+ "DeleteFeaPart": [
+  "string",
+  "int",
+  "string"
+ ],
+ "DeleteFeaPartByID": [
+  "string"
+ ],
+ "DeleteFeaProperty": [
+  "string"
+ ],
+ "DeleteFeaStruct": [
+  "string",
+  "int"
+ ],
+ "DeleteFeaStructByID": [
+  "string"
+ ],
+ "DeleteFeaStructureFromAssembly": [
+  "string",
+  "string"
+ ],
+ "DeleteFeaSubSurf": [
+  "string",
+  "int",
+  "string"
+ ],
+ "DeleteFeaSubSurfByID": [
+  "string"
+ ],
+ "DeleteFeaTrimPart": [
+  "string",
+  "int"
+ ],
+ "DeleteFeaTrimPartByID": [
+  "string",
+  "string"
+ ],
+ "DeleteGeom": [
+  "string",
+  "int"
+ ],
+ "DeleteGeomVec": [
+  "vector<string>",
+  "int"
+ ],
+ "DeleteGeometryAnalysis": [
+  "string"
+ ],
+ "DeleteGeometryAnalysisAzEl": [
+  "string",
+  "int"
+ ],
+ "DeleteGeometryAnalysisAzElByID": [
+  "string",
+  "string"
+ ],
+ "DeleteGeometryAnalysisCutout": [
+  "string",
+  "string"
+ ],
+ "DeleteResult": [
+  "string"
+ ],
+ "DeleteSubSurf": [
+  "string",
+  "string"
+ ],
+ "DeleteUserParm": [
+  "string"
+ ],
+ "DeleteVSPAEROControlSurfaceGroup": [
+  "int"
+ ],
+ "DeleteVSPAEROControlSurfaceGroupByID": [
+  "string"
+ ],
+ "DeleteVarPresetGroup": [
+  "string"
+ ],
+ "DeleteVarPresetParm": [
+  "string",
+  "string"
+ ],
+ "DeleteVarPresetSetting": [
+  "string",
+  "string"
+ ],
+ "DeleteWaveDragFlowSubSurf": [
+  "string"
+ ],
+ "DemoteBORCSTLower": [
+  "string"
+ ],
+ "DemoteBORCSTUpper": [
+  "string"
+ ],
+ "DemoteCSTLower": [
+  "string"
+ ],
+ "DemoteCSTUpper": [
+  "string"
+ ],
+ "DisableStopGUIMenuItem": [],
+ "EditXSecConvertTo": [
+  "string",
+  "int"
+ ],
+ "EditXSecDelPnt": [
+  "string",
+  "int"
+ ],
+ "EditXSecInitShape": [
+  "string"
+ ],
+ "EditXSecSplit01": [
+  "string",
+  "double"
+ ],
+ "EnableStopGUIMenuItem": [],
+ "ExecAnalysis": [
+  "string"
+ ],
+ "ExportFile": [
+  "string",
+  "int",
+  "int",
+  "int",
+  "int",
+  "bool",
+  "string"
+ ],
+ "ExportParasiteDragToCSV": [
+  "string"
+ ],
+ "FindActuatorDisk": [
+  "int"
+ ],
+ "FindActuatorDiskByGeom": [
+  "string",
+  "int"
+ ],
+ "FindAllAttributes": [],
+ "FindAttributeByName": [
+  "string",
+  "int"
+ ],
+ "FindAttributeInCollection": [
+  "string",
+  "string",
+  "int"
+ ],
+ "FindAttributeNamesInCollection": [
+  "string"
+ ],
+ "FindAttributedObjects": [],
+ "FindAttributesByName": [
+  "string"
+ ],
+ "FindAttributesInCollection": [
+  "string"
+ ],
+ "FindAttributesInCollectionByName": [
+  "string",
+  "string"
+ ],
+ "FindContainer": [
+  "string",
+  "int"
+ ],
+ "FindContainerGroupNames": [
+  "string"
+ ],
+ "FindContainerParmIDs": [
+  "string"
+ ],
+ "FindContainers": [],
+ "FindContainersWithName": [
+  "string"
+ ],
+ "FindControlSurfaceGroup": [
+  "int"
+ ],
+ "FindGeom": [
+  "string",
+  "int"
+ ],
+ "FindGeomClones": [
+  "vector<string>"
+ ],
+ "FindGeoms": [],
+ "FindGeomsWithName": [
+  "string"
+ ],
+ "FindLatestResultsID": [
+  "string"
+ ],
+ "FindLight": [
+  "int"
+ ],
+ "FindParm": [
+  "string",
+  "string",
+  "string"
+ ],
+ "FindRST": [
+  "string",
+  "int",
+  "vec3d",
+  "double",
+  "double",
+  "double"
+ ],
+ "FindRSTGuess": [
+  "string",
+  "int",
+  "vec3d",
+  "double",
+  "double",
+  "double",
+  "double",
+  "double",
+  "double"
+ ],
+ "FindRSTVec": [
+  "string",
+  "int",
+  "vector<vec3d>",
+  "vector<double>",
+  "vector<double>",
+  "vector<double>",
+  "vector<double>"
+ ],
+ "FindRSTVecGuess": [
+  "string",
+  "int",
+  "vector<vec3d>",
+  "vector<double>",
+  "vector<double>",
+  "vector<double>",
+  "vector<double>",
+  "vector<double>",
+  "vector<double>",
+  "vector<double>"
+ ],
+ "FindResultsID": [
+  "string",
+  "int"
+ ],
+ "FindResultsIDs": [
+  "string"
+ ],
+ "FindUnsteadyGroup": [
+  "int"
+ ],
+ "FitAfCST": [
+  "string",
+  "int",
+  "int"
+ ],
+ "FitAfCSTByID": [
+  "string",
+  "int"
+ ],
+ "FitAllViews": [],
+ "FitBORAfCST": [
+  "string",
+  "int"
+ ],
+ "FitCSTAirfoil": [
+  "string",
+  "int",
+  "int"
+ ],
+ "FitCSTAirfoilByID": [
+  "string",
+  "int"
+ ],
+ "GetActiveCSNameVec": [
+  "int"
+ ],
+ "GetActiveCSNameVecByID": [
+  "string"
+ ],
+ "GetActiveCSReflectVec": [
+  "string"
+ ],
+ "GetActiveCSSubSurfIDVec": [
+  "string"
+ ],
+ "GetActiveGeometryAnalysis": [],
+ "GetActiveGeoms": [],
+ "GetActuatorDiskGeomID": [
+  "string"
+ ],
+ "GetActuatorDiskIDVec": [],
+ "GetAdvLinkCode": [
+  "int"
+ ],
+ "GetAdvLinkInputNames": [
+  "int"
+ ],
+ "GetAdvLinkInputParms": [
+  "int"
+ ],
+ "GetAdvLinkName": [
+  "int"
+ ],
+ "GetAdvLinkNames": [],
+ "GetAdvLinkOutputNames": [
+  "int"
+ ],
+ "GetAdvLinkOutputParms": [
+  "int"
+ ],
+ "GetAeroStructTargetID": [],
+ "GetAirfoilCoordinates": [
+  "string",
+  "double"
+ ],
+ "GetAirfoilLowerPnts": [
+  "string"
+ ],
+ "GetAirfoilUpperPnts": [
+  "string"
+ ],
+ "GetAllBackground3DAbsolutePaths": [],
+ "GetAllBackground3DRelativePaths": [],
+ "GetAllBackground3Ds": [],
+ "GetAllBogies": [
+  "string"
+ ],
+ "GetAllDataNames": [
+  "string"
+ ],
+ "GetAllFeaPolySparPtIDVec": [
+  "string"
+ ],
+ "GetAllGeometryAnalysesIDVec": [],
+ "GetAllModes": [],
+ "GetAllParmLinks": [],
+ "GetAllProbes": [],
+ "GetAllProtractors": [],
+ "GetAllRSTProbes": [],
+ "GetAllResultsIDs": [],
+ "GetAllResultsNames": [],
+ "GetAllRoutingPtCoords": [
+  "string",
+  "int"
+ ],
+ "GetAllRoutingPtIds": [
+  "string"
+ ],
+ "GetAllRulers": [],
+ "GetAllSubSurfIDs": [],
+ "GetAllUserParms": [],
+ "GetAnalysisDoc": [
+  "string"
+ ],
+ "GetAnalysisInputDoc": [
+  "string",
+  "string"
+ ],
+ "GetAnalysisInputNames": [
+  "string"
+ ],
+ "GetAnalysisInputType": [
+  "string",
+  "string"
+ ],
+ "GetAndResetUpdateCount": [],
+ "GetAttributeBoolVal": [
+  "string"
+ ],
+ "GetAttributeDoc": [
+  "string"
+ ],
+ "GetAttributeDoubleMatrixVal": [
+  "string"
+ ],
+ "GetAttributeDoubleVal": [
+  "string"
+ ],
+ "GetAttributeID": [
+  "string",
+  "string",
+  "int"
+ ],
+ "GetAttributeIDVec": [
+  "string",
+  "string"
+ ],
+ "GetAttributeIntMatrixVal": [
+  "string"
+ ],
+ "GetAttributeIntVal": [
+  "string"
+ ],
+ "GetAttributeName": [
+  "string"
+ ],
+ "GetAttributeParmID": [
+  "string"
+ ],
+ "GetAttributeParmName": [
+  "string"
+ ],
+ "GetAttributeParmVal": [
+  "string"
+ ],
+ "GetAttributeStringVal": [
+  "string"
+ ],
+ "GetAttributeType": [
+  "string"
+ ],
+ "GetAttributeTypeName": [
+  "string"
+ ],
+ "GetAttributeVec3dVal": [
+  "string"
+ ],
+ "GetAuxiliaryGeomContactPtID": [
+  "string",
+  "int"
+ ],
+ "GetAvailableCSNameVec": [
+  "int"
+ ],
+ "GetAvailableCSNameVecByID": [
+  "string"
+ ],
+ "GetAvailableCSReflectVec": [
+  "string"
+ ],
+ "GetAvailableCSSubSurfIDVec": [
+  "string"
+ ],
+ "GetBBoxSet": [
+  "int",
+  "double",
+  "double",
+  "double",
+  "double",
+  "double",
+  "double"
+ ],
+ "GetBEMPropID": [],
+ "GetBORAirfoilLowerPnts": [
+  "string"
+ ],
+ "GetBORAirfoilUpperPnts": [
+  "string"
+ ],
+ "GetBORLowerCSTCoefs": [
+  "string"
+ ],
+ "GetBORLowerCSTDegree": [
+  "string"
+ ],
+ "GetBORUpperCSTCoefs": [
+  "string"
+ ],
+ "GetBORUpperCSTDegree": [
+  "string"
+ ],
+ "GetBORXSecPnts": [
+  "string"
+ ],
+ "GetBORXSecShape": [
+  "string"
+ ],
+ "GetBackground3DAbsolutePath": [
+  "string"
+ ],
+ "GetBackground3DRelativePath": [
+  "string"
+ ],
+ "GetBogieMechParentID": [
+  "string"
+ ],
+ "GetBogieStowParentID": [
+  "string"
+ ],
+ "GetBoolParmVal": [
+  "string"
+ ],
+ "GetCFDFarFieldGeomID": [],
+ "GetCFDMeshModeID": [],
+ "GetCFDMeshVal": [
+  "int"
+ ],
+ "GetCFDSourceID": [
+  "string",
+  "int"
+ ],
+ "GetCFDSourceIDVec": [
+  "string"
+ ],
+ "GetCFDSourceName": [
+  "string",
+  "int"
+ ],
+ "GetCFDSourceNameByID": [
+  "string"
+ ],
+ "GetCFDSourceType": [
+  "string",
+  "int"
+ ],
+ "GetCFDSourceTypeByID": [
+  "string"
+ ],
+ "GetCFDWakeFlag": [
+  "string"
+ ],
+ "GetChildCollection": [
+  "string"
+ ],
+ "GetCompleteCSNameVec": [],
+ "GetCompleteCSReflectVec": [],
+ "GetCompleteCSSubSurfIDVec": [],
+ "GetComputationFileName": [
+  "int"
+ ],
+ "GetContainerName": [
+  "string"
+ ],
+ "GetControlSurfaceGroupIDVec": [],
+ "GetCpSliceID": [
+  "int"
+ ],
+ "GetCpSliceIDVec": [],
+ "GetDesignVar": [
+  "int"
+ ],
+ "GetDesignVarType": [
+  "int"
+ ],
+ "GetDesignVarTypeByID": [
+  "string"
+ ],
+ "GetDesignVarVec": [],
+ "GetDoubleAnalysisInput": [
+  "string",
+  "string",
+  "int"
+ ],
+ "GetDoubleMatResults": [
+  "string",
+  "string",
+  "int"
+ ],
+ "GetDoubleResults": [
+  "string",
+  "string",
+  "int"
+ ],
+ "GetDriverGroup": [
+  "string",
+  "int"
+ ],
+ "GetDriverGroupByID": [
+  "string"
+ ],
+ "GetEditXSecCtrlVec": [
+  "string",
+  "bool"
+ ],
+ "GetEditXSecFixedUVec": [
+  "string"
+ ],
+ "GetEditXSecUVec": [
+  "string"
+ ],
+ "GetEllipsoidCpDist": [
+  "vector<vec3d>",
+  "vec3d",
+  "vec3d"
+ ],
+ "GetEllipsoidSurfPnts": [
+  "vec3d",
+  "vec3d",
+  "int",
+  "int"
+ ],
+ "GetEngineInletFaceXSecID": [
+  "string"
+ ],
+ "GetEngineInletLipXSecID": [
+  "string"
+ ],
+ "GetEngineOutletFaceXSecID": [
+  "string"
+ ],
+ "GetEngineOutletLipXSecID": [
+  "string"
+ ],
+ "GetFeaAssemblyConnectionID": [
+  "string",
+  "int"
+ ],
+ "GetFeaAssemblyConnectionIDVec": [
+  "string"
+ ],
+ "GetFeaAssemblyFileName": [
+  "string",
+  "int"
+ ],
+ "GetFeaAssemblyIDVec": [],
+ "GetFeaAssemblyName": [
+  "string"
+ ],
+ "GetFeaAssemblyStructureIDVec": [
+  "string"
+ ],
+ "GetFeaBCIDVec": [
+  "string"
+ ],
+ "GetFeaBCPartID": [
+  "string"
+ ],
+ "GetFeaBCSubSurfID": [
+  "string"
+ ],
+ "GetFeaConnectionEndFixPtID": [
+  "string"
+ ],
+ "GetFeaConnectionEndStructID": [
+  "string"
+ ],
+ "GetFeaConnectionStartFixPtID": [
+  "string"
+ ],
+ "GetFeaConnectionStartStructID": [
+  "string"
+ ],
+ "GetFeaFixPointOtherGeomID": [
+  "string"
+ ],
+ "GetFeaFixPointParentID": [
+  "string"
+ ],
+ "GetFeaLayerIDVec": [
+  "string"
+ ],
+ "GetFeaLayerMaterialID": [
+  "string"
+ ],
+ "GetFeaMaterialIDVec": [],
+ "GetFeaMeshFileName": [
+  "string",
+  "int",
+  "int"
+ ],
+ "GetFeaMeshFileNameByID": [
+  "string",
+  "int"
+ ],
+ "GetFeaMeshStructID": [],
+ "GetFeaMeshStructIndex": [],
+ "GetFeaMeshVal": [
+  "string",
+  "int",
+  "int"
+ ],
+ "GetFeaMeshValByID": [
+  "string",
+  "int"
+ ],
+ "GetFeaPartCapPropertyID": [
+  "string"
+ ],
+ "GetFeaPartEndWingSectionID": [
+  "string"
+ ],
+ "GetFeaPartID": [
+  "string",
+  "int"
+ ],
+ "GetFeaPartIDVec": [
+  "string"
+ ],
+ "GetFeaPartName": [
+  "string"
+ ],
+ "GetFeaPartPerpendicularSparID": [
+  "string"
+ ],
+ "GetFeaPartPropertyID": [
+  "string"
+ ],
+ "GetFeaPartStartWingSectionID": [
+  "string"
+ ],
+ "GetFeaPartType": [
+  "string"
+ ],
+ "GetFeaPolySparNumPt": [
+  "string"
+ ],
+ "GetFeaPolySparPtID": [
+  "string",
+  "int"
+ ],
+ "GetFeaPolySparPtName": [
+  "string",
+  "int"
+ ],
+ "GetFeaPolySparPtNameByID": [
+  "string",
+  "string"
+ ],
+ "GetFeaPropertyIDVec": [],
+ "GetFeaPropertyMaterialID": [
+  "string"
+ ],
+ "GetFeaStructID": [
+  "string",
+  "int"
+ ],
+ "GetFeaStructIDVec": [],
+ "GetFeaStructIDVecByGeom": [
+  "string"
+ ],
+ "GetFeaStructIndex": [
+  "string"
+ ],
+ "GetFeaStructName": [
+  "string",
+  "int"
+ ],
+ "GetFeaStructNameByID": [
+  "string"
+ ],
+ "GetFeaStructParentGeomID": [
+  "string"
+ ],
+ "GetFeaSubSurfIDVec": [
+  "string"
+ ],
+ "GetFeaSubSurfIndex": [
+  "string"
+ ],
+ "GetFeaSubSurfName": [
+  "string"
+ ],
+ "GetFeaTrimPartIDVec": [
+  "string"
+ ],
+ "GetFeatureLinePnts": [
+  "string"
+ ],
+ "GetFitModelDist": [],
+ "GetFitModelTargetPt": [
+  "int"
+ ],
+ "GetFitModelTargetPtDist": [
+  "int"
+ ],
+ "GetFitModelTargetPtGeom": [
+  "int"
+ ],
+ "GetFitModelTargetPtSurfIndx": [
+  "int"
+ ],
+ "GetFitModelTargetPtSurfPt": [
+  "int"
+ ],
+ "GetFitModelTargetPtU": [
+  "int"
+ ],
+ "GetFitModelTargetPtUType": [
+  "int"
+ ],
+ "GetFitModelTargetPtW": [
+  "int"
+ ],
+ "GetFitModelTargetPtWType": [
+  "int"
+ ],
+ "GetFitModelVar": [
+  "int"
+ ],
+ "GetFitModelVarVec": [],
+ "GetGeomBBoxMax": [
+  "string",
+  "int",
+  "bool"
+ ],
+ "GetGeomBBoxMin": [
+  "string",
+  "int",
+  "bool"
+ ],
+ "GetGeomChildren": [
+  "string"
+ ],
+ "GetGeomCloneNameSuffix": [
+  "string"
+ ],
+ "GetGeomCloneOriginal": [
+  "string"
+ ],
+ "GetGeomDisplayType": [
+  "string"
+ ],
+ "GetGeomDrawType": [
+  "string"
+ ],
+ "GetGeomIncorporatedAncestorID": [
+  "string"
+ ],
+ "GetGeomMaterialName": [
+  "string"
+ ],
+ "GetGeomName": [
+  "string"
+ ],
+ "GetGeomParent": [
+  "string"
+ ],
+ "GetGeomParmIDs": [
+  "string"
+ ],
+ "GetGeomSet": [
+  "string"
+ ],
+ "GetGeomSetAtIndex": [
+  "int"
+ ],
+ "GetGeomSetCollection": [
+  "int"
+ ],
+ "GetGeomSymAncestorID": [
+  "string"
+ ],
+ "GetGeomTextureFileName": [
+  "string",
+  "string"
+ ],
+ "GetGeomTextureIDVec": [
+  "string"
+ ],
+ "GetGeomTypeName": [
+  "string"
+ ],
+ "GetGeomTypes": [],
+ "GetGeomVSPSurfCfdType": [
+  "string",
+  "int"
+ ],
+ "GetGeomVSPSurfType": [
+  "string",
+  "int"
+ ],
+ "GetGeomWireColor": [
+  "string"
+ ],
+ "GetGeometryAnalysisAzimuthParm": [
+  "string",
+  "int"
+ ],
+ "GetGeometryAnalysisAzimuthParmVec": [
+  "string"
+ ],
+ "GetGeometryAnalysisCutoutVec": [
+  "string"
+ ],
+ "GetGeometryAnalysisDirectionGeomID": [
+  "string"
+ ],
+ "GetGeometryAnalysisElevationParm": [
+  "string",
+  "int"
+ ],
+ "GetGeometryAnalysisElevationParmVec": [
+  "string"
+ ],
+ "GetGeometryAnalysisPrimaryGeomID": [
+  "string"
+ ],
+ "GetGeometryAnalysisPrimaryModeID": [
+  "string"
+ ],
+ "GetGeometryAnalysisSecondaryGeomID": [
+  "string"
+ ],
+ "GetGroupName": [
+  "string"
+ ],
+ "GetHersheyBarDragDist": [
+  "int",
+  "double",
+  "double",
+  "double",
+  "bool"
+ ],
+ "GetHersheyBarLiftDist": [
+  "int",
+  "double",
+  "double",
+  "double",
+  "bool"
+ ],
+ "GetIGESStructureExportID": [],
+ "GetIntAnalysisInput": [
+  "string",
+  "string",
+  "int"
+ ],
+ "GetIntParmVal": [
+  "string"
+ ],
+ "GetIntResults": [
+  "string",
+  "string",
+  "int"
+ ],
+ "GetIntersectModeID": [],
+ "GetIntersectSubSurfGeomID": [
+  "string"
+ ],
+ "GetLightIDVec": [],
+ "GetLinkIndex": [
+  "string"
+ ],
+ "GetLowerCSTCoefs": [
+  "string"
+ ],
+ "GetLowerCSTDegree": [
+  "string"
+ ],
+ "GetMainRoutingPtCoord": [
+  "string"
+ ],
+ "GetMaterialNames": [],
+ "GetMeasureEndGeomID": [
+  "string"
+ ],
+ "GetMeasureMidGeomID": [
+  "string"
+ ],
+ "GetMeasureOriginGeomID": [
+  "string"
+ ],
+ "GetMeshGeomTriPnts": [
+  "string"
+ ],
+ "GetModeName": [
+  "string"
+ ],
+ "GetNumActuatorDisks": [],
+ "GetNumAnalysis": [],
+ "GetNumAnalysisInputData": [
+  "string",
+  "string"
+ ],
+ "GetNumBackground3Ds": [],
+ "GetNumBogies": [
+  "string"
+ ],
+ "GetNumCFDSources": [
+  "string"
+ ],
+ "GetNumControlSurfaceGroups": [],
+ "GetNumCpSlices": [],
+ "GetNumData": [
+  "string",
+  "string"
+ ],
+ "GetNumDesignVars": [],
+ "GetNumExcrescences": [],
+ "GetNumFitModelOptVars": [],
+ "GetNumFitModelTargetPts": [],
+ "GetNumFitModelVars": [],
+ "GetNumGeometryAnalysisAzEl": [
+  "string"
+ ],
+ "GetNumLights": [],
+ "GetNumMainSurfs": [
+  "string"
+ ],
+ "GetNumModes": [],
+ "GetNumParmLinks": [],
+ "GetNumPredefinedUserParms": [],
+ "GetNumResults": [
+  "string"
+ ],
+ "GetNumRoutingPts": [
+  "string"
+ ],
+ "GetNumSets": [],
+ "GetNumSkinSpines": [
+  "string"
+ ],
+ "GetNumSubSurf": [
+  "string"
+ ],
+ "GetNumUnsteadyGroups": [],
+ "GetNumUnsteadyRotorGroups": [],
+ "GetNumUserParms": [],
+ "GetNumXSec": [
+  "string"
+ ],
+ "GetNumXSecSurfs": [
+  "string"
+ ],
+ "GetObjectName": [
+  "string"
+ ],
+ "GetObjectParent": [
+  "string"
+ ],
+ "GetObjectType": [
+  "string"
+ ],
+ "GetObjectTypeName": [
+  "string"
+ ],
+ "GetParasiteDragModeID": [],
+ "GetParasiteDragRefWingID": [],
+ "GetParm": [
+  "string",
+  "string",
+  "string"
+ ],
+ "GetParmActiveFlag": [
+  "string"
+ ],
+ "GetParmContainer": [
+  "string"
+ ],
+ "GetParmDescript": [
+  "string"
+ ],
+ "GetParmDisplayGroupName": [
+  "string"
+ ],
+ "GetParmGroupName": [
+  "string"
+ ],
+ "GetParmLinkAParm": [
+  "string"
+ ],
+ "GetParmLinkBParm": [
+  "string"
+ ],
+ "GetParmLinkID": [
+  "int"
+ ],
+ "GetParmLinkLowerLimitFlag": [
+  "string"
+ ],
+ "GetParmLinkOffsetFlag": [
+  "string"
+ ],
+ "GetParmLinkScaleFlag": [
+  "string"
+ ],
+ "GetParmLinkUpperLimitFlag": [
+  "string"
+ ],
+ "GetParmLowerLimit": [
+  "string"
+ ],
+ "GetParmName": [
+  "string"
+ ],
+ "GetParmType": [
+  "string"
+ ],
+ "GetParmUpperLimit": [
+  "string"
+ ],
+ "GetParmVal": [
+  "string"
+ ],
+ "GetPtCloudPnts": [
+  "string"
+ ],
+ "GetResultsEntryDoc": [
+  "string",
+  "string"
+ ],
+ "GetResultsName": [
+  "string"
+ ],
+ "GetResultsSetDoc": [
+  "string"
+ ],
+ "GetResultsType": [
+  "string",
+  "string"
+ ],
+ "GetRoutingCurve": [
+  "string",
+  "int"
+ ],
+ "GetRoutingPtCoord": [
+  "string",
+  "int",
+  "int"
+ ],
+ "GetRoutingPtCoordByID": [
+  "string",
+  "string",
+  "int"
+ ],
+ "GetRoutingPtID": [
+  "string",
+  "int"
+ ],
+ "GetRoutingPtParentID": [
+  "string"
+ ],
+ "GetSTEPStructureExportID": [],
+ "GetScaleIndependentBBoxSet": [
+  "int",
+  "double",
+  "double",
+  "double",
+  "double",
+  "double",
+  "double"
+ ],
+ "GetSetFlag": [
+  "string",
+  "int"
+ ],
+ "GetSetIndex": [
+  "string"
+ ],
+ "GetSetName": [
+  "int"
+ ],
+ "GetSettingName": [
+  "string"
+ ],
+ "GetSkinSpineID": [
+  "string",
+  "int"
+ ],
+ "GetSkinSpineIDVec": [
+  "string"
+ ],
+ "GetSkinSpineName": [
+  "string",
+  "int"
+ ],
+ "GetSkinSpineNameByID": [
+  "string"
+ ],
+ "GetSkinSpineParm": [
+  "string",
+  "string"
+ ],
+ "GetStringAnalysisInput": [
+  "string",
+  "string",
+  "int"
+ ],
+ "GetStringResults": [
+  "string",
+  "string",
+  "int"
+ ],
+ "GetSubSurf": [
+  "string",
+  "int"
+ ],
+ "GetSubSurfIDVec": [
+  "string"
+ ],
+ "GetSubSurfIndex": [
+  "string"
+ ],
+ "GetSubSurfName": [
+  "string",
+  "string"
+ ],
+ "GetSubSurfParmIDs": [
+  "string"
+ ],
+ "GetSubSurfType": [
+  "string"
+ ],
+ "GetTotalNumSurfs": [
+  "string"
+ ],
+ "GetUWTess01": [
+  "string",
+  "int",
+  "vector<double>",
+  "vector<double>"
+ ],
+ "GetUnsteadyGroupCompIDs": [
+  "int"
+ ],
+ "GetUnsteadyGroupCompIDsByID": [
+  "string"
+ ],
+ "GetUnsteadyGroupIDVec": [],
+ "GetUnsteadyGroupName": [
+  "int"
+ ],
+ "GetUnsteadyGroupNameByID": [
+  "string"
+ ],
+ "GetUnsteadyGroupSurfIndexes": [
+  "int"
+ ],
+ "GetUnsteadyGroupSurfIndexesByID": [
+  "string"
+ ],
+ "GetUpperCSTCoefs": [
+  "string"
+ ],
+ "GetUpperCSTDegree": [
+  "string"
+ ],
+ "GetUserParmContainer": [],
+ "GetVKTAirfoilCpDist": [
+  "double",
+  "double",
+  "double",
+  "double",
+  "vector<vec3d>"
+ ],
+ "GetVKTAirfoilPnts": [
+  "int",
+  "double",
+  "double",
+  "double",
+  "double"
+ ],
+ "GetVSPAEROCGModeID": [],
+ "GetVSPAEROControlGroupName": [
+  "int"
+ ],
+ "GetVSPAEROControlGroupNameByID": [
+  "string"
+ ],
+ "GetVSPAEROModeID": [],
+ "GetVSPAEROPath": [],
+ "GetVSPAERORefWingID": [],
+ "GetVSPExePath": [],
+ "GetVSPFileName": [],
+ "GetVSPHelpPath": [],
+ "GetVSPVersion": [],
+ "GetVSPVersionChange": [],
+ "GetVSPVersionMajor": [],
+ "GetVSPVersionMinor": [],
+ "GetVarPresetGroups": [],
+ "GetVarPresetParmIDs": [
+  "string"
+ ],
+ "GetVarPresetParmVal": [
+  "string",
+  "string",
+  "string"
+ ],
+ "GetVarPresetParmVals": [
+  "string"
+ ],
+ "GetVarPresetSettings": [
+  "string"
+ ],
+ "GetVec3dAnalysisInput": [
+  "string",
+  "string",
+  "int"
+ ],
+ "GetVec3dResults": [
+  "string",
+  "string",
+  "int"
+ ],
+ "GetVehicleID": [],
+ "GetWaveDragFlowSubSurfVec": [],
+ "GetWaveDragModeID": [],
+ "GetWaveDragRefWingID": [],
+ "GetXSec": [
+  "string",
+  "int"
+ ],
+ "GetXSecAlias": [
+  "string"
+ ],
+ "GetXSecContinuity": [
+  "string"
+ ],
+ "GetXSecCurvatures": [
+  "string",
+  "int"
+ ],
+ "GetXSecCurveAlias": [
+  "string"
+ ],
+ "GetXSecHeight": [
+  "string"
+ ],
+ "GetXSecIDVec": [
+  "string"
+ ],
+ "GetXSecParm": [
+  "string",
+  "string"
+ ],
+ "GetXSecParmIDs": [
+  "string"
+ ],
+ "GetXSecPnts": [
+  "string"
+ ],
+ "GetXSecShape": [
+  "string"
+ ],
+ "GetXSecSurf": [
+  "string",
+  "int"
+ ],
+ "GetXSecSurfGlobalXForm": [
+  "string"
+ ],
+ "GetXSecSurfIDVec": [
+  "string"
+ ],
+ "GetXSecTanAngles": [
+  "string",
+  "int"
+ ],
+ "GetXSecTanSlews": [
+  "string",
+  "int"
+ ],
+ "GetXSecTanStrengths": [
+  "string",
+  "int"
+ ],
+ "GetXSecWidth": [
+  "string"
+ ],
+ "HideAllBackground3Ds": [],
+ "HideAllProbes": [],
+ "HideAllProtractors": [],
+ "HideAllRSTProbes": [],
+ "HideAllRulers": [],
+ "HideScreen": [
+  "int"
+ ],
+ "ImportFile": [
+  "string",
+  "int",
+  "string"
+ ],
+ "IndividualizeFeaPart": [
+  "string",
+  "int",
+  "string"
+ ],
+ "IndividualizeFeaPartByID": [
+  "string"
+ ],
+ "InitGUI": [],
+ "InitStackPreset": [
+  "string",
+  "int"
+ ],
+ "InsertFeaPolySparPt": [
+  "string",
+  "int"
+ ],
+ "InsertFeaPolySparPtByID": [
+  "string",
+  "string"
+ ],
+ "InsertRoutingPt": [
+  "string",
+  "int",
+  "string",
+  "int"
+ ],
+ "InsertRoutingPtByID": [
+  "string",
+  "string",
+  "string",
+  "int"
+ ],
+ "InsertVSPFile": [
+  "string",
+  "string"
+ ],
+ "InsertXSec": [
+  "string",
+  "int",
+  "int"
+ ],
+ "InsertXSecByID": [
+  "string",
+  "int"
+ ],
+ "InsideSurf": [
+  "string",
+  "int",
+  "vec3d"
+ ],
+ "IntegrateEllipsoidFlow": [
+  "vec3d",
+  "int"
+ ],
+ "IntersectPts": [
+  "vector<vec3d>",
+  "vector<vec3d>",
+  "double"
+ ],
+ "IntersectSubSurf": [
+  "string"
+ ],
+ "IsEventLoopRunning": [],
+ "IsGUIBuild": [],
+ "KeepPtsAbove": [
+  "vector<vec3d>",
+  "int",
+  "double"
+ ],
+ "KeepPtsBelow": [
+  "vector<vec3d>",
+  "int",
+  "double"
+ ],
+ "KeepPtsInBBox": [
+  "vector<vec3d>",
+  "vec3d",
+  "vec3d"
+ ],
+ "KeepPtsInRange": [
+  "vector<vec3d>",
+  "int",
+  "double",
+  "double"
+ ],
+ "KeepPtsNearGeom": [
+  "vector<vec3d>",
+  "string",
+  "int",
+  "double"
+ ],
+ "KeepPtsNearPt": [
+  "vector<vec3d>",
+  "vec3d",
+  "double"
+ ],
+ "LinkAllComp": [
+  "string",
+  "string"
+ ],
+ "LinkAllGroup": [
+  "string",
+  "string"
+ ],
+ "ListAnalysis": [],
+ "LoadFitModelFile": [
+  "string"
+ ],
+ "Lock": [],
+ "MakeMeshGeom": [
+  "string"
+ ],
+ "Max": [
+  "double",
+  "double"
+ ],
+ "Min": [
+  "double",
+  "double"
+ ],
+ "MirrorDuplicateGeoms": [
+  "vector<string>"
+ ],
+ "MirrorEnable": [],
+ "MirrorFeatureLines": [
+  "string"
+ ],
+ "MirrorGeomOrigin": [
+  "string"
+ ],
+ "MirrorMoveGeoms": [
+  "vector<string>",
+  "vec3d"
+ ],
+ "MirrorPickGeom": [
+  "string",
+  "bool"
+ ],
+ "MirrorPostEvent": [
+  "string"
+ ],
+ "MirrorPump": [
+  "double"
+ ],
+ "MirrorRequestFull": [],
+ "MirrorRotateGeoms": [
+  "vector<string>",
+  "vec3d",
+  "double"
+ ],
+ "MirrorTakeOutput": [],
+ "ModeAddGroupSetting": [
+  "string",
+  "string",
+  "string"
+ ],
+ "ModeGetAllGroups": [
+  "string"
+ ],
+ "ModeGetAllSettings": [
+  "string"
+ ],
+ "ModeGetGroup": [
+  "string",
+  "int"
+ ],
+ "ModeGetGroupSetting": [
+  "string",
+  "string"
+ ],
+ "ModeGetSetting": [
+  "string",
+  "int"
+ ],
+ "MoveEditXSecPnt": [
+  "string",
+  "int",
+  "vec3d"
+ ],
+ "MoveFeaPolySparPt": [
+  "string",
+  "int",
+  "int"
+ ],
+ "MoveFeaPolySparPtByID": [
+  "string",
+  "string",
+  "int"
+ ],
+ "MoveFitModelTargetPt": [
+  "int",
+  "int"
+ ],
+ "MoveRoutingPt": [
+  "string",
+  "int",
+  "int"
+ ],
+ "MoveRoutingPtByID": [
+  "string",
+  "string",
+  "int"
+ ],
+ "NoShowSet": [
+  "int"
+ ],
+ "NumFeaAssemblies": [],
+ "NumFeaAssemblyConnections": [
+  "string"
+ ],
+ "NumFeaBCs": [
+  "string"
+ ],
+ "NumFeaLayers": [
+  "string"
+ ],
+ "NumFeaParts": [
+  "string"
+ ],
+ "NumFeaStructures": [],
+ "NumFeaSubSurfs": [
+  "string"
+ ],
+ "OptimizeFitModel": [],
+ "PCurveConvertTo": [
+  "string",
+  "int",
+  "int"
+ ],
+ "PCurveDeletePt": [
+  "string",
+  "int",
+  "int"
+ ],
+ "PCurveGetTVec": [
+  "string",
+  "int"
+ ],
+ "PCurveGetType": [
+  "string",
+  "int"
+ ],
+ "PCurveGetValVec": [
+  "string",
+  "int"
+ ],
+ "PCurveSplit": [
+  "string",
+  "int",
+  "double"
+ ],
+ "PasteAirfoil": [
+  "string",
+  "int"
+ ],
+ "PasteAirfoilByID": [
+  "string"
+ ],
+ "PasteAttribute": [
+  "string"
+ ],
+ "PasteGeomClipboard": [
+  "string"
+ ],
+ "PasteXSec": [
+  "string",
+  "int"
+ ],
+ "PasteXSecByID": [
+  "string"
+ ],
+ "PasteXSecCurve": [
+  "string",
+  "int"
+ ],
+ "PasteXSecCurveByID": [
+  "string"
+ ],
+ "PopupMsg": [
+  "string"
+ ],
+ "Print": [
+  "string",
+  "bool"
+ ],
+ "PrintAnalysisDocs": [
+  "string"
+ ],
+ "PrintAnalysisInputs": [
+  "string"
+ ],
+ "PrintResults": [
+  "string"
+ ],
+ "PrintResultsDocs": [
+  "string"
+ ],
+ "ProjPnt01": [
+  "string",
+  "int",
+  "vec3d",
+  "double",
+  "double"
+ ],
+ "ProjPnt01Guess": [
+  "string",
+  "int",
+  "vec3d",
+  "double",
+  "double",
+  "double",
+  "double"
+ ],
+ "ProjPnt01I": [
+  "string",
+  "vec3d",
+  "int",
+  "double",
+  "double"
+ ],
+ "ProjVecPnt01": [
+  "string",
+  "int",
+  "vector<vec3d>",
+  "vector<double>",
+  "vector<double>",
+  "vector<double>"
+ ],
+ "ProjVecPnt01Guess": [
+  "string",
+  "int",
+  "vector<vec3d>",
+  "vector<double>",
+  "vector<double>",
+  "vector<double>",
+  "vector<double>",
+  "vector<double>"
+ ],
+ "ProjectPtCloudPts": [
+  "string",
+  "string",
+  "int",
+  "int"
+ ],
+ "PromoteBORCSTLower": [
+  "string"
+ ],
+ "PromoteBORCSTUpper": [
+  "string"
+ ],
+ "PromoteCSTLower": [
+  "string"
+ ],
+ "PromoteCSTUpper": [
+  "string"
+ ],
+ "Rad2Deg": [
+  "double"
+ ],
+ "ReadAdvLinkCodeFile": [
+  "int",
+  "string"
+ ],
+ "ReadApplyDESFile": [
+  "string"
+ ],
+ "ReadApplyXDDMFile": [
+  "string"
+ ],
+ "ReadAuxiliaryGeomCCEFile": [
+  "string",
+  "string"
+ ],
+ "ReadBORFileAirfoil": [
+  "string",
+  "string"
+ ],
+ "ReadBORFileXSec": [
+  "string",
+  "string"
+ ],
+ "ReadFileAirfoil": [
+  "string",
+  "string"
+ ],
+ "ReadFileXSec": [
+  "string",
+  "string"
+ ],
+ "ReadVSPFile": [
+  "string"
+ ],
+ "RefineFitModelTargetUW": [],
+ "RemoveAllFromVSPAEROControlSurfaceGroup": [
+  "int"
+ ],
+ "RemoveAllFromVSPAEROControlSurfaceGroupByID": [
+  "string"
+ ],
+ "RemoveAllGroupSettings": [
+  "string"
+ ],
+ "RemoveGeomTexture": [
+  "string",
+  "string"
+ ],
+ "RemoveGroupSetting": [
+  "string",
+  "int"
+ ],
+ "RemoveGroupSettingByID": [
+  "string",
+  "string"
+ ],
+ "RemovePtsInBBox": [
+  "vector<vec3d>",
+  "vec3d",
+  "vec3d"
+ ],
+ "RemovePtsInRange": [
+  "vector<vec3d>",
+  "int",
+  "double",
+  "double"
+ ],
+ "RemovePtsNearGeom": [
+  "vector<vec3d>",
+  "string",
+  "int",
+  "double"
+ ],
+ "RemovePtsNearPt": [
+  "vector<vec3d>",
+  "vec3d",
+  "double"
+ ],
+ "RemoveSelectedFromCSGroup": [
+  "vector<int>",
+  "int"
+ ],
+ "RemoveSubSurfFromCSGroup": [
+  "string",
+  "string",
+  "int"
+ ],
+ "ReorderAdvLinkInput": [
+  "int",
+  "string",
+  "int"
+ ],
+ "ReorderAdvLinkOutput": [
+  "int",
+  "string",
+  "int"
+ ],
+ "ReorderFeaLayer": [
+  "string",
+  "string",
+  "int"
+ ],
+ "ReorderFeaPart": [
+  "string",
+  "int",
+  "string",
+  "int"
+ ],
+ "ReorderFeaPartByID": [
+  "string",
+  "int"
+ ],
+ "ReorderGeom": [
+  "string",
+  "int"
+ ],
+ "ReorderSubSurf": [
+  "string",
+  "string",
+  "int"
+ ],
+ "ReparameterizeEditXSec": [
+  "string"
+ ],
+ "ReplaceCloneGeom": [
+  "string"
+ ],
+ "ResetFitModel": [],
+ "ResetGeomScale": [
+  "string"
+ ],
+ "ResetPropellerThickness": [
+  "string"
+ ],
+ "ResetPropellerThicknessCurve": [
+  "string"
+ ],
+ "ResetViews": [],
+ "ResetXSecSkinParms": [
+  "string"
+ ],
+ "RotateSet": [
+  "int",
+  "double",
+  "double",
+  "double"
+ ],
+ "SaveFitModelFile": [
+  "string"
+ ],
+ "SaveVarPresetParmVals": [
+  "string",
+  "string"
+ ],
+ "ScaleSet": [
+  "int",
+  "double"
+ ],
+ "ScreenGrab": [
+  "string",
+  "int",
+  "int",
+  "bool",
+  "bool"
+ ],
+ "SearchFitModelTargetUW": [],
+ "SearchReplaceAdvLinkCode": [
+  "int",
+  "string",
+  "string"
+ ],
+ "SetActiveGeometryAnalysis": [
+  "string"
+ ],
+ "SetAdvLinkCode": [
+  "int",
+  "string"
+ ],
+ "SetAdvLinkName": [
+  "int",
+  "string"
+ ],
+ "SetAeroStructTargetID": [
+  "string"
+ ],
+ "SetAirfoilLowerPnts": [
+  "string",
+  "vector<vec3d>"
+ ],
+ "SetAirfoilPnts": [
+  "string",
+  "vector<vec3d>",
+  "vector<vec3d>"
+ ],
+ "SetAirfoilUpperPnts": [
+  "string",
+  "vector<vec3d>"
+ ],
+ "SetAllViews": [
+  "int"
+ ],
+ "SetAnalysisInputDefaults": [
+  "string"
+ ],
+ "SetAttributeBool": [
+  "string",
+  "bool"
+ ],
+ "SetAttributeDoc": [
+  "string",
+  "string"
+ ],
+ "SetAttributeDouble": [
+  "string",
+  "double"
+ ],
+ "SetAttributeDoubleMatrix": [
+  "string",
+  "vector<vector<double>>"
+ ],
+ "SetAttributeInt": [
+  "string",
+  "int"
+ ],
+ "SetAttributeIntMatrix": [
+  "string",
+  "vector < vector < int > >"
+ ],
+ "SetAttributeName": [
+  "string",
+  "string"
+ ],
+ "SetAttributeParmID": [
+  "string",
+  "string"
+ ],
+ "SetAttributeString": [
+  "string",
+  "string"
+ ],
+ "SetAttributeVec3d": [
+  "string",
+  "vector<vec3d>"
+ ],
+ "SetAuxiliaryGeomContactPtID": [
+  "string",
+  "int",
+  "string"
+ ],
+ "SetBEMPropID": [
+  "string"
+ ],
+ "SetBORAirfoilLowerPnts": [
+  "string",
+  "vector<vec3d>"
+ ],
+ "SetBORAirfoilPnts": [
+  "string",
+  "vector<vec3d>",
+  "vector<vec3d>"
+ ],
+ "SetBORAirfoilUpperPnts": [
+  "string",
+  "vector<vec3d>"
+ ],
+ "SetBORLowerCST": [
+  "string",
+  "int",
+  "vector<double>"
+ ],
+ "SetBORUpperCST": [
+  "string",
+  "int",
+  "vector<double>"
+ ],
+ "SetBORXSecPnts": [
+  "string",
+  "vector<vec3d>"
+ ],
+ "SetBackground": [
+  "double",
+  "double",
+  "double"
+ ],
+ "SetBackground3DAbsolutePath": [
+  "string",
+  "string"
+ ],
+ "SetBackground3DRelativePath": [
+  "string",
+  "string"
+ ],
+ "SetBogieMechParentID": [
+  "string",
+  "string"
+ ],
+ "SetBogieStowParentID": [
+  "string",
+  "string"
+ ],
+ "SetCFDFarFieldGeomID": [
+  "string"
+ ],
+ "SetCFDMeshModeID": [
+  "string"
+ ],
+ "SetCFDMeshVal": [
+  "int",
+  "double"
+ ],
+ "SetCFDSourceName": [
+  "string",
+  "int",
+  "string"
+ ],
+ "SetCFDSourceNameByID": [
+  "string",
+  "string"
+ ],
+ "SetCFDWakeFlag": [
+  "string",
+  "bool"
+ ],
+ "SetComputationFileName": [
+  "int",
+  "string"
+ ],
+ "SetContainerName": [
+  "string",
+  "string"
+ ],
+ "SetDoubleAnalysisInput": [
+  "string",
+  "string",
+  "vector<double>",
+  "int"
+ ],
+ "SetDriverGroup": [
+  "string",
+  "int",
+  "int",
+  "int",
+  "int"
+ ],
+ "SetDriverGroupByID": [
+  "string",
+  "int",
+  "int",
+  "int"
+ ],
+ "SetEditXSecFixedUVec": [
+  "string",
+  "vector < bool >"
+ ],
+ "SetEditXSecPnts": [
+  "string",
+  "vector<double>",
+  "vector<vec3d>",
+  "vector<double>"
+ ],
+ "SetEngineInletFaceXSecID": [
+  "string",
+  "string"
+ ],
+ "SetEngineInletLipXSecID": [
+  "string",
+  "string"
+ ],
+ "SetEngineOutletFaceXSecID": [
+  "string",
+  "string"
+ ],
+ "SetEngineOutletLipXSecID": [
+  "string",
+  "string"
+ ],
+ "SetFeaAssemblyFileName": [
+  "string",
+  "int",
+  "string"
+ ],
+ "SetFeaAssemblyName": [
+  "string",
+  "string"
+ ],
+ "SetFeaBCPartID": [
+  "string",
+  "string"
+ ],
+ "SetFeaBCSubSurfID": [
+  "string",
+  "string"
+ ],
+ "SetFeaFixPointOtherGeomID": [
+  "string",
+  "string"
+ ],
+ "SetFeaFixPointParentID": [
+  "string",
+  "string"
+ ],
+ "SetFeaLayerMaterialID": [
+  "string",
+  "string"
+ ],
+ "SetFeaMeshFileName": [
+  "string",
+  "int",
+  "int",
+  "string"
+ ],
+ "SetFeaMeshFileNameByID": [
+  "string",
+  "int",
+  "string"
+ ],
+ "SetFeaMeshStructID": [
+  "string"
+ ],
+ "SetFeaMeshStructIndex": [
+  "int"
+ ],
+ "SetFeaMeshVal": [
+  "string",
+  "int",
+  "int",
+  "double"
+ ],
+ "SetFeaMeshValByID": [
+  "string",
+  "int",
+  "double"
+ ],
+ "SetFeaPartCapPropertyID": [
+  "string",
+  "string"
+ ],
+ "SetFeaPartEndWingSectionID": [
+  "string",
+  "string"
+ ],
+ "SetFeaPartName": [
+  "string",
+  "string"
+ ],
+ "SetFeaPartPerpendicularSparID": [
+  "string",
+  "string"
+ ],
+ "SetFeaPartPropertyID": [
+  "string",
+  "string"
+ ],
+ "SetFeaPartStartWingSectionID": [
+  "string",
+  "string"
+ ],
+ "SetFeaPolySparPtName": [
+  "string",
+  "int",
+  "string"
+ ],
+ "SetFeaPolySparPtNameByID": [
+  "string",
+  "string",
+  "string"
+ ],
+ "SetFeaPropertyMaterialID": [
+  "string",
+  "string"
+ ],
+ "SetFeaStructName": [
+  "string",
+  "int",
+  "string"
+ ],
+ "SetFeaStructNameByID": [
+  "string",
+  "string"
+ ],
+ "SetFeaSubSurfName": [
+  "string",
+  "string"
+ ],
+ "SetFitModelTargetPt": [
+  "int",
+  "vec3d"
+ ],
+ "SetFitModelTargetPtGeom": [
+  "int",
+  "string"
+ ],
+ "SetFitModelTargetPtSurfIndx": [
+  "int",
+  "int"
+ ],
+ "SetFitModelTargetPtUType": [
+  "int",
+  "int"
+ ],
+ "SetFitModelTargetPtUW": [
+  "int",
+  "double",
+  "double"
+ ],
+ "SetFitModelTargetPtWType": [
+  "int",
+  "int"
+ ],
+ "SetGUIElementDisable": [
+  "int",
+  "bool"
+ ],
+ "SetGUIScreenDisable": [
+  "int",
+  "bool"
+ ],
+ "SetGeomCloneNameSuffix": [
+  "string",
+  "string"
+ ],
+ "SetGeomCloneOriginal": [
+  "string",
+  "string"
+ ],
+ "SetGeomDisplayType": [
+  "string",
+  "int"
+ ],
+ "SetGeomDrawType": [
+  "string",
+  "int"
+ ],
+ "SetGeomIncorporatedAncestorID": [
+  "string",
+  "string"
+ ],
+ "SetGeomMaterialName": [
+  "string",
+  "string"
+ ],
+ "SetGeomName": [
+  "string",
+  "string"
+ ],
+ "SetGeomParent": [
+  "string",
+  "string"
+ ],
+ "SetGeomScreenDisable": [
+  "int",
+  "bool"
+ ],
+ "SetGeomSymAncestorID": [
+  "string",
+  "string"
+ ],
+ "SetGeomWireColor": [
+  "string",
+  "int",
+  "int",
+  "int"
+ ],
+ "SetGeometryAnalysisDirectionGeomID": [
+  "string",
+  "string"
+ ],
+ "SetGeometryAnalysisPrimaryGeomID": [
+  "string",
+  "string"
+ ],
+ "SetGeometryAnalysisPrimaryModeID": [
+  "string",
+  "string"
+ ],
+ "SetGeometryAnalysisSecondaryGeomID": [
+  "string",
+  "string"
+ ],
+ "SetGroupName": [
+  "string",
+  "string"
+ ],
+ "SetIGESStructureExportID": [
+  "string"
+ ],
+ "SetIntAnalysisInput": [
+  "string",
+  "string",
+  "vector<int>",
+  "int"
+ ],
+ "SetIntersectModeID": [
+  "string"
+ ],
+ "SetIntersectSubSurfGeomID": [
+  "string",
+  "string"
+ ],
+ "SetLowerCST": [
+  "string",
+  "int",
+  "vector<double>"
+ ],
+ "SetMeasureEndGeomID": [
+  "string",
+  "string"
+ ],
+ "SetMeasureMidGeomID": [
+  "string",
+  "string"
+ ],
+ "SetMeasureOriginGeomID": [
+  "string",
+  "string"
+ ],
+ "SetModeName": [
+  "string",
+  "string"
+ ],
+ "SetPCurve": [
+  "string",
+  "int",
+  "vector<double>",
+  "vector<double>",
+  "int"
+ ],
+ "SetParasiteDragModeID": [
+  "string"
+ ],
+ "SetParasiteDragRefWingID": [
+  "string"
+ ],
+ "SetParmDescript": [
+  "string",
+  "string"
+ ],
+ "SetParmLinkAParm": [
+  "string",
+  "string"
+ ],
+ "SetParmLinkBParm": [
+  "string",
+  "string"
+ ],
+ "SetParmLinkLowerLimitFlag": [
+  "string",
+  "bool"
+ ],
+ "SetParmLinkOffsetFlag": [
+  "string",
+  "bool"
+ ],
+ "SetParmLinkScaleFlag": [
+  "string",
+  "bool"
+ ],
+ "SetParmLinkUpperLimitFlag": [
+  "string",
+  "bool"
+ ],
+ "SetParmLowerLimit": [
+  "string",
+  "double"
+ ],
+ "SetParmUpperLimit": [
+  "string",
+  "double"
+ ],
+ "SetParmVal": [
+  "string",
+  "double"
+ ],
+ "SetParmValLimits": [
+  "string",
+  "double",
+  "double",
+  "double"
+ ],
+ "SetParmValUpdate": [
+  "string",
+  "double"
+ ],
+ "SetRoutingPtParentID": [
+  "string",
+  "string"
+ ],
+ "SetSTEPStructureExportID": [
+  "string"
+ ],
+ "SetSetFlag": [
+  "string",
+  "int",
+  "bool"
+ ],
+ "SetSetName": [
+  "int",
+  "string"
+ ],
+ "SetSettingName": [
+  "string",
+  "string"
+ ],
+ "SetShowBorders": [
+  "bool"
+ ],
+ "SetSkinSpineName": [
+  "string",
+  "int",
+  "string"
+ ],
+ "SetSkinSpineNameByID": [
+  "string",
+  "string"
+ ],
+ "SetStringAnalysisInput": [
+  "string",
+  "string",
+  "vector<string>",
+  "int"
+ ],
+ "SetSubSurfName": [
+  "string",
+  "string",
+  "string"
+ ],
+ "SetUpperCST": [
+  "string",
+  "int",
+  "vector<double>"
+ ],
+ "SetVSP3FileName": [
+  "string"
+ ],
+ "SetVSPAEROCGModeID": [
+  "string"
+ ],
+ "SetVSPAEROControlGroupName": [
+  "string",
+  "int"
+ ],
+ "SetVSPAEROControlGroupNameByID": [
+  "string",
+  "string"
+ ],
+ "SetVSPAEROModeID": [
+  "string"
+ ],
+ "SetVSPAEROPath": [
+  "string"
+ ],
+ "SetVSPAERORefWingID": [
+  "string"
+ ],
+ "SetVSPHelpPath": [
+  "string"
+ ],
+ "SetVarPresetParmVal": [
+  "string",
+  "string",
+  "string",
+  "double"
+ ],
+ "SetVarPresetParmVals": [
+  "string",
+  "vector<double>"
+ ],
+ "SetVec3dAnalysisInput": [
+  "string",
+  "string",
+  "vector<vec3d>",
+  "int"
+ ],
+ "SetView": [
+  "int",
+  "int"
+ ],
+ "SetViewAxis": [
+  "bool"
+ ],
+ "SetWaveDragModeID": [
+  "string"
+ ],
+ "SetWaveDragRefWingID": [
+  "string"
+ ],
+ "SetWindowLayout": [
+  "int",
+  "int"
+ ],
+ "SetXSecAlias": [
+  "string",
+  "string"
+ ],
+ "SetXSecContinuity": [
+  "string",
+  "int"
+ ],
+ "SetXSecCurvatures": [
+  "string",
+  "int",
+  "double",
+  "double",
+  "double",
+  "double"
+ ],
+ "SetXSecCurveAlias": [
+  "string",
+  "string"
+ ],
+ "SetXSecHeight": [
+  "string",
+  "double"
+ ],
+ "SetXSecPnts": [
+  "string",
+  "vector<vec3d>"
+ ],
+ "SetXSecSurfGlobalXForm": [
+  "string",
+  "Matrix4d"
+ ],
+ "SetXSecTanAngles": [
+  "string",
+  "int",
+  "double",
+  "double",
+  "double",
+  "double"
+ ],
+ "SetXSecTanSlews": [
+  "string",
+  "int",
+  "double",
+  "double",
+  "double",
+  "double"
+ ],
+ "SetXSecTanStrengths": [
+  "string",
+  "int",
+  "double",
+  "double",
+  "double",
+  "double"
+ ],
+ "SetXSecWidth": [
+  "string",
+  "double"
+ ],
+ "SetXSecWidthHeight": [
+  "string",
+  "double",
+  "double"
+ ],
+ "ShowAllBackground3Ds": [],
+ "ShowAllProbes": [],
+ "ShowAllProtractors": [],
+ "ShowAllRSTProbes": [],
+ "ShowAllRulers": [],
+ "ShowOnlyMode": [
+  "string"
+ ],
+ "ShowOnlySet": [
+  "int"
+ ],
+ "ShowScreen": [
+  "int"
+ ],
+ "ShowSet": [
+  "int"
+ ],
+ "SnapParm": [
+  "string",
+  "double",
+  "bool",
+  "int",
+  "bool",
+  "string"
+ ],
+ "SortAdvLinkInputsCGP": [
+  "int"
+ ],
+ "SortAdvLinkInputsVar": [
+  "int"
+ ],
+ "SortAdvLinkOutputsCGP": [
+  "int"
+ ],
+ "SortAdvLinkOutputsVar": [
+  "int"
+ ],
+ "SortFitModelTargetPtsByDist": [],
+ "SortParmLinksByA": [],
+ "SortParmLinksByB": [],
+ "SplitWingXSec": [
+  "string",
+  "int"
+ ],
+ "SplitWingXSecByID": [
+  "string"
+ ],
+ "StartGUI": [],
+ "StopGUI": [],
+ "SubtractPts": [
+  "vector<vec3d>",
+  "vector<vec3d>",
+  "double"
+ ],
+ "SummarizeAttributes": [],
+ "SummarizeAttributesAsTree": [],
+ "TransformSet": [
+  "int",
+  "vec3d",
+  "double",
+  "double",
+  "double",
+  "double",
+  "bool"
+ ],
+ "TranslateSet": [
+  "int",
+  "vec3d"
+ ],
+ "UndoFitModel": [],
+ "UnionPts": [
+  "vector<vec3d>",
+  "vector<vec3d>",
+  "double"
+ ],
+ "UniquePts": [
+  "vector<vec3d>",
+  "double"
+ ],
+ "Unlock": [],
+ "Update": [
+  "bool"
+ ],
+ "UpdateFitModelDist": [],
+ "UpdateGUI": [],
+ "UpdateGeom": [
+  "string"
+ ],
+ "UpdateParasiteDrag": [],
+ "VSPCheckSetup": [],
+ "VSPCrash": [
+  "int"
+ ],
+ "VSPExit": [
+  "int"
+ ],
+ "VSPRenew": [],
+ "ValidParm": [
+  "string"
+ ],
+ "ValidateAdvLinkParms": [
+  "int"
+ ],
+ "VecInsideSurf": [
+  "string",
+  "int",
+  "vector<vec3d>"
+ ],
+ "WriteAdvLinkCodeFile": [
+  "int",
+  "string"
+ ],
+ "WriteAtmosphereCSVFile": [
+  "string",
+  "int"
+ ],
+ "WriteBezierAirfoil": [
+  "string",
+  "string",
+  "double"
+ ],
+ "WriteBodyFFCSVFile": [
+  "string"
+ ],
+ "WriteCfEqnCSVFile": [
+  "string"
+ ],
+ "WriteDESFile": [
+  "string"
+ ],
+ "WritePartialCfMethodCSVFile": [
+  "string"
+ ],
+ "WriteResultsCSVFile": [
+  "string",
+  "string"
+ ],
+ "WriteSeligAirfoil": [
+  "string",
+  "string",
+  "double"
+ ],
+ "WriteTestResults": [],
+ "WriteVSPFile": [
+  "string",
+  "int"
+ ],
+ "WriteWingFFCSVFile": [
+  "string"
+ ],
+ "WriteXDDMFile": [
+  "string"
+ ]
+}

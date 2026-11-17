@@ -1628,9 +1628,12 @@ bool FuselageLength( const string &geom, string &json, string &err, MissingParmO
 // error may follow side effects; readback is informative but cannot establish atomicity.
 void ParmWriteFailure( int id, const string &error, const string &outcome, const string &actual )
 {
+    // `actual` is spliced in as JSON; an empty string would produce invalid
+    // output and poison every later response, so default it to null.
+    const string payload = actual.empty() ? string( "null" ) : actual;
     PublishResult( "{\"t\":\"result\",\"id\":" + std::to_string( id ) +
           ",\"ok\":false,\"error\":" + Quote( error ) + ",\"outcome\":" + Quote( outcome ) +
-          ",\"actual\":" + actual + "}" );
+          ",\"actual\":" + payload + "}" );
 }
 
 void ScopedParmWrite( const Job &j, bool xsec )
@@ -4288,7 +4291,7 @@ void RunImpl( const Job &j )
         const int index = vsp::EditXSecSplit01( j.a, j.value );
         DrainedErrors errors = TakeWriteErrors();
         Watch( "Edit curve split", true );
-        if ( errors.had_errors ) return ParmWriteFailure( j.id, errors.message, "unknown", "" );
+        if ( errors.had_errors ) return ParmWriteFailure( j.id, errors.message, "unknown", "null" );
         return Result( j.id, "", std::to_string( index ) );
     }
     if ( j.op == "liveEditXSecMovePnt" )
@@ -4410,7 +4413,7 @@ void RunImpl( const Job &j )
             const string id = vsp::CreatePtCloudGeomFromPts( points, parts[3] );
             DrainedErrors errors = TakeWriteErrors();
             Watch( "Point cloud geometry", true );
-            if ( errors.had_errors ) return ParmWriteFailure( j.id, errors.message, "unknown", "" );
+            if ( errors.had_errors ) return ParmWriteFailure( j.id, errors.message, "unknown", "null" );
             return Result( j.id, "", Quote( id ) );
         }
         if ( kind == "bbox" || kind == "neartp" )
@@ -4981,7 +4984,7 @@ void RunImpl( const Job &j )
         const string id = vsp::AddVSPAEROControlSurfaceGroup();
         DrainedErrors errors = TakeWriteErrors();
         Watch( "VSPAERO control group", true );
-        if ( errors.had_errors ) return ParmWriteFailure( j.id, errors.message, "unknown", "" );
+        if ( errors.had_errors ) return ParmWriteFailure( j.id, errors.message, "unknown", "null" );
         return Result( j.id, "", Quote( id ) );
     }
     if ( j.op == "liveVSPAEROAutoGroup" )

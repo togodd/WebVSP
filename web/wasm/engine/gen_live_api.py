@@ -16,6 +16,7 @@ from the repository root:
     python3 web/wasm/engine/gen_live_api.py
 """
 import ast
+import json
 import re
 import sys
 from pathlib import Path
@@ -25,6 +26,7 @@ HEADER = ROOT / 'src/geom_api/VSP_Geom_API.h'
 FACADE = ROOT / 'web/frontend/src/dualWasmProbe/python/openvsp_live.py'
 CPP_OUT = ROOT / 'web/wasm/engine/live_api_table.inc'
 PY_OUT = ROOT / 'web/frontend/src/dualWasmProbe/python/live_api_table.py'
+SMOKE_OUT = ROOT / 'web/wasm/engine/api_smoke_spec.json'
 
 # Input shapes the generic bridge understands. The key is the Python signature
 # the facade exposes; the value lists the C++ parameter types.
@@ -245,8 +247,31 @@ def write_py(rows):
     PY_OUT.write_text('\n'.join(out) + '\n')
 
 
+def smoke_spec():
+    """Every extern function with simple parameter types, for the smoke test.
+
+    Unlike the bridge table this keeps output parameters, overloads and complex
+    types, so the smoke run can build correctly typed arguments for every name.
+    """
+    header = HEADER.read_text()
+    header = re.sub(r'/\*.*?\*/', '', header, flags=re.S)
+    header = re.sub(r'//[^\n]*', '', header)
+    decls = re.findall(r'\bextern\s+([^;]*?)\b([A-Za-z_]\w*)\s*\(([^;]*)\)\s*;', header, re.S)
+    spec = {}
+    for ret, name, args in decls:
+        params = []
+        for raw in ([] if args.strip() in ('', 'void') else args.split(',')):
+            parts = [p for p in raw.split('=')[0].split() if p]
+            if len(parts) < 2:
+                continue
+            params.append(simple_type(' '.join(parts[:-1])))
+        spec.setdefault(name, params)
+    return spec
+
+
 def main():
     rows = parse()
+    SMOKE_OUT.write_text(json.dumps(smoke_spec(), indent=1, sort_keys=True) + '\n')
     write_cpp(rows)
     write_py(rows)
     counts = {}
