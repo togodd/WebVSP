@@ -241,7 +241,6 @@ parameter.set({
 |---|---|---|
 | 单元测试 | Vitest 前端测试，覆盖服务逻辑与错误分支 | 测试集合会变化，请以实际运行结果为准 |
 | 类型与构建 | `tsc -b` 与 `vite build` | 请以实际运行结果为准 |
-| 真实浏览器 | `facade-write-browser-check.mjs`：Chromium + 生产 WASM，覆盖机身与机翼创建、参数设置、移动、回读及部分错误 | 历史验收；请以当前环境运行结果为准 |
 | 引擎故障注入 | 测试构建中模拟中途失败，检查结果分类 | 历史验证（仅测试构建，不代表生产） |
 
 **未覆盖：** 图形界面并发编辑、保存与重开、脚本安全、对象身份（ABA）、跨多次请求的一致性。
@@ -252,5 +251,4 @@ parameter.set({
 - 写入服务：[frontend/src/modeling/writeService.ts](<frontend/src/modeling/writeService.ts>)
 - 参数写入：[frontend/src/modeling/parameterWriteService.ts](<frontend/src/modeling/parameterWriteService.ts>)
 - 只读便利入口：[frontend/src/modeling/browserReadApi.md](<frontend/src/modeling/browserReadApi.md>)
-- 浏览器验收脚本：[frontend/src/modeling/facade-write-browser-check.mjs](<frontend/src/modeling/facade-write-browser-check.mjs>)
 - 脚本安全威胁模型（设计讨论，未实现）：[wasm/SCRIPT_FREE_THREAT_MODEL.md](<wasm/SCRIPT_FREE_THREAT_MODEL.md>)

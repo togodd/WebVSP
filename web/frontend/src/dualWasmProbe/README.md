@@ -438,8 +438,7 @@ vsp.DeleteAllResults()                      # 清空
 之外的任意磁盘路径；`ExportFile` 的 `thin_set`/`use_mode`/`modeID` 等高级参数不支持；导出、导入与保存的
 大文件仍受浏览器内存与 WASM 内存上限约束。
 
-**测试**：`python3 scripts/test-live-files.py` 覆盖路径与参数规则；`node scripts/file-io-browser-check.mjs`
-覆盖真实浏览器中的文件 API 与同步。
+**测试**：`python3 scripts/test-live-files.py` 覆盖路径与参数规则。
 
 ### 未桥接接口的堵点与影响
 
@@ -483,11 +482,6 @@ vsp.DeleteAllResults()                      # 清空
 | 文件 API 路径/参数 | `python3 scripts/test-live-files.py` |
 | 上游模块数值 | `python3 scripts/test-native-atmosphere.py`、`test-native-uberlogging.py`、`test-native-wt-util.py` |
 | 源码一致性 | `node scripts/check-native-modules.mjs` |
-| 真实浏览器（先构建并启动预览） | `console-smoke.mjs`、`live-analysis-smoke.mjs`、`scipy-console-browser-check.mjs`、`delete-clone-browser-check.mjs`、`live-binary-browser-check.mjs`、`results-browser-check.mjs`、`params-browser-check.mjs`、`geometry-browser-check.mjs`、`analysis-browser-check.mjs`、`compgeom-browser-check.mjs` |
-
-上表浏览器脚本需要 `CHROMIUM_PATH` 与 `WEBVSP_URL`（默认 `http://127.0.0.1:4173/`）。
-`src/dualWasmProbe/xsec-subsurf-wasm-check.mjs` 使用 `WEBVSP_TEST_CHROMIUM` 和 `WEBVSP_TEST_PAGE`，
-须指向隔离测试页面及匹配的 WASM；它覆盖原生类型、错误及 Python 控制台桥接。
 `?dualWasmProbe=1` 只注册测试入口 `__runPython`；产品入口是顶栏 **Python Console** 按钮。
 
 测试证据窄于“完整包兼容”：模块安装成功不代表其中每个函数都在浏览器验证过，未标 ✅ 的接口按“可能失败”对待。
