@@ -107,13 +107,19 @@ python3 web/wasm/engine/gen_live_api.py
 ```
 
 它同时写出引擎侧的 `live_api_table.inc` 和门面侧的 `live_api_table.py`，两边形状不会漂移。
-当前覆盖 620 个原生函数（门面共 820 个公开名，占 `VSP_Geom_API.h` 1017 个不同函数名的 81%）。
+当前覆盖 678 个原生函数（门面共 963 个公开名，占 `VSP_Geom_API.h` 1017 个不同函数名的 83%）。
 
 通道路径：门面包装函数 → `live_api` / `live_api_write` → `liveApi` 引擎分发（按形状解析
 长度前缀参数包）→ 直接调用 `vsp::`。写操作按返回值是否为 `void` 自动分类。
 
-未覆盖的主要是：带非 const 输出参数（`double &u_out`）、重载同名函数、以及需要
-`vec3d`/矩阵等复杂入参的接口——这些仍需逐个手写。下面未列出的上游功能（FEA/CFD 网格、属性与参数链接、设计变量、
+覆盖的形状包括：`void(string)`、`void(string,string)`、`string(string)`、`void()`、
+`int()`、`string()`、`vector<string>()`、`vector<string>(string)`、`vector<int>(string)`、
+`vector<double>(string)`、`vector<vec3d>(string)`、`vec3d(string)`、`double(double,double)`、
+`void(string,vector<vec3d>)`、`void(string,int,vector<double>)` 等 40 余种。
+`vec3d` 列表按 `x,y,z` 每行一项传递。
+
+未覆盖的约 170 个是长尾：带非 const 输出参数的测量接口、同名重载、以及矩阵/多维
+向量入参——这些仍需逐个手写。下面未列出的上游功能（FEA/CFD 网格、属性与参数链接、设计变量、
 VSPAERO 控制面、测量、可视化等）尚未桥接。
 
 | 接口 | 状态 | 说明 |
