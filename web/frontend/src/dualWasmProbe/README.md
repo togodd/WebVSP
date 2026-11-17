@@ -114,7 +114,8 @@ helper（[上游入口](../../../../src/python_api/packages/openvsp/openvsp/__in
 | `GetNumXSecSurfs`、`GetXSecSurf`、`GetXSec`、`GetXSecParmIDs`、`DeleteXSec`、`ChangeXSecShape(ByID)` | 🟨 | 已桥接，未单独测试 |
 | `GetXSecSurfIDs`、`GetNumXSec`、`GetXSecIDs`、`GetXSecShape`、`InsertXSec`、`CutXSec` | ✅ | 真实浏览器已验证典型插入/删除/形状查询路径 |
 | `GetXSecIDVec`、`InsertXSecByID`、`CutXSecByID` | ✅ | 已通过真实浏览器/WASM 插入与删除回归 |
-| `GetXSecSurfIDVec`、`GetXSecParm`、`GetXSecWidth`/`Height`、`SetXSecWidth`/`Height`/`WidthHeight` | ✅ | 主机和模拟桥测试覆盖透传与参数校验；尚未单独完成真实浏览器验证 |
+| `GetXSecSurfIDVec`、`GetXSecParm`、`GetXSecWidth`/`Height`、`SetXSecWidth`/`Height`/`WidthHeight` | ✅ | 截面尺寸及参数查询已通过真实浏览器回归；曲面 ID 列表有主机桥接测试 |
+| `CopyXSec`、`CopyXSecByID`、`PasteXSec`、`PasteXSecByID` | ✅ | 真实浏览器验证剪贴板快照及目标替换 |
 | `GetNumSubSurf`、`GetSubSurf`、`DeleteSubSurf`、`ReorderSubSurf`、`GetSubSurfType`、`GetSubSurfParmIDs`、`GetSubSurfName`、`SetSubSurfName`、`GetSubSurfIndex` | ✅ | 已通过真实浏览器/WASM 名称、顺序、参数与删除回归 |
 | `GetSubSurfIDVec`、`AddSubSurf` | ✅ | |
 | `GetNumSets`、`GetSetName`、`GetSetFlag` | ✅ | |
