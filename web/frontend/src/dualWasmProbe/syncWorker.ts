@@ -168,6 +168,9 @@ def _webvsp_import_roots(source):
         elif isinstance(node, ast.ImportFrom) and node.level == 0 and node.module:
             parts = node.module.split('.')
             roots.add(node.module)
+            # Keep the top-level package too: a from-import of scipy.optimize must
+            # still match the package named scipy.
+            roots.add(parts[0])
             roots.add(parts[0] if len(parts) == 1 else parts[0] + '.' + parts[1])
             for alias in node.names:
                 roots.add(node.module + '.' + alias.name)
