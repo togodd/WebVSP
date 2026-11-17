@@ -64,6 +64,8 @@ _LIVE_WRITES = frozenset({
     'live_update_geom', 'live_set_geom_parent', 'live_copy_geom', 'live_cut_geom', 'live_paste_geom',
     'live_geom_set_draw_type', 'live_geom_set_display_type', 'live_geom_set_wire_color',
     'live_geom_set_material',
+    'live_parm_set_descript', 'live_parm_set_limits', 'live_clone_geom_vec', 'live_delete_geom_vec',
+    'live_copy_paste_set',
 })
 
 
@@ -200,6 +202,42 @@ def CutGeomToClipboard(geom_id, clone_delete=CLONE_DELETE_LEAVE_EMPTY):
 
 def PasteGeomClipboard(parent=''):
     return _call('live_paste_geom', parent=parent)
+
+
+def CloneGeomVec(geom_ids, name_suffix='_Clone'):
+    """Copy several geometries; returns the new IDs in input order."""
+    if not isinstance(geom_ids, (list, tuple)) or not geom_ids:
+        raise ValueError('A non-empty list of geometry IDs is required')
+    for geom_id in geom_ids:
+        if not isinstance(geom_id, str) or not geom_id:
+            raise ValueError('Geometry IDs must be non-empty strings')
+    if not isinstance(name_suffix, str):
+        raise ValueError('A clone name suffix is required')
+    return _call('live_clone_geom_vec', geom_ids=list(geom_ids), name_suffix=name_suffix)
+
+
+def DeleteGeomVec(geom_ids, clone_delete=CLONE_DELETE_LEAVE_EMPTY):
+    if not isinstance(geom_ids, (list, tuple)) or not geom_ids:
+        raise ValueError('A non-empty list of geometry IDs is required')
+    for geom_id in geom_ids:
+        if not isinstance(geom_id, str) or not geom_id:
+            raise ValueError('Geometry IDs must be non-empty strings')
+    return _call('live_delete_geom_vec', geom_ids=list(geom_ids), clone_delete=clone_delete)
+
+
+def CopyPasteSet(copy_index, paste_index):
+    """Copy every geometry of one set into another set, as the GUI does."""
+    for index in (copy_index, paste_index):
+        if type(index) is not int or index < 0:
+            raise ValueError('Set indices must be non-negative integers')
+    return _call('live_copy_paste_set', copy_index=copy_index, paste_index=paste_index)
+
+
+def GetGeomSetCollection(index):
+    """Attribute collection ID attached to a set ('' when it has none)."""
+    if type(index) is not int or index < 0:
+        raise ValueError('Set index must be a non-negative integer')
+    return _call('live_geom_set_collection', index=index)
 
 
 def Update(update_managers=True):
@@ -361,6 +399,11 @@ def GetParmVal(*args):
     raise TypeError('GetParmVal expects (parm_id) or (geom_id, name, group)')
 
 
+def GetParm(geom_id, name, group):
+    """Native alias of FindParm: parm ID on a geometry ('' when absent)."""
+    return FindParm(geom_id, name, group)
+
+
 def GetParmType(parm_id):
     return _call('live_parm_type', parm_id=_parm_id_required(parm_id))
 
@@ -404,6 +447,31 @@ def GetParmGroupName(parm_id):
 def GetParmDisplayGroupName(parm_id):
     """Display group name (the ``group`` field of GetParmInfo)."""
     return _call('live_parm_display_group', parm_id=_parm_id_required(parm_id))
+
+
+def GetParmDescript(parm_id):
+    return _call('live_parm_descript', parm_id=_parm_id_required(parm_id))
+
+
+def SetParmDescript(parm_id, description):
+    if not isinstance(description, str):
+        raise ValueError('A parameter description is required')
+    return _call('live_parm_set_descript', parm_id=_parm_id_required(parm_id), description=description)
+
+
+def GetParmContainer(parm_id):
+    """ID of the parm container that owns this parameter."""
+    return _call('live_parm_container', parm_id=_parm_id_required(parm_id))
+
+
+def SetParmValLimits(parm_id, value, lower_limit, upper_limit):
+    """Set a value together with its limits; returns the value actually taken."""
+    numbers = []
+    for item in (value, lower_limit, upper_limit):
+        if type(item) not in (int, float) or item != item or item in (float('inf'), float('-inf')):
+            raise ValueError('Parameter values and limits must be finite numbers')
+        numbers.append(float(item))
+    return _call('live_parm_set_limits', parm_id=_parm_id_required(parm_id), values=numbers)
 
 
 def SetParmValUpdate(*args):

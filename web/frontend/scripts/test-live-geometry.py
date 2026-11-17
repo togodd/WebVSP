@@ -62,6 +62,42 @@ class GeometryApiTest(unittest.TestCase):
         with self.assertRaises(vsp.OpenVSPError):
             vsp.CompNorm01('g', 0, float('nan'), w)
 
+    def test_parameter_metadata_forwarding(self):
+        self.reply['value'] = 'Total length'
+        self.assertEqual(vsp.GetParmDescript('p'), 'Total length')
+        self.assertEqual(self.calls[-1], ('live_parm_descript', {'parm_id': 'p'}))
+        vsp.SetParmDescript('p', 'New text')
+        self.assertEqual(self.calls[-1], ('live_parm_set_descript', {'parm_id': 'p', 'description': 'New text'}))
+        self.reply['value'] = 'container-1'
+        self.assertEqual(vsp.GetParmContainer('p'), 'container-1')
+        self.assertEqual(self.calls[-1], ('live_parm_container', {'parm_id': 'p'}))
+        self.reply['value'] = 0.5
+        self.assertEqual(vsp.SetParmValLimits('p', 0.5, 0.1, 0.9), 0.5)
+        self.assertEqual(self.calls[-1], ('live_parm_set_limits', {'parm_id': 'p', 'values': [0.5, 0.1, 0.9]}))
+        with self.assertRaisesRegex(ValueError, 'finite'):
+            vsp.SetParmValLimits('p', float('nan'), 0, 1)
+        with self.assertRaisesRegex(ValueError, 'description'):
+            vsp.SetParmDescript('p', None)
+
+    def test_batch_geometry_forwarding(self):
+        self.reply['value'] = ['c1', 'c2']
+        self.assertEqual(vsp.CloneGeomVec(['a', 'b']), ['c1', 'c2'])
+        self.assertEqual(self.calls[-1], ('live_clone_geom_vec', {'geom_ids': ['a', 'b'], 'name_suffix': '_Clone'}))
+        vsp.CloneGeomVec(['a'], '_Copy')
+        self.assertEqual(self.calls[-1][1]['name_suffix'], '_Copy')
+        vsp.DeleteGeomVec(['a', 'b'], 1)
+        self.assertEqual(self.calls[-1], ('live_delete_geom_vec', {'geom_ids': ['a', 'b'], 'clone_delete': 1}))
+        vsp.CopyPasteSet(3, 4)
+        self.assertEqual(self.calls[-1], ('live_copy_paste_set', {'copy_index': 3, 'paste_index': 4}))
+        self.reply['value'] = 'attr-1'
+        self.assertEqual(vsp.GetGeomSetCollection(0), 'attr-1')
+        self.assertEqual(self.calls[-1], ('live_geom_set_collection', {'index': 0}))
+        for bad in ([], [''], 'a'):
+            with self.assertRaisesRegex(ValueError, '[Gg]eometry IDs'):
+                vsp.CloneGeomVec(bad)
+        with self.assertRaisesRegex(ValueError, 'Set indices'):
+            vsp.CopyPasteSet(-1, 0)
+
     def test_geometry_display_forwarding(self):
         self.reply['value'] = 1
         self.assertEqual(vsp.GetGeomDrawType('g'), 1)

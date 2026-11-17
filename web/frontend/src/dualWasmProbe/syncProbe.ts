@@ -19,6 +19,8 @@ const LIVE_WRITES = new Set([
   'live_update_geom', 'live_set_geom_parent', 'live_copy_geom', 'live_cut_geom', 'live_paste_geom',
   'live_geom_set_draw_type', 'live_geom_set_display_type', 'live_geom_set_wire_color',
   'live_geom_set_material',
+  'live_parm_set_descript', 'live_parm_set_limits', 'live_clone_geom_vec', 'live_delete_geom_vec',
+  'live_copy_paste_set',
 ])
 // File operations also mutate the session: ReadVSPFile replaces the model and
 // WriteVSPFile renames it, so both carry write-outcome semantics.
@@ -227,6 +229,37 @@ async function run(mode: 'script' | 'console', script?: string): Promise<unknown
           await live('liveDeleteGeom', id, '', policy)
           return null
         }
+        if (op === 'live_clone_geom_vec' || op === 'live_delete_geom_vec') {
+          const ids = args.geom_ids
+          if (!Array.isArray(ids) || ids.length === 0 || ids.length > 1024 || ids.some(id => typeof id !== 'string' || !id)) {
+            throw new WasmEngineError(400, 'Invalid geometry ID list', 'not_written')
+          }
+          const encoder = new TextEncoder()
+          const packet = `${ids.length};` + ids.map(id => `${encoder.encode(id).length}:${id}`).join('')
+          if (op === 'live_clone_geom_vec') {
+            const suffix = args.name_suffix === undefined ? '_Clone' : args.name_suffix
+            if (typeof suffix !== 'string') throw new WasmEngineError(400, 'Invalid clone suffix', 'not_written')
+            return live('liveCloneGeomVec', packet, suffix)
+          }
+          const policy = args.clone_delete
+          if (typeof policy !== 'number' || !Number.isInteger(policy) || policy < 0 || policy > 2) {
+            throw new WasmEngineError(400, 'Invalid clone_delete policy', 'not_written')
+          }
+          await live('liveDeleteGeomVec', packet, '', policy)
+          return null
+        }
+        if (op === 'live_copy_paste_set') {
+          const copy = args.copy_index, paste = args.paste_index
+          if (typeof copy !== 'number' || !Number.isInteger(copy) || copy < 0 || copy > 2147483647) throw new WasmEngineError(400, 'Invalid set index', 'not_written')
+          if (typeof paste !== 'number' || !Number.isInteger(paste) || paste < 0 || paste > 2147483647) throw new WasmEngineError(400, 'Invalid set index', 'not_written')
+          await live('liveCopyPasteSet', '', String(paste), copy)
+          return null
+        }
+        if (op === 'live_geom_set_collection') {
+          const index = args.index
+          if (typeof index !== 'number' || !Number.isInteger(index) || index < 0 || index > 2147483647) throw new WasmEngineError(400, 'Invalid set index')
+          return live('liveGeomSetCollection', '', '', index)
+        }
         if (op === 'live_update') {
           await live('liveUpdate')
           return null
@@ -242,6 +275,21 @@ async function run(mode: 'script' | 'console', script?: string): Promise<unknown
         if (op === 'live_parm_group') return live('liveParmGroup', text('parm_id'))
         if (op === 'live_parm_display_group') return live('liveParmDisplayGroup', text('parm_id'))
         if (op === 'live_parm_find') return live('liveParmFind', text('container_id'), text('key'))
+        if (op === 'live_parm_descript') return live('liveParmDescript', text('parm_id'))
+        if (op === 'live_parm_set_descript') {
+          const description = args.description
+          if (typeof description !== 'string') throw new WasmEngineError(400, 'Invalid parameter description', 'not_written')
+          return live('liveParmSetDescript', text('parm_id'), description)
+        }
+        if (op === 'live_parm_container') return live('liveParmContainer', text('parm_id'))
+        if (op === 'live_parm_set_limits') {
+          const values = args.values
+          if (!Array.isArray(values) || values.length !== 3 || values.some(v => typeof v !== 'number' || !Number.isFinite(v))) {
+            throw new WasmEngineError(400, 'Invalid parameter limits', 'not_written')
+          }
+          const [value, lower, upper] = values as number[]
+          return live('liveParmSetLimits', text('parm_id'), `${lower}\x1f${upper}`, value)
+        }
         if (op === 'live_set_geom_name') {
           const name = args.name
           if (typeof name !== 'string' || !name || new TextEncoder().encode(name).length > 256) throw new WasmEngineError(400, 'Invalid geometry name', 'not_written')

@@ -3533,6 +3533,45 @@ void RunImpl( const Job &j )
         TakeErrors(); // A missing parm queues a native error; report "" instead.
         return Result( j.id, "", Quote( id ) );
     }
+    if ( j.op == "liveParmDescript" )
+    {
+        const string desc = vsp::GetParmDescript( j.a );
+        return Result( j.id, TakeErrors(), Quote( desc ) );
+    }
+    if ( j.op == "liveParmSetDescript" )
+    {
+        vsp::SetParmDescript( j.a, j.b );
+        const string err = TakeErrors();
+        Watch( "Parameter description", true );
+        if ( !err.empty() ) return Result( j.id, err, "" );
+        return Result( j.id, "", "null" );
+    }
+    if ( j.op == "liveParmContainer" )
+    {
+        const string id = vsp::GetParmContainer( j.a );
+        return Result( j.id, TakeErrors(), Quote( id ) );
+    }
+    if ( j.op == "liveParmSetLimits" )
+    {
+        // b = lower + \x1f + upper; value is the requested value.
+        const size_t sep = j.b.find( '\x1f' );
+        if ( sep == string::npos || !std::isfinite( j.value ) ) return Result( j.id, "Invalid parameter limits", "" );
+        auto parse = []( const string &text, double &out )
+        {
+            if ( text.empty() ) return false;
+            char *end = nullptr;
+            out = std::strtod( text.c_str(), &end );
+            return end == text.c_str() + text.size() && std::isfinite( out );
+        };
+        double lower, upper;
+        if ( !parse( j.b.substr( 0, sep ), lower ) || !parse( j.b.substr( sep + 1 ), upper ) )
+            return Result( j.id, "Invalid parameter limits", "" );
+        const double actual = vsp::SetParmValLimits( j.a, j.value, lower, upper );
+        const string err = TakeParmErrors( true );
+        Watch( "Parameter limits", true );
+        if ( !err.empty() ) return Result( j.id, err, "" );
+        return Result( j.id, "", Num( actual ) );
+    }
     if ( j.op == "liveParmSetUpdate" )
     {
         if ( j.a.empty() || !ParmMgr.FindParm( j.a ) ) return Result( j.id, "Unknown parameter", "" );
@@ -3718,6 +3757,49 @@ void RunImpl( const Job &j )
         Watch( "Geometry edit", true );
         if ( errors.had_errors ) return ParmWriteFailure( j.id, errors.message, "unknown", "null" );
         return Result( j.id, "", j.op == "livePasteGeom" ? LiveStringArray( pasted ) : "null" );
+    }
+    if ( j.op == "liveCloneGeomVec" || j.op == "liveDeleteGeomVec" )
+    {
+        // a is the same length-prefixed packet as the analysis inputs: count,
+        // then byte lengths and payloads. b is the clone name suffix.
+        vector< string > ids;
+        if ( !live_packet( j.a, ids ) || ids.empty() ) return Result( j.id, "Invalid geometry ID list", "" );
+        for ( const string &id : ids ) if ( id.empty() ) return Result( j.id, "Invalid geometry ID list", "" );
+        if ( j.op == "liveDeleteGeomVec" )
+        {
+            if ( !std::isfinite( j.value ) || std::floor( j.value ) != j.value || j.value < 0 ||
+                 j.value >= vsp::CLONE_DELETE_NUM_TYPES )
+                return ParmWriteFailure( j.id, "Invalid clone_delete", "not_written", "null" );
+        }
+        if ( !BeginGuardedWrite() ) return;
+        vector< string > clones;
+        if ( j.op == "liveCloneGeomVec" ) clones = vsp::CloneGeomVec( ids, j.b );
+        else vsp::DeleteGeomVec( ids, static_cast<int>( j.value ) );
+        DrainedErrors errors = TakeWriteErrors();
+        Watch( "Geometry list edit", true );
+        if ( errors.had_errors ) return ParmWriteFailure( j.id, errors.message, "unknown", "null" );
+        return Result( j.id, "", j.op == "liveCloneGeomVec" ? LiveStringArray( clones ) : "null" );
+    }
+    if ( j.op == "liveCopyPasteSet" )
+    {
+        if ( !std::isfinite( j.value ) || std::floor( j.value ) != j.value || j.value < 0 ) return ParmWriteFailure( j.id, "Invalid set index", "not_written", "null" );
+        char *end = nullptr;
+        const long paste = std::strtol( j.b.c_str(), &end, 10 );
+        if ( j.b.empty() || end != j.b.c_str() + j.b.size() || paste < 0 || paste > 2147483647L )
+            return ParmWriteFailure( j.id, "Invalid set index", "not_written", "null" );
+        if ( !BeginGuardedWrite() ) return;
+        vsp::CopyPasteSet( static_cast<int>( j.value ), static_cast<int>( paste ) );
+        DrainedErrors errors = TakeWriteErrors();
+        Watch( "Set copy", true );
+        if ( errors.had_errors ) return ParmWriteFailure( j.id, errors.message, "unknown", "null" );
+        return Result( j.id, "", "null" );
+    }
+    if ( j.op == "liveGeomSetCollection" )
+    {
+        if ( !std::isfinite( j.value ) || std::floor( j.value ) != j.value || j.value < 0 || j.value > 2147483647.0 )
+            return Result( j.id, "Invalid set index", "" );
+        const string id = vsp::GetGeomSetCollection( static_cast<int>( j.value ) );
+        return Result( j.id, TakeErrors(), Quote( id ) );
     }
     if ( j.op == "liveSetGeomName" )
     {
