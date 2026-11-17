@@ -26,6 +26,8 @@ const LIVE_WRITES = new Set([
   'live_attribute_set_matrix', 'live_attribute_add',
   'live_add_probe', 'live_add_rst_probe', 'live_add_ruler', 'live_add_protractor',
   'live_point_cloud',
+  'live_edit_xsec_set_pnts', 'live_edit_xsec_split', 'live_edit_xsec_move_pnt',
+  'live_edit_xsec_set_fixed_u',
   'live_vspaero_set_ref_wing', 'live_vspaero_set_mode', 'live_vspaero_set_cg_mode',
   'live_vspaero_add_cs_group', 'live_vspaero_auto_group', 'live_vspaero_delete_cs_group',
   'live_vspaero_add_all_cs_group', 'live_vspaero_remove_all_cs_group', 'live_vspaero_set_cs_name',
@@ -237,6 +239,35 @@ async function run(mode: 'script' | 'console', script?: string): Promise<unknown
           const index = args.surf_indx, u = args.u, w = args.w
           if (typeof index !== 'number' || !Number.isInteger(index)) throw new WasmEngineError(400, 'Invalid surf_indx')
           return live(op === 'live_xsec_tangent_u' ? 'liveXSecTangentU' : 'liveXSecTangentW', text('geom_id'), numbers([u, w], 2), index)
+        }
+        if (op === 'live_edit_xsec_ctrl') {
+          return live('liveEditXSecCtrl', text('xsec_id'), args.non_dimensional === false ? '0' : '1')
+        }
+        if (op === 'live_edit_xsec_set_pnts') {
+          const us = args.us, ws = args.ws, points = args.points
+          if (!Array.isArray(us) || !Array.isArray(ws) || !Array.isArray(points) ||
+              us.length !== points.length || ws.length !== points.length) {
+            throw new WasmEngineError(400, 'Edit curve lists must have the same length', 'not_written')
+          }
+          const pointsText = points.map((p: number[]) => p.join(',')).join('\n')
+          return live('liveEditXSecSetPnts', text('xsec_id'), `${us.join(',')}\x1f${pointsText}\x1f${ws.join(',')}`, 0)
+        }
+        if (op === 'live_edit_xsec_split') {
+          if (typeof args.u !== 'number' || !Number.isFinite(args.u)) throw new WasmEngineError(400, 'Invalid split coordinate')
+          return live('liveEditXSecSplit', text('xsec_id'), '', args.u)
+        }
+        if (op === 'live_edit_xsec_move_pnt') {
+          const point = args.point
+          if (!Array.isArray(point) || point.length !== 3 || typeof args.index !== 'number' || !Number.isInteger(args.index)) {
+            throw new WasmEngineError(400, 'Invalid edit curve point', 'not_written')
+          }
+          return live('liveEditXSecMovePnt', text('xsec_id'), String(point.join(',')), args.index)
+        }
+        if (op === 'live_edit_xsec_fixed_u') return live('liveEditXSecFixedU', text('xsec_id'))
+        if (op === 'live_edit_xsec_set_fixed_u') {
+          const fixed = args.fixed
+          if (!Array.isArray(fixed)) throw new WasmEngineError(400, 'Invalid fixed-u list', 'not_written')
+          return live('liveEditXSecSetFixedU', text('xsec_id'), fixed.map(v => v ? '1' : '0').join(','))
         }
         if (op === 'live_point_cloud') {
           const parts = args.parts

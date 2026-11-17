@@ -80,6 +80,25 @@ describe('live write bridge', () => {
     expect(engine.call).not.toHaveBeenCalled()
     worker.onmessage({ data: { type: 'done', value: 'null' } } as MessageEvent)
   })
+  it('forwards editable curve calls', async () => {
+    void runSyncScript('')
+    const worker = FakeWorker.instance
+    engine.call.mockResolvedValue(null)
+    expect((await worker.request('live_edit_xsec_ctrl', { xsec_id: 'x' })).ok).toBe(true)
+    expect(engine.call).toHaveBeenLastCalledWith('liveEditXSecCtrl', 'x', '1', 0)
+    expect((await worker.request('live_edit_xsec_move_pnt', { xsec_id: 'x', index: 2, point: [1, 2, 3] })).ok).toBe(true)
+    expect(engine.call).toHaveBeenLastCalledWith('liveEditXSecMovePnt', 'x', '1,2,3', 2)
+    expect((await worker.request('live_edit_xsec_set_fixed_u', { xsec_id: 'x', fixed: [true, false] })).ok).toBe(true)
+    expect(engine.call).toHaveBeenLastCalledWith('liveEditXSecSetFixedU', 'x', '1,0', 0)
+    expect((await worker.request('live_edit_xsec_split', { xsec_id: 'x', u: 0.5 })).ok).toBe(true)
+    expect(engine.call).toHaveBeenLastCalledWith('liveEditXSecSplit', 'x', '', 0.5)
+    expect((await worker.request('live_edit_xsec_set_pnts', { xsec_id: 'x', us: [0, 1], ws: [0.5, 0.5], points: [[0, 0, 0], [1, 1, 1]] })).ok).toBe(true)
+    expect(engine.call).toHaveBeenLastCalledWith('liveEditXSecSetPnts', 'x', '0,1\x1f0,0,0\n1,1,1\x1f0.5,0.5', 0)
+    engine.call.mockClear()
+    expect((await worker.request('live_edit_xsec_set_pnts', { xsec_id: 'x', us: [0], ws: [0.5, 0.5], points: [[0, 0, 0]] })).error.outcome).toBe('not_written')
+    expect(engine.call).not.toHaveBeenCalled()
+    worker.onmessage({ data: { type: 'done', value: 'null' } } as MessageEvent)
+  })
   it('forwards point cloud filters', async () => {
     void runSyncScript('')
     const worker = FakeWorker.instance

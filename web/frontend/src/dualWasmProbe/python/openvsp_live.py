@@ -72,6 +72,8 @@ _LIVE_WRITES = frozenset({
     'live_vspaero_add_all_cs_group', 'live_vspaero_remove_all_cs_group', 'live_vspaero_set_cs_name',
     'live_add_probe', 'live_add_rst_probe', 'live_add_ruler', 'live_add_protractor',
     'live_point_cloud',
+    'live_edit_xsec_set_pnts', 'live_edit_xsec_split', 'live_edit_xsec_move_pnt',
+    'live_edit_xsec_set_fixed_u',
     'live_api_write', 'live_attribute_set_matrix', 'live_attribute_add',
 })
 
@@ -601,6 +603,42 @@ def GetXSecParmIDs(xsec_id):
 
 def GetXSecParm(xsec_id, name):
     return _call('live_xsec_parm', xsec_id=xsec_id, name=name)
+
+
+# ---------------------------------------------------------------- editable curves
+
+def GetEditXSecCtrlVec(xsec_id, non_dimensional=True):
+    """Control points of an editable curve section."""
+    return _vec3d_list(_call('live_edit_xsec_ctrl', xsec_id=xsec_id, non_dimensional=bool(non_dimensional)))
+
+
+def SetEditXSecPnts(xsec_id, us, points, ws):
+    """Replace the control points; the three lists must have the same length."""
+    return _call('live_edit_xsec_set_pnts', xsec_id=xsec_id,
+                 us=[float(v) for v in us],
+                 points=[[float(v) for v in point] for point in points],
+                 ws=[float(v) for v in ws])
+
+
+def EditXSecSplit01(xsec_id, u):
+    """Split an editable curve at a u coordinate; returns the new section index."""
+    return _call('live_edit_xsec_split', xsec_id=xsec_id, u=float(u))
+
+
+def MoveEditXSecPnt(xsec_id, index, point):
+    """Move one control point."""
+    return _call('live_edit_xsec_move_pnt', xsec_id=xsec_id, index=int(index),
+                 point=[float(v) for v in point])
+
+
+def GetEditXSecFixedUVec(xsec_id):
+    """Which control points are pinned in u."""
+    return _call('live_edit_xsec_fixed_u', xsec_id=xsec_id)
+
+
+def SetEditXSecFixedUVec(xsec_id, fixed):
+    """Pin or release control points in u."""
+    return _call('live_edit_xsec_set_fixed_u', xsec_id=xsec_id, fixed=[bool(v) for v in fixed])
 
 
 # ---------------------------------------------------------------- point clouds

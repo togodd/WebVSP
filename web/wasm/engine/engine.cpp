@@ -4212,6 +4212,138 @@ void RunImpl( const Job &j )
         if ( !err.empty() ) return Result( j.id, err, "" );
         return Result( j.id, "", "[" + Num( v.x() ) + "," + Num( v.y() ) + "," + Num( v.z() ) + "]" );
     }
+    // ---- Editable XSec curves -----------------------------------------------
+    if ( j.op == "liveEditXSecCtrl" )
+    {
+        const vector< vec3d > points = vsp::GetEditXSecCtrlVec( j.a, j.b != "0" );
+        const string err = TakeErrors();
+        if ( !err.empty() ) return Result( j.id, err, "" );
+        return Result( j.id, "", LiveVec3dArray( points ) );
+    }
+    if ( j.op == "liveEditXSecSetPnts" )
+    {
+        // b = u list (',' separated) + \x1f + points + \x1f + w list.
+        vector< string > parts;
+        size_t pos = 0;
+        while ( pos <= j.b.size() )
+        {
+            const size_t sep = j.b.find( '\x1f', pos );
+            parts.push_back( j.b.substr( pos, sep == string::npos ? string::npos : sep - pos ) );
+            if ( sep == string::npos ) break;
+            pos = sep + 1;
+        }
+        if ( parts.size() != 3 ) return Result( j.id, "Invalid edit curve arguments", "" );
+        auto numbers = []( const string &text, vector< double > &out )
+        {
+            out.clear();
+            if ( text.empty() ) return true;
+            size_t at = 0;
+            while ( at <= text.size() )
+            {
+                const size_t comma = text.find( ',', at );
+                const string part = text.substr( at, comma == string::npos ? string::npos : comma - at );
+                char *end = nullptr;
+                const double value = std::strtod( part.c_str(), &end );
+                if ( part.empty() || end != part.c_str() + part.size() || !std::isfinite( value ) ) return false;
+                out.push_back( value );
+                if ( comma == string::npos ) break;
+                at = comma + 1;
+            }
+            return true;
+        };
+        vector< double > us, ws;
+        vector< vec3d > points;
+        if ( !numbers( parts[0], us ) || !numbers( parts[2], ws ) ) return Result( j.id, "Invalid edit curve arguments", "" );
+        size_t at = 0;
+        while ( at <= parts[1].size() )
+        {
+            const size_t nl = parts[1].find( '\n', at );
+            const string entry = parts[1].substr( at, nl == string::npos ? string::npos : nl - at );
+            if ( !entry.empty() )
+            {
+                const size_t c1 = entry.find( ',' ), c2 = entry.find( ',', c1 + 1 );
+                if ( c1 == string::npos || c2 == string::npos ) return Result( j.id, "Invalid point list", "" );
+                char *e1 = nullptr, *e2 = nullptr, *e3 = nullptr;
+                const string xs = entry.substr( 0, c1 ), ys = entry.substr( c1 + 1, c2 - c1 - 1 ), zs = entry.substr( c2 + 1 );
+                const double x = std::strtod( xs.c_str(), &e1 ), y = std::strtod( ys.c_str(), &e2 ), z = std::strtod( zs.c_str(), &e3 );
+                if ( xs.empty() || ys.empty() || zs.empty() || *e1 || *e2 || *e3 ) return Result( j.id, "Invalid point list", "" );
+                points.push_back( vec3d( x, y, z ) );
+            }
+            if ( nl == string::npos ) break;
+            at = nl + 1;
+        }
+        if ( us.size() != points.size() || ws.size() != points.size() )
+            return Result( j.id, "Edit curve lists must have the same length", "" );
+        if ( !BeginGuardedWrite() ) return;
+        vsp::SetEditXSecPnts( j.a, us, points, ws );
+        DrainedErrors errors = TakeWriteErrors();
+        Watch( "Edit curve points", true );
+        if ( errors.had_errors ) return ParmWriteFailure( j.id, errors.message, "unknown", "null" );
+        return Result( j.id, "", "null" );
+    }
+    if ( j.op == "liveEditXSecSplit" )
+    {
+        if ( !std::isfinite( j.value ) ) return Result( j.id, "Invalid split coordinate", "" );
+        if ( !BeginGuardedWrite() ) return;
+        const int index = vsp::EditXSecSplit01( j.a, j.value );
+        DrainedErrors errors = TakeWriteErrors();
+        Watch( "Edit curve split", true );
+        if ( errors.had_errors ) return ParmWriteFailure( j.id, errors.message, "unknown", "" );
+        return Result( j.id, "", std::to_string( index ) );
+    }
+    if ( j.op == "liveEditXSecMovePnt" )
+    {
+        vector< string > parts;
+        size_t pos = 0;
+        while ( pos <= j.b.size() )
+        {
+            const size_t sep = j.b.find( '\x1f', pos );
+            parts.push_back( j.b.substr( pos, sep == string::npos ? string::npos : sep - pos ) );
+            if ( sep == string::npos ) break;
+            pos = sep + 1;
+        }
+        if ( parts.size() != 1 || !std::isfinite( j.value ) ) return Result( j.id, "Invalid edit curve point", "" );
+        const size_t c1 = parts[0].find( ',' ), c2 = parts[0].find( ',', c1 + 1 );
+        if ( c1 == string::npos || c2 == string::npos ) return Result( j.id, "Invalid edit curve point", "" );
+        char *e1 = nullptr, *e2 = nullptr, *e3 = nullptr;
+        const string xs = parts[0].substr( 0, c1 ), ys = parts[0].substr( c1 + 1, c2 - c1 - 1 ), zs = parts[0].substr( c2 + 1 );
+        const double x = std::strtod( xs.c_str(), &e1 ), y = std::strtod( ys.c_str(), &e2 ), z = std::strtod( zs.c_str(), &e3 );
+        if ( xs.empty() || ys.empty() || zs.empty() || *e1 || *e2 || *e3 ) return Result( j.id, "Invalid edit curve point", "" );
+        if ( !BeginGuardedWrite() ) return;
+        vsp::MoveEditXSecPnt( j.a, static_cast<int>( j.value ), vec3d( x, y, z ) );
+        DrainedErrors errors = TakeWriteErrors();
+        Watch( "Edit curve point", true );
+        if ( errors.had_errors ) return ParmWriteFailure( j.id, errors.message, "unknown", "null" );
+        return Result( j.id, "", "null" );
+    }
+    if ( j.op == "liveEditXSecFixedU" )
+    {
+        const vector< bool > fixed = vsp::GetEditXSecFixedUVec( j.a );
+        string out = "[";
+        for ( size_t i = 0; i < fixed.size(); ++i ) out += ( i ? "," : "" ) + string( fixed[i] ? "true" : "false" );
+        return Result( j.id, TakeErrors(), out + "]" );
+    }
+    if ( j.op == "liveEditXSecSetFixedU" )
+    {
+        vector< bool > fixed;
+        size_t pos = 0;
+        while ( pos <= j.b.size() )
+        {
+            const size_t comma = j.b.find( ',', pos );
+            const string part = j.b.substr( pos, comma == string::npos ? string::npos : comma - pos );
+            if ( part == "1" ) fixed.push_back( true );
+            else if ( part == "0" ) fixed.push_back( false );
+            else return Result( j.id, "Invalid fixed-u list", "" );
+            if ( comma == string::npos ) break;
+            pos = comma + 1;
+        }
+        if ( !BeginGuardedWrite() ) return;
+        vsp::SetEditXSecFixedUVec( j.a, fixed );
+        DrainedErrors errors = TakeWriteErrors();
+        Watch( "Edit curve fixed u", true );
+        if ( errors.had_errors ) return ParmWriteFailure( j.id, errors.message, "unknown", "null" );
+        return Result( j.id, "", "null" );
+    }
     // ---- Point cloud filters ------------------------------------------------
     // A point list travels as "x,y,z" lines; b splits into those lines plus the
     // operation's extra scalars, separated by \x1f.
