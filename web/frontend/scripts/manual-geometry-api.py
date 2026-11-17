@@ -106,6 +106,29 @@ print("renamed set:", vsp.GetSetName(set_index))
 print("renamed set index:", vsp.GetSetIndex(new_set_name))
 print("renamed set members:", vsp.GetGeomSet(new_set_name))
 
+section("VSPAERO")
+vsp.SetVSP3FileName("/work/manual-case.vsp3")
+vsp.SetAnalysisInputDefaults("VSPAEROComputeGeometry")
+vsp.ExecAnalysis("VSPAEROComputeGeometry")
+files = {entry["path"].rsplit("/", 1)[-1]: entry for entry in vsp.GetVSPAEROFiles()}
+print("geometry file:", files["manual-case.vspgeom"]["exists"], files["manual-case.vspgeom"]["size"])
+
+vsp.SetAnalysisInputDefaults("VSPAEROSweep")
+for name, value in (("AlphaStart", 2.0), ("AlphaEnd", 2.0), ("BetaStart", 0.0),
+                    ("BetaEnd", 0.0), ("MachStart", 0.1), ("MachEnd", 0.1)):
+    vsp.SetDoubleAnalysisInput("VSPAEROSweep", name, [value])
+for name, value in (("AlphaNpts", 1), ("BetaNpts", 1), ("MachNpts", 1), ("ReCrefNpts", 1), ("NCPU", 1)):
+    vsp.SetIntAnalysisInput("VSPAEROSweep", name, [value])
+sweep_root = vsp.ExecAnalysis("VSPAEROSweep")
+print("sweep root result:", sweep_root)
+files = {entry["path"].rsplit("/", 1)[-1]: entry for entry in vsp.GetVSPAEROFiles()}
+print("history/polar written:", files["manual-case.history"]["exists"], files["manual-case.polar"]["exists"])
+history = vsp.FindResultsID("VSPAERO_History", 0)
+alpha = vsp.GetDoubleResults(history, "Alpha", 0)
+cdtot = vsp.GetDoubleResults(history, "CDtot", 0)
+print("sweep cases:", len(alpha), "alpha:", alpha, "CDtot:", [round(value, 6) for value in cdtot])
+print("solver output tail:", vsp.GetVSPAEROOutput().strip().splitlines()[-1:])
+
 section("cleanup")
 vsp.DeleteSubSurf(geom_id, sub_id)
 vsp.CutXSec(geom_id, 2)
