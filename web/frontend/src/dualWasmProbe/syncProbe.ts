@@ -17,6 +17,8 @@ const LIVE_WRITES = new Set([
   'live_reorder_sub_surf', 'live_set_sub_surf_name', 'live_set_set_name', 'live_set_set_flag', 'live_delete_result', 'live_delete_all_results',
   'live_parm_set_update', 'live_set_geom_name',
   'live_update_geom', 'live_set_geom_parent', 'live_copy_geom', 'live_cut_geom', 'live_paste_geom',
+  'live_geom_set_draw_type', 'live_geom_set_display_type', 'live_geom_set_wire_color',
+  'live_geom_set_material',
 ])
 // File operations also mutate the session: ReadVSPFile replaces the model and
 // WriteVSPFile renames it, so both carry write-outcome semantics.
@@ -167,6 +169,32 @@ async function run(mode: 'script' | 'console', script?: string): Promise<unknown
           return live(op === 'live_comp_pnt01' ? 'liveCompPnt01' : 'liveCompNorm01', id, `${index},${w}`, u)
         }
         if (op === 'live_num_main_surfs') return live('liveNumMainSurfs', text('geom_id'))
+        if (op === 'live_geom_draw_type') return live('liveGeomDrawType', text('geom_id'))
+        if (op === 'live_geom_display_type') return live('liveGeomDisplayType', text('geom_id'))
+        if (op === 'live_geom_set_draw_type' || op === 'live_geom_set_display_type') {
+          const type = args.type
+          if (typeof type !== 'number' || !Number.isInteger(type)) throw new WasmEngineError(400, 'Invalid display type', 'not_written')
+          return live(op === 'live_geom_set_draw_type' ? 'liveGeomSetDrawType' : 'liveGeomSetDisplayType', text('geom_id'), '', type)
+        }
+        if (op === 'live_geom_wire_color') return live('liveGeomWireColor', text('geom_id'))
+        if (op === 'live_geom_set_wire_color') {
+          const rgb = args.rgb
+          if (!Array.isArray(rgb) || rgb.length !== 3 || rgb.some(v => typeof v !== 'number' || !Number.isInteger(v) || v < 0 || v > 255)) {
+            throw new WasmEngineError(400, 'Invalid wire colour', 'not_written')
+          }
+          return live('liveGeomSetWireColor', text('geom_id'), rgb.join('\x1f'))
+        }
+        if (op === 'live_geom_material') return live('liveGeomMaterial', text('geom_id'))
+        if (op === 'live_geom_set_material') {
+          const name = args.name
+          if (typeof name !== 'string') throw new WasmEngineError(400, 'Invalid material name', 'not_written')
+          return live('liveGeomSetMaterial', text('geom_id'), name)
+        }
+        if (op === 'live_geom_bbox_min' || op === 'live_geom_bbox_max') {
+          const surf = args.surf === undefined ? 0 : args.surf
+          if (typeof surf !== 'number' || !Number.isInteger(surf)) throw new WasmEngineError(400, 'Invalid main surface index')
+          return live(op === 'live_geom_bbox_min' ? 'liveGeomBBoxMin' : 'liveGeomBBoxMax', text('geom_id'), args.absolute === false ? '0' : '1', surf)
+        }
         if (op === 'live_update_geom' || op === 'live_copy_geom') {
           await live(op === 'live_update_geom' ? 'liveUpdateGeom' : 'liveCopyGeom', text('geom_id'))
           return null

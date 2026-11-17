@@ -62,6 +62,40 @@ class GeometryApiTest(unittest.TestCase):
         with self.assertRaises(vsp.OpenVSPError):
             vsp.CompNorm01('g', 0, float('nan'), w)
 
+    def test_geometry_display_forwarding(self):
+        self.reply['value'] = 1
+        self.assertEqual(vsp.GetGeomDrawType('g'), 1)
+        self.assertEqual(self.calls[-1], ('live_geom_draw_type', {'geom_id': 'g'}))
+        self.assertEqual(vsp.GetGeomDisplayType('g'), 1)
+        self.assertEqual(self.calls[-1], ('live_geom_display_type', {'geom_id': 'g'}))
+        vsp.SetGeomDrawType('g', 2)
+        self.assertEqual(self.calls[-1], ('live_geom_set_draw_type', {'geom_id': 'g', 'type': 2}))
+        vsp.SetGeomDisplayType('g', 3)
+        self.assertEqual(self.calls[-1], ('live_geom_set_display_type', {'geom_id': 'g', 'type': 3}))
+        self.reply['value'] = [10.0, 20.0, 30.0]
+        self.assertEqual(vsp.GetGeomWireColor('g'), [10.0, 20.0, 30.0])
+        self.assertEqual(self.calls[-1], ('live_geom_wire_color', {'geom_id': 'g'}))
+        vsp.SetGeomWireColor('g', (1, 2, 3))
+        self.assertEqual(self.calls[-1], ('live_geom_set_wire_color', {'geom_id': 'g', 'rgb': [1, 2, 3]}))
+        self.reply['value'] = 'Default'
+        self.assertEqual(vsp.GetGeomMaterialName('g'), 'Default')
+        self.assertEqual(self.calls[-1], ('live_geom_material', {'geom_id': 'g'}))
+        vsp.SetGeomMaterialName('g', 'Aluminum')
+        self.assertEqual(self.calls[-1], ('live_geom_set_material', {'geom_id': 'g', 'name': 'Aluminum'}))
+        self.reply['value'] = [-1.0, -2.0, -3.0]
+        self.assertEqual(vsp.GetGeomBBoxMin('g'), [-1.0, -2.0, -3.0])
+        self.assertEqual(self.calls[-1], ('live_geom_bbox_min', {'geom_id': 'g', 'surf': 0, 'absolute': True}))
+        vsp.GetGeomBBoxMax('g', 1, False)
+        self.assertEqual(self.calls[-1], ('live_geom_bbox_max', {'geom_id': 'g', 'surf': 1, 'absolute': False}))
+        with self.assertRaisesRegex(ValueError, 'draw type'):
+            vsp.SetGeomDrawType('g', 'shade')
+        with self.assertRaisesRegex(ValueError, 'Wire colour'):
+            vsp.SetGeomWireColor('g', (0, 0, 256))
+        with self.assertRaisesRegex(ValueError, 'Wire colour'):
+            vsp.SetGeomWireColor('g', (0, 0))
+        with self.assertRaisesRegex(ValueError, 'material name'):
+            vsp.SetGeomMaterialName('g', None)
+
     def test_xsec_curve_forwarding(self):
         self.reply['value'] = 'alias'
         self.assertEqual(vsp.GetXSecAlias('x'), 'alias')

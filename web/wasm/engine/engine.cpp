@@ -3612,6 +3612,95 @@ void RunImpl( const Job &j )
         if ( !err.empty() ) return Result( j.id, err, "" );
         return Result( j.id, "", std::to_string( count ) );
     }
+    if ( j.op == "liveGeomDrawType" || j.op == "liveGeomDisplayType" )
+    {
+        const int type = j.op == "liveGeomDrawType" ? vsp::GetGeomDrawType( j.a ) : vsp::GetGeomDisplayType( j.a );
+        const string err = TakeErrors();
+        if ( !err.empty() ) return Result( j.id, err, "" );
+        return Result( j.id, "", std::to_string( type ) );
+    }
+    if ( j.op == "liveGeomSetDrawType" || j.op == "liveGeomSetDisplayType" )
+    {
+        if ( !std::isfinite( j.value ) || std::floor( j.value ) != j.value ||
+             j.value < -2147483648.0 || j.value > 2147483647.0 )
+            return ParmWriteFailure( j.id, "Invalid display type", "not_written", "null" );
+        if ( !BeginGuardedWrite() ) return;
+        if ( j.op == "liveGeomSetDrawType" ) vsp::SetGeomDrawType( j.a, static_cast<int>( j.value ) );
+        else vsp::SetGeomDisplayType( j.a, static_cast<int>( j.value ) );
+        DrainedErrors errors = TakeWriteErrors();
+        Watch( "Geometry display type", true );
+        if ( errors.had_errors ) return ParmWriteFailure( j.id, errors.message, "unknown", "null" );
+        return Result( j.id, "", "null" );
+    }
+    if ( j.op == "liveGeomWireColor" )
+    {
+        const vec3d color = vsp::GetGeomWireColor( j.a );
+        const string err = TakeErrors();
+        if ( !err.empty() ) return Result( j.id, err, "" );
+        return Result( j.id, "", "[" + Num( color.x() ) + "," + Num( color.y() ) + "," + Num( color.z() ) + "]" );
+    }
+    if ( j.op == "liveGeomSetWireColor" )
+    {
+        // b carries three unit-separated 0-255 channels; they contain no separator.
+        vector< double > channels;
+        size_t pos = 0;
+        while ( channels.size() < 3 )
+        {
+            const size_t sep = j.b.find( '\x1f', pos );
+            if ( sep == string::npos ) break;
+            const string text = j.b.substr( pos, sep - pos );
+            char *end = nullptr;
+            const double value = std::strtod( text.c_str(), &end );
+            if ( text.empty() || end != text.c_str() + text.size() || !std::isfinite( value ) || std::floor( value ) != value )
+                return ParmWriteFailure( j.id, "Invalid wire colour", "not_written", "null" );
+            channels.push_back( value );
+            pos = sep + 1;
+        }
+        const string last = j.b.substr( pos );
+        char *end = nullptr;
+        const double tail = std::strtod( last.c_str(), &end );
+        if ( last.empty() || end != last.c_str() + last.size() || !std::isfinite( tail ) || std::floor( tail ) != tail )
+            return ParmWriteFailure( j.id, "Invalid wire colour", "not_written", "null" );
+        channels.push_back( tail );
+        if ( channels.size() != 3 ) return ParmWriteFailure( j.id, "Invalid wire colour", "not_written", "null" );
+        if ( !BeginGuardedWrite() ) return;
+        vsp::SetGeomWireColor( j.a, static_cast<int>( channels[0] ), static_cast<int>( channels[1] ), static_cast<int>( channels[2] ) );
+        DrainedErrors errors = TakeWriteErrors();
+        Watch( "Geometry wire colour", true );
+        if ( errors.had_errors ) return ParmWriteFailure( j.id, errors.message, "unknown", "null" );
+        return Result( j.id, "", "null" );
+    }
+    if ( j.op == "liveGeomMaterial" )
+    {
+        const string name = vsp::GetGeomMaterialName( j.a );
+        const string err = TakeErrors();
+        if ( !err.empty() ) return Result( j.id, err, "" );
+        return Result( j.id, "", Quote( name ) );
+    }
+    if ( j.op == "liveGeomSetMaterial" )
+    {
+        if ( !BeginGuardedWrite() ) return;
+        vsp::SetGeomMaterialName( j.a, j.b );
+        DrainedErrors errors = TakeWriteErrors();
+        Watch( "Geometry material", true );
+        if ( errors.had_errors ) return ParmWriteFailure( j.id, errors.message, "unknown", "null" );
+        return Result( j.id, "", "null" );
+    }
+    if ( j.op == "liveGeomBBoxMin" || j.op == "liveGeomBBoxMax" )
+    {
+        // value holds the main surface index; b is "1" for the absolute frame.
+        if ( !std::isfinite( j.value ) || std::floor( j.value ) != j.value ||
+             j.value < -2147483648.0 || j.value > 2147483647.0 )
+            return Result( j.id, "Invalid main surface index", "" );
+        if ( j.b != "1" && j.b != "0" ) return Result( j.id, "Invalid reference frame", "" );
+        const int surf = static_cast<int>( j.value );
+        const bool absolute = j.b == "1";
+        const vec3d v = j.op == "liveGeomBBoxMin" ? vsp::GetGeomBBoxMin( j.a, surf, absolute )
+                                                  : vsp::GetGeomBBoxMax( j.a, surf, absolute );
+        const string err = TakeErrors();
+        if ( !err.empty() ) return Result( j.id, err, "" );
+        return Result( j.id, "", "[" + Num( v.x() ) + "," + Num( v.y() ) + "," + Num( v.z() ) + "]" );
+    }
     if ( j.op == "liveUpdateGeom" || j.op == "liveSetGeomParent" ||
          j.op == "liveCopyGeom" || j.op == "liveCutGeom" || j.op == "livePasteGeom" )
     {

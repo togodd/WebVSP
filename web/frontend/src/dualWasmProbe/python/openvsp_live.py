@@ -62,6 +62,8 @@ _LIVE_WRITES = frozenset({
     'export_file', 'set_vsp_file_name', 'clear_model', 'live_delete_result',
     'live_delete_all_results', 'live_parm_set_update', 'live_set_geom_name',
     'live_update_geom', 'live_set_geom_parent', 'live_copy_geom', 'live_cut_geom', 'live_paste_geom',
+    'live_geom_set_draw_type', 'live_geom_set_display_type', 'live_geom_set_wire_color',
+    'live_geom_set_material',
 })
 
 
@@ -116,6 +118,60 @@ def GetGeomTypes():
 
 def GetNumMainSurfs(geom_id):
     return _call('live_num_main_surfs', geom_id=geom_id)
+
+
+def GetGeomDrawType(geom_id):
+    return _call('live_geom_draw_type', geom_id=geom_id)
+
+
+def SetGeomDrawType(geom_id, draw_type):
+    if type(draw_type) is not int:
+        raise ValueError('A draw type must be an integer')
+    return _call('live_geom_set_draw_type', geom_id=geom_id, type=draw_type)
+
+
+def GetGeomDisplayType(geom_id):
+    return _call('live_geom_display_type', geom_id=geom_id)
+
+
+def SetGeomDisplayType(geom_id, display_type):
+    if type(display_type) is not int:
+        raise ValueError('A display type must be an integer')
+    return _call('live_geom_set_display_type', geom_id=geom_id, type=display_type)
+
+
+def GetGeomWireColor(geom_id):
+    return _call('live_geom_wire_color', geom_id=geom_id)
+
+
+def SetGeomWireColor(geom_id, rgb):
+    try:
+        channels = [int(value) for value in rgb]
+    except (TypeError, ValueError) as exc:
+        raise ValueError('A wire colour needs three integer channels') from exc
+    if len(channels) != 3 or any(value < 0 or value > 255 for value in channels):
+        raise ValueError('Wire colour channels must be integers from 0 to 255')
+    return _call('live_geom_set_wire_color', geom_id=geom_id, rgb=channels)
+
+
+def GetGeomMaterialName(geom_id):
+    return _call('live_geom_material', geom_id=geom_id)
+
+
+def SetGeomMaterialName(geom_id, name):
+    if not isinstance(name, str):
+        raise ValueError('A material name is required')
+    return _call('live_geom_set_material', geom_id=geom_id, name=name)
+
+
+def GetGeomBBoxMin(geom_id, main_surf_ind=0, ref_frame_is_absolute=True):
+    return _call('live_geom_bbox_min', geom_id=geom_id, surf=main_surf_ind,
+                 absolute=bool(ref_frame_is_absolute))
+
+
+def GetGeomBBoxMax(geom_id, main_surf_ind=0, ref_frame_is_absolute=True):
+    return _call('live_geom_bbox_max', geom_id=geom_id, surf=main_surf_ind,
+                 absolute=bool(ref_frame_is_absolute))
 
 
 def CompPnt01(geom_id, surf_indx, u, w):
