@@ -107,6 +107,9 @@ helper（[上游入口](../../../../src/python_api/packages/openvsp/openvsp/__in
 | `GetGeomParent`、`GetGeomChildren`、`SetGeomName` | ✅ | 顶层父级是 `'NONE'`；自命名（Clone 等）拒绝改名 |
 | `GetGeomTypes`、`GetNumMainSurfs`、`UpdateGeom`、`SetGeomParent`、`CopyGeomToClipboard`、`CutGeomToClipboard`、`PasteGeomClipboard` | ✅ | 已通过真实浏览器几何更新、父子关系和剪贴板回归 |
 | `GetGeomParmIDs` | ✅ | |
+| `GetParm`（原生三参形式） | ✅ | 与 `FindParm` 相同，找不到返回 `''` |
+| `GetParmDescript`、`SetParmDescript`、`GetParmContainer`、`SetParmValLimits` | ✅ | 真实浏览器回归覆盖描述、容器与限值钳制 |
+| `CloneGeomVec`、`DeleteGeomVec`、`CopyPasteSet`、`GetGeomSetCollection` | ✅ | 批量克隆/删除与集合复制已通过真实浏览器回归；克隆结果是原生 `Clone` 类型 |
 | `CompPnt01`、`CompNorm01` | ✅ | 已通过机身与机翼真实浏览器回归，返回支持 `x()`/`y()`/`z()` 的 vec3d |
 | `GetGeomDrawType`、`SetGeomDrawType`、`GetGeomDisplayType`、`SetGeomDisplayType`、`GetGeomWireColor`、`SetGeomWireColor` | ✅ | 真实浏览器回归覆盖读写往返与恢复 |
 | `GetGeomBBoxMin`、`GetGeomBBoxMax` | ✅ | 支持主曲面序号与绝对/相对坐标系；绝对框随位置变化已验证 |
