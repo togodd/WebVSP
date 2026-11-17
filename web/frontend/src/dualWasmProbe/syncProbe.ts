@@ -24,6 +24,7 @@ const LIVE_WRITES = new Set([
   'live_vspaero_kill',
   'live_api_write',
   'live_attribute_set_matrix', 'live_attribute_add',
+  'live_add_probe', 'live_add_rst_probe', 'live_add_ruler', 'live_add_protractor',
   'live_vspaero_set_ref_wing', 'live_vspaero_set_mode', 'live_vspaero_set_cg_mode',
   'live_vspaero_add_cs_group', 'live_vspaero_auto_group', 'live_vspaero_delete_cs_group',
   'live_vspaero_add_all_cs_group', 'live_vspaero_remove_all_cs_group', 'live_vspaero_set_cs_name',
@@ -235,6 +236,28 @@ async function run(mode: 'script' | 'console', script?: string): Promise<unknown
           const index = args.surf_indx, u = args.u, w = args.w
           if (typeof index !== 'number' || !Number.isInteger(index)) throw new WasmEngineError(400, 'Invalid surf_indx')
           return live(op === 'live_xsec_tangent_u' ? 'liveXSecTangentU' : 'liveXSecTangentW', text('geom_id'), numbers([u, w], 2), index)
+        }
+        if (op === 'live_add_probe' || op === 'live_add_rst_probe') {
+          const index = args.surf_indx
+          if (typeof index !== 'number' || !Number.isInteger(index)) throw new WasmEngineError(400, 'Invalid surf_indx', 'not_written')
+          const values = (op === 'live_add_probe' ? [args.u, args.w, 0] : [args.r, args.s, args.t]) as unknown[]
+          return live(op === 'live_add_probe' ? 'liveAddProbe' : 'liveAddRSTProbe', text('geom_id'),
+            `${String(index)}\x1f${values.map(v => { if (typeof v !== 'number' || !Number.isFinite(v)) throw new WasmEngineError(400, 'Invalid coordinate', 'not_written'); return String(v) }).join(',')}\x1f${args.name ?? ''}`, 0)
+        }
+        if (op === 'live_add_ruler' || op === 'live_add_protractor') {
+          const anchors = args.anchors
+          if (!Array.isArray(anchors) || anchors.length !== (op === 'live_add_ruler' ? 2 : 3)) {
+            throw new WasmEngineError(400, 'Invalid measurement anchors', 'not_written')
+          }
+          const packed = anchors.map(anchor => {
+            if (!anchor || typeof anchor.geom_id !== 'string' || typeof anchor.surf_indx !== 'number' ||
+                !Number.isInteger(anchor.surf_indx) || typeof anchor.u !== 'number' || typeof anchor.w !== 'number') {
+              throw new WasmEngineError(400, 'Invalid measurement anchor', 'not_written')
+            }
+            return `${anchor.geom_id},${anchor.surf_indx},${anchor.u},${anchor.w}`
+          })
+          return live(op === 'live_add_ruler' ? 'liveAddRuler' : 'liveAddProtractor',
+            '', [...packed, String(args.name ?? '')].join('\x1f'), 0)
         }
         if (op === 'live_attribute_find' || op === 'live_attribute_get_id') {
           const index = args.index === undefined ? 0 : args.index

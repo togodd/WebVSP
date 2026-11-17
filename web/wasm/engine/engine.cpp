@@ -4212,6 +4212,93 @@ void RunImpl( const Job &j )
         if ( !err.empty() ) return Result( j.id, err, "" );
         return Result( j.id, "", "[" + Num( v.x() ) + "," + Num( v.y() ) + "," + Num( v.z() ) + "]" );
     }
+    // ---- Measurement tools --------------------------------------------------
+    if ( j.op == "liveAddProbe" || j.op == "liveAddRSTProbe" )
+    {
+        // b = surface + \x1f + three coordinates + \x1f + name.
+        const size_t sep = j.b.find( '\x1f' );
+        const size_t sep2 = sep == string::npos ? string::npos : j.b.find( '\x1f', sep + 1 );
+        if ( sep == string::npos || sep2 == string::npos ) return Result( j.id, "Invalid probe arguments", "" );
+        vector< double > v;
+        {
+            const string numbers = j.b.substr( sep + 1, sep2 - sep - 1 );
+            size_t pos = 0;
+            while ( pos <= numbers.size() )
+            {
+                const size_t next = numbers.find( ',', pos );
+                const string part = numbers.substr( pos, next == string::npos ? string::npos : next - pos );
+                char *end = nullptr;
+                const double value = std::strtod( part.c_str(), &end );
+                if ( part.empty() || end != part.c_str() + part.size() || !std::isfinite( value ) )
+                    return Result( j.id, "Invalid probe coordinates", "" );
+                v.push_back( value );
+                if ( next == string::npos ) break;
+                pos = next + 1;
+            }
+        }
+        if ( v.size() != 3 ) return Result( j.id, "Invalid probe coordinates", "" );
+        const string name = j.b.substr( sep2 + 1 );
+        string id;
+        if ( j.op == "liveAddProbe" ) id = vsp::AddProbe( j.a, static_cast<int>( j.value ), v[0], v[1], name );
+        else id = vsp::AddRSTProbe( j.a, static_cast<int>( j.value ), v[0], v[1], v[2], name );
+        const string err = TakeErrors();
+        if ( !err.empty() ) return Result( j.id, err, "" );
+        return Result( j.id, "", Quote( id ) );
+    }
+    if ( j.op == "liveAddRuler" || j.op == "liveAddProtractor" )
+    {
+        // b = "geom,surf,u,w" for each end (two for a ruler, three for a
+        // protractor), then the name; entries separated by \x1f.
+        vector< string > items;
+        {
+            size_t pos = 0;
+            while ( pos <= j.b.size() )
+            {
+                const size_t sep = j.b.find( '\x1f', pos );
+                items.push_back( j.b.substr( pos, sep == string::npos ? string::npos : sep - pos ) );
+                if ( sep == string::npos ) break;
+                pos = sep + 1;
+            }
+        }
+        const size_t wanted = j.op == "liveAddRuler" ? 3u : 4u;
+        if ( items.size() != wanted ) return Result( j.id, "Invalid measurement arguments", "" );
+        vector< string > geom;
+        vector< int > surf;
+        vector< double > uvals, wvals;
+        for ( size_t i = 0; i + 1 < items.size(); ++i )
+        {
+            size_t pos = 0;
+            vector< string > parts;
+            while ( pos <= items[i].size() )
+            {
+                const size_t comma = items[i].find( ',', pos );
+                parts.push_back( items[i].substr( pos, comma == string::npos ? string::npos : comma - pos ) );
+                if ( comma == string::npos ) break;
+                pos = comma + 1;
+            }
+            if ( parts.size() != 4 || parts[0].empty() ) return Result( j.id, "Invalid measurement anchor", "" );
+            char *e1 = nullptr, *e2 = nullptr, *e3 = nullptr;
+            const long index = std::strtol( parts[1].c_str(), &e1, 10 );
+            const double u = std::strtod( parts[2].c_str(), &e2 ), w = std::strtod( parts[3].c_str(), &e3 );
+            if ( parts[1].empty() || *e1 || parts[2].empty() || *e2 || parts[3].empty() || *e3 ||
+                 !std::isfinite( u ) || !std::isfinite( w ) )
+                return Result( j.id, "Invalid measurement anchor", "" );
+            geom.push_back( parts[0] );
+            surf.push_back( static_cast< int >( index ) );
+            uvals.push_back( u );
+            wvals.push_back( w );
+        }
+        const string name = items.back();
+        string id;
+        if ( j.op == "liveAddRuler" )
+            id = vsp::AddRuler( geom[0], surf[0], uvals[0], wvals[0], geom[1], surf[1], uvals[1], wvals[1], name );
+        else
+            id = vsp::AddProtractor( geom[0], surf[0], uvals[0], wvals[0], geom[1], surf[1], uvals[1], wvals[1],
+                                     geom[2], surf[2], uvals[2], wvals[2], name );
+        const string err = TakeErrors();
+        if ( !err.empty() ) return Result( j.id, err, "" );
+        return Result( j.id, "", Quote( id ) );
+    }
     // ---- Attributes ---------------------------------------------------------
     // Matrices travel as rows joined by ';' with cells joined by ','; vec3d lists
     // reuse the point encoding (entries by '\n', components by ',').

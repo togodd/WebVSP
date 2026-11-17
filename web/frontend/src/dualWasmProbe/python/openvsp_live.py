@@ -70,6 +70,7 @@ _LIVE_WRITES = frozenset({
     'live_vspaero_set_ref_wing', 'live_vspaero_set_mode', 'live_vspaero_set_cg_mode',
     'live_vspaero_add_cs_group', 'live_vspaero_auto_group', 'live_vspaero_delete_cs_group',
     'live_vspaero_add_all_cs_group', 'live_vspaero_remove_all_cs_group', 'live_vspaero_set_cs_name',
+    'live_add_probe', 'live_add_rst_probe', 'live_add_ruler', 'live_add_protractor',
     'live_api_write', 'live_attribute_set_matrix', 'live_attribute_add',
 })
 
@@ -599,6 +600,39 @@ def GetXSecParmIDs(xsec_id):
 
 def GetXSecParm(xsec_id, name):
     return _call('live_xsec_parm', xsec_id=xsec_id, name=name)
+
+
+# ---------------------------------------------------------------- measurement
+
+def AddProbe(geom_id, surf_indx, u, w, name=''):
+    """Surface probe marker; returns its ID."""
+    return _call('live_add_probe', geom_id=geom_id, surf_indx=surf_indx,
+                 u=float(u), w=float(w), name=name)
+
+
+def AddRSTProbe(geom_id, surf_indx, r, s, t, name=''):
+    """Probe at a parametric RST coordinate; returns its ID."""
+    return _call('live_add_rst_probe', geom_id=geom_id, surf_indx=surf_indx,
+                 r=float(r), s=float(s), t=float(t), name=name)
+
+
+def AddRuler(start_geom, start_surf, start_u, start_w, end_geom, end_surf, end_u, end_w, name=''):
+    """Distance ruler between two surface coordinates."""
+    return _call('live_add_ruler', name=name, anchors=[
+        {'geom_id': start_geom, 'surf_indx': start_surf, 'u': float(start_u), 'w': float(start_w)},
+        {'geom_id': end_geom, 'surf_indx': end_surf, 'u': float(end_u), 'w': float(end_w)},
+    ])
+
+
+def AddProtractor(start_geom, start_surf, start_u, start_w,
+                  mid_geom, mid_surf, mid_u, mid_w,
+                  end_geom, end_surf, end_u, end_w, name=''):
+    """Angle protractor through three surface coordinates."""
+    return _call('live_add_protractor', name=name, anchors=[
+        {'geom_id': start_geom, 'surf_indx': start_surf, 'u': float(start_u), 'w': float(start_w)},
+        {'geom_id': mid_geom, 'surf_indx': mid_surf, 'u': float(mid_u), 'w': float(mid_w)},
+        {'geom_id': end_geom, 'surf_indx': end_surf, 'u': float(end_u), 'w': float(end_w)},
+    ])
 
 
 # ---------------------------------------------------------------- attributes

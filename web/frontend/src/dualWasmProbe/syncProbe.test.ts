@@ -80,6 +80,22 @@ describe('live write bridge', () => {
     expect(engine.call).not.toHaveBeenCalled()
     worker.onmessage({ data: { type: 'done', value: 'null' } } as MessageEvent)
   })
+  it('forwards probes, rulers and protractors', async () => {
+    void runSyncScript('')
+    const worker = FakeWorker.instance
+    engine.call.mockResolvedValue(null)
+    expect((await worker.request('live_add_probe', { geom_id: 'g', surf_indx: 0, u: 0.5, w: 0.5, name: 'P' })).ok).toBe(true)
+    expect(engine.call).toHaveBeenLastCalledWith('liveAddProbe', 'g', '0\x1f0.5,0.5,0\x1fP', 0)
+    expect((await worker.request('live_add_rst_probe', { geom_id: 'g', surf_indx: 1, r: 0.1, s: 0.2, t: 0.3, name: 'R' })).ok).toBe(true)
+    expect(engine.call).toHaveBeenLastCalledWith('liveAddRSTProbe', 'g', '1\x1f0.1,0.2,0.3\x1fR', 0)
+    expect((await worker.request('live_add_ruler', { anchors: [
+      { geom_id: 'a', surf_indx: 0, u: 0.2, w: 0.5 }, { geom_id: 'b', surf_indx: 0, u: 0.8, w: 0.5 }], name: 'L' })).ok).toBe(true)
+    expect(engine.call).toHaveBeenLastCalledWith('liveAddRuler', '', 'a,0,0.2,0.5\x1fb,0,0.8,0.5\x1fL', 0)
+    engine.call.mockClear()
+    expect((await worker.request('live_add_ruler', { anchors: [{ geom_id: 'a', surf_indx: 0, u: 0.2, w: 0.5 }] })).error.outcome).toBe('not_written')
+    expect(engine.call).not.toHaveBeenCalled()
+    worker.onmessage({ data: { type: 'done', value: 'null' } } as MessageEvent)
+  })
   it('forwards attribute matrices and typed adds', async () => {
     void runSyncScript('')
     const worker = FakeWorker.instance
