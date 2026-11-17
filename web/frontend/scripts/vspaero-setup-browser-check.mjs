@@ -142,6 +142,43 @@ assert 'Done' in output, output[:200]
 # The solver's own banner and setup lines are part of that tail.
 assert 'VSPAERO' in output or 'vortex' in output, output[:300]
 `],
+    ['reference wing, modes and control surface groups', `
+import openvsp as vsp
+vsp.ClearVSPModel()
+wing = vsp.AddGeom('WING')
+vsp.SetGeomName(wing, 'MainWing')
+vsp.Update()
+vsp.SetVSP3FileName('/work/refs.vsp3')
+
+# The engine points VSPAERO at its own program directory.
+assert vsp.GetVSPAEROPath() == '/bin', vsp.GetVSPAEROPath()
+
+# No mode is selected on a fresh model, and an unknown mode is refused natively.
+assert vsp.GetVSPAEROModeID() == '', vsp.GetVSPAEROModeID()
+assert vsp.GetVSPAEROCGModeID() == '', vsp.GetVSPAEROCGModeID()
+for call in (lambda: vsp.SetVSPAEROModeID('mode-1'), lambda: vsp.SetVSPAEROCGModeID('mode-1')):
+    try:
+        call()
+    except vsp.OpenVSPError as exc:
+        assert 'Mode' in str(exc), exc
+    else:
+        raise AssertionError('unknown mode accepted')
+
+# The reference wing round trips through the native setter.
+assert vsp.SetVSPAERORefWingID(wing) == wing
+assert vsp.GetVSPAERORefWingID() == wing
+
+# Control surface groups: create, rename, fill, empty, auto group and delete.
+group = vsp.AddVSPAEROControlSurfaceGroup()
+assert group, group
+assert vsp.GetVSPAEROControlGroupName(0) == 'Unnamed Control Group'
+vsp.SetVSPAEROControlGroupName('Aileron', 0)
+assert vsp.GetVSPAEROControlGroupName(0) == 'Aileron'
+vsp.AddAllToVSPAEROControlSurfaceGroup(0)
+vsp.RemoveAllFromVSPAEROControlSurfaceGroup(0)
+vsp.AutoGroupVSPAEROControlSurfaces()
+vsp.DeleteVSPAEROControlSurfaceGroup(0)
+`],
   ]
   for (const [name, code] of cases) {
     try {

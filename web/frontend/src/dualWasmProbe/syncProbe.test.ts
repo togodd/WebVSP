@@ -80,6 +80,28 @@ describe('live write bridge', () => {
     expect(engine.call).not.toHaveBeenCalled()
     worker.onmessage({ data: { type: 'done', value: 'null' } } as MessageEvent)
   })
+  it('forwards VSPAERO reference, mode and control group calls', async () => {
+    void runSyncScript('')
+    const worker = FakeWorker.instance
+    engine.call.mockResolvedValue(null)
+    expect((await worker.request('live_vspaero_ref_wing', {})).ok).toBe(true)
+    expect(engine.call).toHaveBeenLastCalledWith('liveVSPAERORefWing', '', '', 0)
+    expect((await worker.request('live_vspaero_set_ref_wing', { geom_id: 'g' })).ok).toBe(true)
+    expect(engine.call).toHaveBeenLastCalledWith('liveVSPAEROSetRefWing', 'g', '', 0)
+    expect((await worker.request('live_vspaero_set_cg_mode', { mode_id: 'm' })).ok).toBe(true)
+    expect(engine.call).toHaveBeenLastCalledWith('liveVSPAEROSetCGMode', 'm', '', 0)
+    expect((await worker.request('live_vspaero_auto_group', {})).ok).toBe(true)
+    expect(engine.call).toHaveBeenLastCalledWith('liveVSPAEROAutoGroup', '', '', 0)
+    expect((await worker.request('live_vspaero_add_all_cs_group', { index: 2 })).ok).toBe(true)
+    expect(engine.call).toHaveBeenLastCalledWith('liveVSPAEROAddAllCSGroup', '', '', 2)
+    expect((await worker.request('live_vspaero_set_cs_name', { name: 'Flap', index: 1 })).ok).toBe(true)
+    expect(engine.call).toHaveBeenLastCalledWith('liveVSPAEROSetCSName', 'Flap', '', 1)
+    engine.call.mockClear()
+    expect((await worker.request('live_vspaero_delete_cs_group', { index: -1 })).error.outcome).toBe('not_written')
+    expect((await worker.request('live_vspaero_get_cs_name', { index: 0.5 })).ok).toBe(false)
+    expect(engine.call).not.toHaveBeenCalled()
+    worker.onmessage({ data: { type: 'done', value: 'null' } } as MessageEvent)
+  })
   it('forwards VSPAERO output and the kill request', async () => {
     void runSyncScript('')
     const worker = FakeWorker.instance

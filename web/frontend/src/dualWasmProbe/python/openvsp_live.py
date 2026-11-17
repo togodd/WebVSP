@@ -67,6 +67,9 @@ _LIVE_WRITES = frozenset({
     'live_parm_set_descript', 'live_parm_set_limits', 'live_clone_geom_vec', 'live_delete_geom_vec',
     'live_copy_paste_set',
     'live_vspaero_kill',
+    'live_vspaero_set_ref_wing', 'live_vspaero_set_mode', 'live_vspaero_set_cg_mode',
+    'live_vspaero_add_cs_group', 'live_vspaero_auto_group', 'live_vspaero_delete_cs_group',
+    'live_vspaero_add_all_cs_group', 'live_vspaero_remove_all_cs_group', 'live_vspaero_set_cs_name',
 })
 
 
@@ -971,6 +974,77 @@ def GetVSPAEROFiles():
     Each entry is ``{'path', 'exists', 'size'}``; ``size`` is -1 when missing.
     """
     return _call('live_vspaero_files')
+
+
+def GetVSPAERORefWingID():
+    return _call('live_vspaero_ref_wing')
+
+
+def SetVSPAERORefWingID(geom_id):
+    return _call('live_vspaero_set_ref_wing', geom_id=geom_id)
+
+
+def GetVSPAEROModeID():
+    return _call('live_vspaero_mode')
+
+
+def SetVSPAEROModeID(mode_id):
+    return _call('live_vspaero_set_mode', mode_id=mode_id)
+
+
+def GetVSPAEROCGModeID():
+    return _call('live_vspaero_cg_mode')
+
+
+def SetVSPAEROCGModeID(mode_id):
+    return _call('live_vspaero_set_cg_mode', mode_id=mode_id)
+
+
+def GetVSPAEROPath():
+    """Directory the engine looks in for the solver programs ("/bin" here)."""
+    return _call('live_vspaero_path')
+
+
+def AddVSPAEROControlSurfaceGroup():
+    """Create a control surface group; returns its group ID."""
+    return _call('live_vspaero_add_cs_group')
+
+
+def AutoGroupVSPAEROControlSurfaces():
+    """Group every control surface by its own name, as the screen's Auto Group."""
+    return _call('live_vspaero_auto_group')
+
+
+def DeleteVSPAEROControlSurfaceGroup(index):
+    if type(index) is not int or index < 0:
+        raise ValueError('A control surface group index is required')
+    return _call('live_vspaero_delete_cs_group', index=index)
+
+
+def AddAllToVSPAEROControlSurfaceGroup(index):
+    if type(index) is not int or index < 0:
+        raise ValueError('A control surface group index is required')
+    return _call('live_vspaero_add_all_cs_group', index=index)
+
+
+def RemoveAllFromVSPAEROControlSurfaceGroup(index):
+    if type(index) is not int or index < 0:
+        raise ValueError('A control surface group index is required')
+    return _call('live_vspaero_remove_all_cs_group', index=index)
+
+
+def GetVSPAEROControlGroupName(index):
+    if type(index) is not int or index < 0:
+        raise ValueError('A control surface group index is required')
+    return _call('live_vspaero_get_cs_name', index=index)
+
+
+def SetVSPAEROControlGroupName(name, index):
+    if not isinstance(name, str) or not name:
+        raise ValueError('A control surface group name is required')
+    if type(index) is not int or index < 0:
+        raise ValueError('A control surface group index is required')
+    return _call('live_vspaero_set_cs_name', name=name, index=index)
 
 
 def GetVSPAEROOutput():

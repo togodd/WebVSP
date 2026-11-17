@@ -138,6 +138,12 @@ VSPAERO 控制面、测量、可视化等）尚未桥接。
 | `GetSetNames`、`SetSetName`、`SetSetFlag` | ✅ | 已通过真实浏览器/WASM 集合改名与成员标记回归 |
 | `ExecAnalysis` | ✅ | 只允许执行 `DegenGeom`/`SurfacePatches`/`MassProp`/`CompGeom`，且部分输入会被限制 |
 | `SetAnalysisInputDefaults` | ✅ | 对任意有效分析调用原生初始化，可能产生初始化副作用 |
+| `ExecAnalysis('VSPAEROComputeGeometry')` | ✅ | 先写 `*.vspgeom/*.csf/*.vkey`；未设置绝对模型路径时会明确拒绝 |
+| `ExecAnalysis('VSPAEROSweep')` | ✅ | `StopBeforeRun=1` 只写 setup；完整运行会启动 `vspaero.wasm` 并读回结果 |
+| `GetVSPAEROFiles()` | ✅ | 标准产物（vspgeom/vspaero/groups/history/polar/lod/adb）的存在性与大小 |
+| `GetVSPAEROOutput()`、`KillVSPAERO()` | ✅ | 求解器输出尾部；中断与界面 Kill Solver 相同 |
+| `GetVSPAERORefWingID`/`SetVSPAERORefWingID`、`GetVSPAEROModeID`/`SetVSPAEROModeID`、`GetVSPAEROCGModeID`/`SetVSPAEROCGModeID`、`GetVSPAEROPath` | ✅ | 模式必须已存在，未知名由原生拒绝 |
+| `AddVSPAEROControlSurfaceGroup`、`AutoGroupVSPAEROControlSurfaces`、`DeleteVSPAEROControlSurfaceGroup`、`AddAllTo…`/`RemoveAllFrom…`、`GetVSPAEROControlGroupName`/`SetVSPAEROControlGroupName` | ✅ | 按索引操作；已验证创建/改名/填充/清空/自动分组/删除 |
 | `ListAnalysis`、`GetAnalysisInputNames`、`GetAnalysisInputType` | ✅ | 可发现分析和输入；发现不意味着能执行 |
 | `GetIntAnalysisInput`、`GetDoubleAnalysisInput`、`GetStringAnalysisInput` | ✅ | 返回完整向量并支持有效索引；真实浏览器验证基础读取 |
 | `SetIntAnalysisInput`、`SetDoubleAnalysisInput`、`SetStringAnalysisInput` | ✅ | 完整向量和合法 index 通过长度前缀帧一次调用；字符串支持空串与任意 Unicode，不支持 NUL；已通过真实浏览器回归 |
@@ -149,6 +155,30 @@ VSPAERO 控制面、测量、可视化等）尚未桥接。
 | `parse_results_object`、`GetResultSnapshotCapabilities`、`GetResultSnapshots` | ✅ | 见“运行机制与限制” |
 | `GetResultTree`、`parse_results_tree`、`parse_results_object_fast`、`parse_surface_patches_fast` | 🚫 | 递归结果树被固定拒绝 |
 | `ReadVSPFile`、`WriteVSPFile`、`ExportFile`、`ImportFile`、`SetVSP3FileName`、`GetVSPFileName`、`ClearVSPModel` | ✅ | 同步语义，操作引擎文件系统；相对路径解析到 `/work`（见“Python 工作区与文件 API”）。`ExportFile` 只支持原生默认可选参数；本构建无 STEP 导出 |
+
+### VSPAERO 使用说明
+
+```python
+vsp.SetVSP3FileName('/work/case.vsp3')          # 必须是绝对路径
+vsp.SetAnalysisInputDefaults('VSPAEROComputeGeometry')
+vsp.ExecAnalysis('VSPAEROComputeGeometry')      # 先算几何，写出 case.vspgeom
+
+vsp.SetAnalysisInputDefaults('VSPAEROSweep')
+vsp.SetDoubleAnalysisInput('VSPAEROSweep', 'AlphaStart', [4.0])
+vsp.SetDoubleAnalysisInput('VSPAEROSweep', 'AlphaEnd', [4.0])
+vsp.SetIntAnalysisInput('VSPAEROSweep', 'AlphaNpts', [1])
+vsp.SetIntAnalysisInput('VSPAEROSweep', 'NCPU', [1])
+root = vsp.ExecAnalysis('VSPAEROSweep')
+
+hist = vsp.FindResultsID('VSPAERO_History', 0)
+alpha = vsp.GetDoubleResults(hist, 'Alpha', 0)
+cdtot = vsp.GetDoubleResults(hist, 'CDtot', 0)
+```
+
+- 引擎强制 `NCPU=1`、`UseModeFlag=0`、`GeomSet=SET_ALL`、`ThinGeomSet=SET_NONE`：浏览器里没有可选集合/模式，求解器也是单线程。
+- 一次求解会占住 OpenVSP 线程整段时间（实测 3 点小机翼约 2 秒，整机可达分钟级）；页面其余部分仍可交互，镜像出的 VSPAERO 屏幕里的 **Kill Solver** 仍然有效。
+- 结果字段随扫描轴变化：`VSPAERO_History` 实测含 `Alpha`、`Beta`、`Mach`、`CLtot`、`CDtot`、`CDi`、`CFx*` 等；`CL` 不是字段名，用 `GetAllDataNames()` 查实际名字。
+- `.adb` 可达数百 MB，默认扫描会连带跑 CpSlicer（`vsploads`）；不需要切片时在输入里关掉 CpSlice。
 
 ### 上游 helper 模块
 

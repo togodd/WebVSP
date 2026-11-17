@@ -58,6 +58,44 @@ class AnalysisApiTest(unittest.TestCase):
         vsp.KillVSPAERO()
         self.assertEqual(self.calls[-1], ('live_vspaero_kill', {}))
 
+    def test_vspaero_reference_and_control_groups(self):
+        self.reply['value'] = 'wg-1'
+        self.assertEqual(vsp.GetVSPAERORefWingID(), 'wg-1')
+        self.assertEqual(self.calls[-1], ('live_vspaero_ref_wing', {}))
+        vsp.SetVSPAERORefWingID('wg-2')
+        self.assertEqual(self.calls[-1], ('live_vspaero_set_ref_wing', {'geom_id': 'wg-2'}))
+        self.reply['value'] = 'mode-1'
+        self.assertEqual(vsp.GetVSPAEROModeID(), 'mode-1')
+        self.assertEqual(self.calls[-1], ('live_vspaero_mode', {}))
+        vsp.SetVSPAEROModeID('mode-2')
+        self.assertEqual(self.calls[-1], ('live_vspaero_set_mode', {'mode_id': 'mode-2'}))
+        vsp.GetVSPAEROCGModeID()
+        self.assertEqual(self.calls[-1][0], 'live_vspaero_cg_mode')
+        vsp.SetVSPAEROCGModeID('mode-3')
+        self.assertEqual(self.calls[-1][0], 'live_vspaero_set_cg_mode')
+        self.reply['value'] = '/bin'
+        self.assertEqual(vsp.GetVSPAEROPath(), '/bin')
+        self.assertEqual(self.calls[-1], ('live_vspaero_path', {}))
+        self.reply['value'] = 'csg-1'
+        self.assertEqual(vsp.AddVSPAEROControlSurfaceGroup(), 'csg-1')
+        self.assertEqual(self.calls[-1], ('live_vspaero_add_cs_group', {}))
+        vsp.AutoGroupVSPAEROControlSurfaces()
+        self.assertEqual(self.calls[-1], ('live_vspaero_auto_group', {}))
+        for fn, op in ((vsp.DeleteVSPAEROControlSurfaceGroup, 'live_vspaero_delete_cs_group'),
+                       (vsp.AddAllToVSPAEROControlSurfaceGroup, 'live_vspaero_add_all_cs_group'),
+                       (vsp.RemoveAllFromVSPAEROControlSurfaceGroup, 'live_vspaero_remove_all_cs_group')):
+            fn(2)
+            self.assertEqual(self.calls[-1], (op, {'index': 2}))
+        self.reply['value'] = 'Aileron'
+        self.assertEqual(vsp.GetVSPAEROControlGroupName(1), 'Aileron')
+        self.assertEqual(self.calls[-1], ('live_vspaero_get_cs_name', {'index': 1}))
+        vsp.SetVSPAEROControlGroupName('Flap', 1)
+        self.assertEqual(self.calls[-1], ('live_vspaero_set_cs_name', {'name': 'Flap', 'index': 1}))
+        with self.assertRaisesRegex(ValueError, 'index'):
+            vsp.DeleteVSPAEROControlSurfaceGroup(-1)
+        with self.assertRaisesRegex(ValueError, 'name'):
+            vsp.SetVSPAEROControlGroupName('', 0)
+
     def test_typed_inputs(self):
         for kind in ('Int', 'Double', 'String'):
             getattr(vsp, 'Get' + kind + 'AnalysisInput')('AnyAnalysis', 'Input', 2)

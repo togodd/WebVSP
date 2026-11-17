@@ -3816,6 +3816,80 @@ void RunImpl( const Job &j )
         if ( !err.empty() ) return Result( j.id, err, "" );
         return Result( j.id, "", "[" + LiveDoubleArray( us ) + "," + LiveDoubleArray( ws ) + "]" );
     }
+    if ( j.op == "liveVSPAERORefWing" )
+    {
+        return Result( j.id, TakeErrors(), Quote( vsp::GetVSPAERORefWingID() ) );
+    }
+    if ( j.op == "liveVSPAEROSetRefWing" )
+    {
+        const string id = vsp::SetVSPAERORefWingID( j.a );
+        return Result( j.id, TakeErrors(), Quote( id ) );
+    }
+    if ( j.op == "liveVSPAEROMode" || j.op == "liveVSPAEROCGMode" )
+    {
+        const string id = j.op == "liveVSPAEROMode" ? vsp::GetVSPAEROModeID() : vsp::GetVSPAEROCGModeID();
+        return Result( j.id, TakeErrors(), Quote( id ) );
+    }
+    if ( j.op == "liveVSPAEROSetMode" || j.op == "liveVSPAEROSetCGMode" )
+    {
+        if ( j.op == "liveVSPAEROSetMode" ) vsp::SetVSPAEROModeID( j.a );
+        else vsp::SetVSPAEROCGModeID( j.a );
+        return Result( j.id, TakeErrors(), "null" );
+    }
+    if ( j.op == "liveVSPAEROPath" )
+    {
+        return Result( j.id, TakeErrors(), Quote( vsp::GetVSPAEROPath() ) );
+    }
+    if ( j.op == "liveVSPAEROAddCSGroup" )
+    {
+        if ( !BeginGuardedWrite() ) return;
+        const string id = vsp::AddVSPAEROControlSurfaceGroup();
+        DrainedErrors errors = TakeWriteErrors();
+        Watch( "VSPAERO control group", true );
+        if ( errors.had_errors ) return ParmWriteFailure( j.id, errors.message, "unknown", "" );
+        return Result( j.id, "", Quote( id ) );
+    }
+    if ( j.op == "liveVSPAEROAutoGroup" )
+    {
+        if ( !BeginGuardedWrite() ) return;
+        vsp::AutoGroupVSPAEROControlSurfaces();
+        DrainedErrors errors = TakeWriteErrors();
+        Watch( "VSPAERO control groups", true );
+        if ( errors.had_errors ) return ParmWriteFailure( j.id, errors.message, "unknown", "null" );
+        return Result( j.id, "", "null" );
+    }
+    if ( j.op == "liveVSPAERODeleteCSGroup" || j.op == "liveVSPAEROAddAllCSGroup" || j.op == "liveVSPAERORemoveAllCSGroup" )
+    {
+        if ( !std::isfinite( j.value ) || std::floor( j.value ) != j.value ||
+             j.value < 0 || j.value > 2147483647.0 )
+            return ParmWriteFailure( j.id, "Invalid control surface group index", "not_written", "null" );
+        if ( !BeginGuardedWrite() ) return;
+        const int index = static_cast<int>( j.value );
+        if ( j.op == "liveVSPAERODeleteCSGroup" ) vsp::DeleteVSPAEROControlSurfaceGroup( index );
+        else if ( j.op == "liveVSPAEROAddAllCSGroup" ) vsp::AddAllToVSPAEROControlSurfaceGroup( index );
+        else vsp::RemoveAllFromVSPAEROControlSurfaceGroup( index );
+        DrainedErrors errors = TakeWriteErrors();
+        Watch( "VSPAERO control group", true );
+        if ( errors.had_errors ) return ParmWriteFailure( j.id, errors.message, "unknown", "null" );
+        return Result( j.id, "", "null" );
+    }
+    if ( j.op == "liveVSPAEROGetCSName" )
+    {
+        if ( !std::isfinite( j.value ) || std::floor( j.value ) != j.value || j.value < 0 || j.value > 2147483647.0 )
+            return Result( j.id, "Invalid control surface group index", "" );
+        return Result( j.id, TakeErrors(), Quote( vsp::GetVSPAEROControlGroupName( static_cast<int>( j.value ) ) ) );
+    }
+    if ( j.op == "liveVSPAEROSetCSName" )
+    {
+        if ( !std::isfinite( j.value ) || std::floor( j.value ) != j.value || j.value < 0 || j.value > 2147483647.0 )
+            return ParmWriteFailure( j.id, "Invalid control surface group index", "not_written", "null" );
+        if ( !BeginGuardedWrite() ) return;
+        vsp::SetVSPAEROControlGroupName( j.a, static_cast<int>( j.value ) );
+        DrainedErrors errors = TakeWriteErrors();
+        Watch( "VSPAERO control group name", true );
+        if ( errors.had_errors ) return ParmWriteFailure( j.id, errors.message, "unknown", "null" );
+        return Result( j.id, "", "null" );
+    }
     if ( j.op == "liveVSPAEROOutput" )
     {
         return Result( j.id, "", Quote( GetSolverLog().Tail() ) );

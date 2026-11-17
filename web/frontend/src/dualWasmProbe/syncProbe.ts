@@ -22,6 +22,9 @@ const LIVE_WRITES = new Set([
   'live_parm_set_descript', 'live_parm_set_limits', 'live_clone_geom_vec', 'live_delete_geom_vec',
   'live_copy_paste_set',
   'live_vspaero_kill',
+  'live_vspaero_set_ref_wing', 'live_vspaero_set_mode', 'live_vspaero_set_cg_mode',
+  'live_vspaero_add_cs_group', 'live_vspaero_auto_group', 'live_vspaero_delete_cs_group',
+  'live_vspaero_add_all_cs_group', 'live_vspaero_remove_all_cs_group', 'live_vspaero_set_cs_name',
 ])
 // File operations also mutate the session: ReadVSPFile replaces the model and
 // WriteVSPFile renames it, so both carry write-outcome semantics.
@@ -167,6 +170,35 @@ async function run(mode: 'script' | 'console', script?: string): Promise<unknown
         if (op === 'live_geom_types') return live('geomTypes')
         if (op === 'live_vspaero_files') return live('liveVSPAEROFiles')
         if (op === 'live_vspaero_output') return live('liveVSPAEROOutput')
+        if (op === 'live_vspaero_ref_wing') return live('liveVSPAERORefWing')
+        if (op === 'live_vspaero_set_ref_wing') return live('liveVSPAEROSetRefWing', text('geom_id'))
+        if (op === 'live_vspaero_mode') return live('liveVSPAEROMode')
+        if (op === 'live_vspaero_set_mode') return live('liveVSPAEROSetMode', text('mode_id'))
+        if (op === 'live_vspaero_cg_mode') return live('liveVSPAEROCGMode')
+        if (op === 'live_vspaero_set_cg_mode') return live('liveVSPAEROSetCGMode', text('mode_id'))
+        if (op === 'live_vspaero_path') return live('liveVSPAEROPath')
+        if (op === 'live_vspaero_add_cs_group') return live('liveVSPAEROAddCSGroup')
+        if (op === 'live_vspaero_auto_group') return live('liveVSPAEROAutoGroup')
+        if (op === 'live_vspaero_delete_cs_group' || op === 'live_vspaero_add_all_cs_group' || op === 'live_vspaero_remove_all_cs_group') {
+          const index = args.index
+          if (typeof index !== 'number' || !Number.isInteger(index) || index < 0) throw new WasmEngineError(400, 'Invalid control surface group index', 'not_written')
+          const engineOps: Record<string, string> = {
+            live_vspaero_delete_cs_group: 'liveVSPAERODeleteCSGroup',
+            live_vspaero_add_all_cs_group: 'liveVSPAEROAddAllCSGroup',
+            live_vspaero_remove_all_cs_group: 'liveVSPAERORemoveAllCSGroup',
+          }
+          return live(engineOps[op], '', '', index)
+        }
+        if (op === 'live_vspaero_get_cs_name') {
+          const index = args.index
+          if (typeof index !== 'number' || !Number.isInteger(index) || index < 0) throw new WasmEngineError(400, 'Invalid control surface group index')
+          return live('liveVSPAEROGetCSName', '', '', index)
+        }
+        if (op === 'live_vspaero_set_cs_name') {
+          const index = args.index
+          if (typeof index !== 'number' || !Number.isInteger(index) || index < 0) throw new WasmEngineError(400, 'Invalid control surface group index', 'not_written')
+          return live('liveVSPAEROSetCSName', text('name'), '', index)
+        }
         if (op === 'live_vspaero_kill') return live('liveVSPAEROKill')
         if (op === 'live_comp_pnt01' || op === 'live_comp_norm01') {
           const id = text('geom_id'), index = args.surf_indx, u = args.u, w = args.w
