@@ -127,7 +127,7 @@ helper（[上游入口](../../../../src/python_api/packages/openvsp/openvsp/__in
 | `SetAnalysisInputDefaults` | ✅ | 对任意有效分析调用原生初始化，可能产生初始化副作用 |
 | `ListAnalysis`、`GetAnalysisInputNames`、`GetAnalysisInputType` | ✅ | 可发现分析和输入；发现不意味着能执行 |
 | `GetIntAnalysisInput`、`GetDoubleAnalysisInput`、`GetStringAnalysisInput` | ✅ | 返回完整向量并支持有效索引；真实浏览器验证基础读取 |
-| `SetIntAnalysisInput`、`SetDoubleAnalysisInput`、`SetStringAnalysisInput` | 🟨 | 仅接受单元素、index=0，字符串不支持 NUL；double/string 的基础写入已通过真实浏览器回归 |
+| `SetIntAnalysisInput`、`SetDoubleAnalysisInput`、`SetStringAnalysisInput` | ✅ | 完整向量和合法 index 通过长度前缀帧一次调用；字符串支持空串与任意 Unicode，不支持 NUL；已通过真实浏览器回归 |
 | `GetAllResultsIDs`、`GetAllResultsNames`、`GetAllDataNames`、`GetResultsName`、`GetResultsType` | ✅ | |
 | `FindResultsID(name, index=0)`、`FindLatestResultsID(name)`、`GetNumResults(name)` | ✅ | 不存在时返回 `''`/`0`，不抛异常 |
 | `DeleteResult(id)`、`DeleteAllResults()` | ✅ | 未知 ID 视为空操作；长会话可用它们控制 ResultsMgr 增长 |
