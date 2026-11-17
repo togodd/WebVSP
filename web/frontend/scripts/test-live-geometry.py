@@ -81,6 +81,31 @@ class GeometryApiTest(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, 'matching'):
             vsp.CompVecPnt01('g', 0, [0.1], [0.2, 0.3])
 
+    def test_attribute_forwarding(self):
+        self.reply['value'] = 'attr-1'
+        self.assertEqual(vsp.AddAttributeDouble('coll', 'mass', 12.5), 'attr-1')
+        self.assertEqual(self.calls[-1], ('live_attribute_add', {'collection_id': 'coll', 'name': 'mass', 'kind': 'double', 'payload': '12.5'}))
+        vsp.AddAttributeBool('coll', 'flag', True)
+        self.assertEqual(self.calls[-1][1]['payload'], '1')
+        vsp.AddAttributeVec3d('coll', 'anchor', [(1.0, 2.0, 3.0)])
+        self.assertEqual(self.calls[-1][1]['payload'], '1.0,2.0,3.0')
+        vsp.AddAttributeDoubleMatrix('coll', 'm', [[1.0, 2.0], [3.0, 4.0]])
+        self.assertEqual(self.calls[-1][1]['payload'], '1.0,2.0;3.0,4.0')
+        self.assertEqual(vsp.GetAttributeID('coll', 'mass'), 'attr-1')
+        self.assertEqual(self.calls[-1], ('live_attribute_get_id', {'collection_id': 'coll', 'name': 'mass', 'index': 0}))
+        self.reply['value'] = ['attr-1', 'attr-2']
+        self.assertEqual(vsp.GetAttributeIDVec('coll', 'mass'), ['attr-1', 'attr-2'])
+        self.assertEqual(self.calls[-1], ('live_attribute_ids_by_name', {'collection_id': 'coll', 'name': 'mass'}))
+        self.reply['value'] = [[1, 2], [3, 4]]
+        self.assertEqual(vsp.GetAttributeIntMatrixVal('attr-1'), [[1, 2], [3, 4]])
+        self.assertEqual(self.calls[-1], ('live_attribute_matrix', {'attribute_id': 'attr-1', 'kind': 'int'}))
+        vsp.SetAttributeDoubleMatrix('attr-1', [[0.5]])
+        self.assertEqual(self.calls[-1], ('live_attribute_set_matrix', {'attribute_id': 'attr-1', 'kind': 'double', 'rows': [[0.5]]}))
+        with self.assertRaisesRegex(ValueError, 'matrix'):
+            vsp.AddAttributeIntMatrix('coll', 'bad', [])
+        with self.assertRaisesRegex(ValueError, 'integer'):
+            vsp.AddAttributeInt('coll', 'bad', 1.5)
+
     def test_surface_query_forwarding(self):
         self.reply['value'] = [1.0, 0.0, 0.0]
         tangent = vsp.CompTanU01('g', 0, 0.25, 0.75)

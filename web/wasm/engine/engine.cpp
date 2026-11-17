@@ -4212,6 +4212,182 @@ void RunImpl( const Job &j )
         if ( !err.empty() ) return Result( j.id, err, "" );
         return Result( j.id, "", "[" + Num( v.x() ) + "," + Num( v.y() ) + "," + Num( v.z() ) + "]" );
     }
+    // ---- Attributes ---------------------------------------------------------
+    // Matrices travel as rows joined by ';' with cells joined by ','; vec3d lists
+    // reuse the point encoding (entries by '\n', components by ',').
+    auto live_matrix = []( const string &text, vector< vector< double > > &rows )
+    {
+        rows.clear();
+        size_t pos = 0;
+        while ( pos <= text.size() )
+        {
+            const size_t semi = text.find( ';', pos );
+            const string row = text.substr( pos, semi == string::npos ? string::npos : semi - pos );
+            vector< double > cells;
+            size_t cell = 0;
+            while ( cell <= row.size() )
+            {
+                const size_t comma = row.find( ',', cell );
+                const string part = row.substr( cell, comma == string::npos ? string::npos : comma - cell );
+                char *end = nullptr;
+                const double value = std::strtod( part.c_str(), &end );
+                if ( part.empty() || end != part.c_str() + part.size() || !std::isfinite( value ) ) return false;
+                cells.push_back( value );
+                if ( comma == string::npos ) break;
+                cell = comma + 1;
+            }
+            if ( cells.empty() ) return false;
+            rows.push_back( cells );
+            if ( semi == string::npos ) break;
+            pos = semi + 1;
+        }
+        return !rows.empty();
+    };
+    if ( j.op == "liveAttributeFind" || j.op == "liveAttributeGetID" )
+    {
+        int index = 0;
+        if ( !std::isfinite( j.value ) || std::floor( j.value ) != j.value || j.value < 0 || j.value > 2147483647.0 )
+            return Result( j.id, "Invalid attribute index", "" );
+        index = static_cast< int >( j.value );
+        string id = j.op == "liveAttributeFind" ? vsp::FindAttributeInCollection( j.a, j.b, index )
+                                                 : vsp::GetAttributeID( j.a, j.b, index );
+        TakeErrors(); // A miss queues a native error, and GetAttributeID says "ID ERROR".
+        if ( id == "ID ERROR" ) id.clear();
+        return Result( j.id, "", Quote( id ) );
+    }
+    if ( j.op == "liveAttributeIDsByName" )
+    {
+        const vector< string > ids = vsp::FindAttributesInCollectionByName( j.a, j.b );
+        TakeErrors();
+        return Result( j.id, "", LiveStringArray( ids ) );
+    }
+    if ( j.op == "liveAttributeMatrix" )
+    {
+        const bool asInt = j.b == "int";
+        string out = "[";
+        if ( asInt )
+        {
+            const auto rows = vsp::GetAttributeIntMatrixVal( j.a );
+            for ( size_t r = 0; r < rows.size(); ++r )
+            {
+                out += ( r ? "," : "" ) + string( "[" );
+                for ( size_t c = 0; c < rows[r].size(); ++c ) out += ( c ? "," : "" ) + std::to_string( rows[r][c] );
+                out += "]";
+            }
+        }
+        else
+        {
+            const auto rows = vsp::GetAttributeDoubleMatrixVal( j.a );
+            for ( size_t r = 0; r < rows.size(); ++r )
+            {
+                out += ( r ? "," : "" ) + string( "[" );
+                for ( size_t c = 0; c < rows[r].size(); ++c ) out += ( c ? "," : "" ) + Num( rows[r][c] );
+                out += "]";
+            }
+        }
+        return Result( j.id, TakeErrors(), out + "]" );
+    }
+    if ( j.op == "liveAttributeSetMatrix" )
+    {
+        // b = "int"/"double" + \x1f + matrix rows.
+        const size_t sep = j.b.find( '\x1f' );
+        if ( sep == string::npos ) return Result( j.id, "Invalid matrix", "" );
+        const string kind = j.b.substr( 0, sep );
+        vector< vector< double > > rows;
+        if ( !live_matrix( j.b.substr( sep + 1 ), rows ) ) return Result( j.id, "Invalid matrix", "" );
+        if ( kind == "int" )
+        {
+            vector< vector< int > > ints( rows.size() );
+            for ( size_t r = 0; r < rows.size(); ++r )
+                for ( double cell : rows[r] )
+                {
+                    if ( std::floor( cell ) != cell || cell < -2147483648.0 || cell > 2147483647.0 )
+                        return Result( j.id, "Invalid integer matrix", "" );
+                    ints[r].push_back( static_cast< int >( cell ) );
+                }
+            vsp::SetAttributeIntMatrix( j.a, ints );
+        }
+        else vsp::SetAttributeDoubleMatrix( j.a, rows );
+        return Result( j.id, TakeErrors(), "null" );
+    }
+    if ( j.op == "liveAttributeAdd" )
+    {
+        // b = kind + \x1f + name + \x1f + payload; collection is a.
+        size_t sep = j.b.find( '\x1f' );
+        if ( sep == string::npos ) return Result( j.id, "Invalid attribute arguments", "" );
+        const string kind = j.b.substr( 0, sep );
+        const string rest = j.b.substr( sep + 1 );
+        const size_t sep2 = rest.find( '\x1f' );
+        if ( sep2 == string::npos ) return Result( j.id, "Invalid attribute arguments", "" );
+        const string name = rest.substr( 0, sep2 ), payload = rest.substr( sep2 + 1 );
+        string id;
+        if ( kind == "bool" ) id = vsp::AddAttributeBool( j.a, name, payload == "1" );
+        else if ( kind == "int" )
+        {
+            char *end = nullptr;
+            const long value = std::strtol( payload.c_str(), &end, 10 );
+            if ( payload.empty() || end != payload.c_str() + payload.size() || value < -2147483648L || value > 2147483647L )
+                return Result( j.id, "Invalid integer attribute", "" );
+            id = vsp::AddAttributeInt( j.a, name, static_cast< int >( value ) );
+        }
+        else if ( kind == "double" )
+        {
+            char *end = nullptr;
+            const double value = std::strtod( payload.c_str(), &end );
+            if ( payload.empty() || end != payload.c_str() + payload.size() || !std::isfinite( value ) )
+                return Result( j.id, "Invalid double attribute", "" );
+            id = vsp::AddAttributeDouble( j.a, name, value );
+        }
+        else if ( kind == "string" ) id = vsp::AddAttributeString( j.a, name, payload );
+        else if ( kind == "parm" ) id = vsp::AddAttributeParm( j.a, name, payload );
+        else if ( kind == "vec3d" )
+        {
+            vector< vec3d > points;
+            size_t pos = 0;
+            while ( pos <= payload.size() )
+            {
+                const size_t nl = payload.find( '\n', pos );
+                const string entry = payload.substr( pos, nl == string::npos ? string::npos : nl - pos );
+                if ( !entry.empty() )
+                {
+                    const size_t c1 = entry.find( ',' ), c2 = entry.find( ',', c1 + 1 );
+                    if ( c1 == string::npos || c2 == string::npos ) return Result( j.id, "Invalid point list", "" );
+                    char *e1 = nullptr, *e2 = nullptr, *e3 = nullptr;
+                    const string xs = entry.substr( 0, c1 ), ys = entry.substr( c1 + 1, c2 - c1 - 1 ), zs = entry.substr( c2 + 1 );
+                    const double x = std::strtod( xs.c_str(), &e1 ), y = std::strtod( ys.c_str(), &e2 ), z = std::strtod( zs.c_str(), &e3 );
+                    if ( xs.empty() || ys.empty() || zs.empty() || *e1 || *e2 || *e3 ||
+                         !std::isfinite( x ) || !std::isfinite( y ) || !std::isfinite( z ) )
+                        return Result( j.id, "Invalid point list", "" );
+                    points.push_back( vec3d( x, y, z ) );
+                }
+                if ( nl == string::npos ) break;
+                pos = nl + 1;
+            }
+            id = vsp::AddAttributeVec3d( j.a, name, points );
+        }
+        else if ( kind == "int_matrix" || kind == "double_matrix" )
+        {
+            vector< vector< double > > rows;
+            if ( !live_matrix( payload, rows ) ) return Result( j.id, "Invalid matrix", "" );
+            if ( kind == "int_matrix" )
+            {
+                vector< vector< int > > ints( rows.size() );
+                for ( size_t r = 0; r < rows.size(); ++r )
+                    for ( double cell : rows[r] )
+                    {
+                        if ( std::floor( cell ) != cell || cell < -2147483648.0 || cell > 2147483647.0 )
+                            return Result( j.id, "Invalid integer matrix", "" );
+                        ints[r].push_back( static_cast< int >( cell ) );
+                    }
+                id = vsp::AddAttributeIntMatrix( j.a, name, ints );
+            }
+            else id = vsp::AddAttributeDoubleMatrix( j.a, name, rows );
+        }
+        else return Result( j.id, "Unknown attribute type", "" );
+        const string err = TakeErrors();
+        if ( !err.empty() ) return Result( j.id, err, "" );
+        return Result( j.id, "", Quote( id ) );
+    }
     // ---- Surface queries that need output parameters -----------------------
     // b carries the numeric arguments as decimal strings separated by \x1f.
     auto live_numbers = []( const string &text, vector< double > &values )

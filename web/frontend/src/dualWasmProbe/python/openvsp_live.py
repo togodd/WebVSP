@@ -70,6 +70,7 @@ _LIVE_WRITES = frozenset({
     'live_vspaero_set_ref_wing', 'live_vspaero_set_mode', 'live_vspaero_set_cg_mode',
     'live_vspaero_add_cs_group', 'live_vspaero_auto_group', 'live_vspaero_delete_cs_group',
     'live_vspaero_add_all_cs_group', 'live_vspaero_remove_all_cs_group', 'live_vspaero_set_cs_name',
+    'live_api_write', 'live_attribute_set_matrix', 'live_attribute_add',
 })
 
 
@@ -598,6 +599,114 @@ def GetXSecParmIDs(xsec_id):
 
 def GetXSecParm(xsec_id, name):
     return _call('live_xsec_parm', xsec_id=xsec_id, name=name)
+
+
+# ---------------------------------------------------------------- attributes
+
+def _matrix_text(rows):
+    if not isinstance(rows, (list, tuple)) or not rows:
+        raise ValueError('A non-empty matrix is required')
+    out = []
+    for row in rows:
+        if not isinstance(row, (list, tuple)) or not row:
+            raise ValueError('Every matrix row needs at least one value')
+        out.append(','.join(str(v) if isinstance(v, int) else repr(float(v)) for v in row))
+    return ';'.join(out)
+
+
+def _attribute_payload(kind, value):
+    if kind == 'bool':
+        return '1' if value else '0'
+    if kind == 'int':
+        if type(value) is not int:
+            raise ValueError('An integer attribute value is required')
+        return str(value)
+    if kind == 'double':
+        return repr(float(value))
+    if kind in ('string', 'parm'):
+        if not isinstance(value, str) or not value:
+            raise ValueError('A %s attribute value is required' % kind)
+        return value
+    if kind == 'vec3d':
+        return '\n'.join('%r,%r,%r' % (float(p[0]), float(p[1]), float(p[2])) for p in value)
+    if kind in ('int_matrix', 'double_matrix'):
+        return _matrix_text(value)
+    raise ValueError('Unknown attribute kind: %s' % kind)
+
+
+def _add_attribute(kind, collection_id, name, value):
+    return _call('live_attribute_add', collection_id=collection_id, name=name,
+                 kind=kind, payload=_attribute_payload(kind, value))
+
+
+def AddAttributeBool(collection_id, name, value):
+    return _add_attribute('bool', collection_id, name, bool(value))
+
+
+def AddAttributeInt(collection_id, name, value):
+    return _add_attribute('int', collection_id, name, value)
+
+
+def AddAttributeDouble(collection_id, name, value):
+    return _add_attribute('double', collection_id, name, value)
+
+
+def AddAttributeString(collection_id, name, value):
+    return _add_attribute('string', collection_id, name, value)
+
+
+def AddAttributeParm(collection_id, name, parm_id):
+    return _add_attribute('parm', collection_id, name, parm_id)
+
+
+def AddAttributeVec3d(collection_id, name, points):
+    return _add_attribute('vec3d', collection_id, name, points)
+
+
+def AddAttributeIntMatrix(collection_id, name, rows):
+    return _add_attribute('int_matrix', collection_id, name, rows)
+
+
+def AddAttributeDoubleMatrix(collection_id, name, rows):
+    return _add_attribute('double_matrix', collection_id, name, rows)
+
+
+def FindAttributeInCollection(collection_id, name, index=0):
+    """Attribute ID matching a name, or '' when there is none."""
+    if type(index) is not int or index < 0:
+        raise ValueError('An attribute index is required')
+    return _call('live_attribute_find', collection_id=collection_id, name=name, index=index)
+
+
+def GetAttributeID(collection_id, name, index=0):
+    """Attribute ID with an exact name, or '' when there is none."""
+    if type(index) is not int or index < 0:
+        raise ValueError('An attribute index is required')
+    return _call('live_attribute_get_id', collection_id=collection_id, name=name, index=index)
+
+
+def FindAttributesInCollectionByName(collection_id, name):
+    return _call('live_attribute_ids_by_name', collection_id=collection_id, name=name)
+
+
+def GetAttributeIDVec(collection_id, name):
+    return _call('live_attribute_ids_by_name', collection_id=collection_id, name=name)
+
+
+def GetAttributeIntMatrixVal(attribute_id):
+    return _call('live_attribute_matrix', attribute_id=attribute_id, kind='int')
+
+
+def GetAttributeDoubleMatrixVal(attribute_id):
+    return _call('live_attribute_matrix', attribute_id=attribute_id, kind='double')
+
+
+def SetAttributeIntMatrix(attribute_id, rows):
+    return _call('live_attribute_set_matrix', attribute_id=attribute_id, kind='int', rows=rows)
+
+
+def SetAttributeDoubleMatrix(attribute_id, rows):
+    return _call('live_attribute_set_matrix', attribute_id=attribute_id, kind='double', rows=rows)
 
 
 # ---------------------------------------------------------------- surface queries

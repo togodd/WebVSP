@@ -23,6 +23,7 @@ const LIVE_WRITES = new Set([
   'live_copy_paste_set',
   'live_vspaero_kill',
   'live_api_write',
+  'live_attribute_set_matrix', 'live_attribute_add',
   'live_vspaero_set_ref_wing', 'live_vspaero_set_mode', 'live_vspaero_set_cg_mode',
   'live_vspaero_add_cs_group', 'live_vspaero_auto_group', 'live_vspaero_delete_cs_group',
   'live_vspaero_add_all_cs_group', 'live_vspaero_remove_all_cs_group', 'live_vspaero_set_cs_name',
@@ -234,6 +235,35 @@ async function run(mode: 'script' | 'console', script?: string): Promise<unknown
           const index = args.surf_indx, u = args.u, w = args.w
           if (typeof index !== 'number' || !Number.isInteger(index)) throw new WasmEngineError(400, 'Invalid surf_indx')
           return live(op === 'live_xsec_tangent_u' ? 'liveXSecTangentU' : 'liveXSecTangentW', text('geom_id'), numbers([u, w], 2), index)
+        }
+        if (op === 'live_attribute_find' || op === 'live_attribute_get_id') {
+          const index = args.index === undefined ? 0 : args.index
+          if (typeof index !== 'number' || !Number.isInteger(index) || index < 0) throw new WasmEngineError(400, 'Invalid attribute index')
+          return live(op === 'live_attribute_find' ? 'liveAttributeFind' : 'liveAttributeGetID', text('collection_id'), text('name'), index)
+        }
+        if (op === 'live_attribute_ids_by_name') {
+          return live('liveAttributeIDsByName', text('collection_id'), text('name'))
+        }
+        if (op === 'live_attribute_matrix') {
+          if (args.kind !== 'int' && args.kind !== 'double') throw new WasmEngineError(400, 'Invalid matrix kind')
+          return live('liveAttributeMatrix', text('attribute_id'), String(args.kind))
+        }
+        if (op === 'live_attribute_set_matrix') {
+          if (args.kind !== 'int' && args.kind !== 'double') throw new WasmEngineError(400, 'Invalid matrix kind', 'not_written')
+          const rows = args.rows
+          if (!Array.isArray(rows) || !rows.length) throw new WasmEngineError(400, 'Invalid matrix', 'not_written')
+          const rowsText = rows.map(row => {
+            if (!Array.isArray(row) || !row.length || row.some(v => typeof v !== 'number' || !Number.isFinite(v))) {
+              throw new WasmEngineError(400, 'Invalid matrix', 'not_written')
+            }
+            return row.join(',')
+          }).join(';')
+          return live('liveAttributeSetMatrix', text('attribute_id'), `${args.kind}\x1f${rowsText}`)
+        }
+        if (op === 'live_attribute_add') {
+          const kind = args.kind, payload = args.payload
+          if (typeof kind !== 'string' || typeof payload !== 'string') throw new WasmEngineError(400, 'Invalid attribute', 'not_written')
+          return live('liveAttributeAdd', text('collection_id'), `${kind}\x1f${text('name')}\x1f${payload}`)
         }
         if (op === 'live_compare_geom_surfaces') return live('liveCompareGeomSurfaces', text('geom_a'), text('geom_b'))
         if (op === 'live_inside_surf') {

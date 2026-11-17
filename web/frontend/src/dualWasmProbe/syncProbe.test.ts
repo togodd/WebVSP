@@ -80,6 +80,24 @@ describe('live write bridge', () => {
     expect(engine.call).not.toHaveBeenCalled()
     worker.onmessage({ data: { type: 'done', value: 'null' } } as MessageEvent)
   })
+  it('forwards attribute matrices and typed adds', async () => {
+    void runSyncScript('')
+    const worker = FakeWorker.instance
+    engine.call.mockResolvedValue(null)
+    expect((await worker.request('live_attribute_add', { collection_id: 'c', name: 'n', kind: 'double', payload: '1.5' })).ok).toBe(true)
+    expect(engine.call).toHaveBeenLastCalledWith('liveAttributeAdd', 'c', 'double\x1fn\x1f1.5', 0)
+    expect((await worker.request('live_attribute_set_matrix', { attribute_id: 'a', kind: 'int', rows: [[1, 2], [3, 4]] })).ok).toBe(true)
+    expect(engine.call).toHaveBeenLastCalledWith('liveAttributeSetMatrix', 'a', 'int\x1f1,2;3,4', 0)
+    expect((await worker.request('live_attribute_matrix', { attribute_id: 'a', kind: 'int' })).ok).toBe(true)
+    expect(engine.call).toHaveBeenLastCalledWith('liveAttributeMatrix', 'a', 'int', 0)
+    expect((await worker.request('live_attribute_get_id', { collection_id: 'c', name: 'n' })).ok).toBe(true)
+    expect(engine.call).toHaveBeenLastCalledWith('liveAttributeGetID', 'c', 'n', 0)
+    engine.call.mockClear()
+    expect((await worker.request('live_attribute_set_matrix', { attribute_id: 'a', kind: 'double', rows: [] })).error.outcome).toBe('not_written')
+    expect((await worker.request('live_attribute_add', { collection_id: 'c', name: 'n', kind: 'double', payload: 5 })).error.outcome).toBe('not_written')
+    expect(engine.call).not.toHaveBeenCalled()
+    worker.onmessage({ data: { type: 'done', value: 'null' } } as MessageEvent)
+  })
   it('forwards surface queries with output parameters', async () => {
     void runSyncScript('')
     const worker = FakeWorker.instance
