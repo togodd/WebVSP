@@ -262,6 +262,9 @@ json.dumps({'ok': ok, 'native': len(native), 'validation': len(validation),
     'ok:', report.ok, 'native errors:', report.native_error,
     'validation rejects:', report.validation, 'skipped by name:', report.skipped,
     'skipped heavy families:', report.heavy)
+  if (report.validation_rejects?.length) {
+    console.log('validation rejects:', report.validation_rejects.sort().join(', '))
+  }
   if (report.bad.length) {
     console.error('INFRASTRUCTURE FAILURES:')
     for (const [name, message] of report.bad) console.error('  ', name, '->', message)
