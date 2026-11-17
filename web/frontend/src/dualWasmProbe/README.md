@@ -107,6 +107,7 @@ helper（[上游入口](../../../../src/python_api/packages/openvsp/openvsp/__in
 | `GetGeomParent`、`GetGeomChildren`、`SetGeomName` | ✅ | 顶层父级是 `'NONE'`；自命名（Clone 等）拒绝改名 |
 | `GetGeomTypes`、`GetNumMainSurfs`、`UpdateGeom`、`SetGeomParent`、`CopyGeomToClipboard`、`CutGeomToClipboard`、`PasteGeomClipboard` | ✅ | 已通过真实浏览器几何更新、父子关系和剪贴板回归 |
 | `GetGeomParmIDs` | ✅ | |
+| `CompPnt01`、`CompNorm01` | ✅ | 已通过机身与机翼真实浏览器回归，返回支持 `x()`/`y()`/`z()` 的 vec3d |
 | `GetParmVal`、`SetParmVal` | ✅ | `GetParmVal` 支持单参数重载；`SetParmVal` 支持两参数和四参数重载，均不触发更新 |
 | `GetParmInfo`、`GetParmInfoByName`、`GetParmValByID`、`SetParmValByID` | ✅ | `GetParmInfo` 另含 `active`、`lower`、`upper`、`groupName` |
 | `GetParmType`、`GetParmLowerLimit`/`UpperLimit`、`GetParmActiveFlag` | ✅ | 限制为 `None` 表示无界 |
