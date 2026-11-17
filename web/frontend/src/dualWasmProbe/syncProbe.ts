@@ -205,6 +205,7 @@ async function run(mode: 'script' | 'console', script?: string): Promise<unknown
         }
         if (op === 'live_xsec_surfs') return live('liveXSecSurfs', text('geom_id'))
         if (op === 'live_xsecs') return live('liveXSecs', text('xsec_surf_id'))
+        if (op === 'live_xsec_ids') return live('liveXSecIDs', text('xsec_surf_id'))
         if (op === 'live_xsec_shape') return live('liveXSecShape', text('xsec_id'))
         if (op === 'live_xsec_parm_ids') return live('liveXSecParmIDs', text('xsec_id'))
         const int32 = (key: string, fallback?: number): number => {
@@ -217,8 +218,14 @@ async function run(mode: 'script' | 'console', script?: string): Promise<unknown
         if (op === 'live_insert_xsec') {
           return live('liveInsertXSec', text('geom_id'), String(int32('shape')), int32('index'))
         }
+        if (op === 'live_insert_xsec_by_id') {
+          return live('liveInsertXSecByID', text('xsec_id'), String(int32('shape')))
+        }
         if (op === 'live_delete_xsec') {
           return live('liveDeleteXSec', text('xsec_surf_id'), '', int32('index'))
+        }
+        if (op === 'live_delete_xsec_by_id') {
+          return live('liveDeleteXSecByID', text('xsec_id'))
         }
         if (op === 'live_change_xsec_shape') {
           return live('liveChangeXSecShape', text('xsec_id'), String(int32('shape')))

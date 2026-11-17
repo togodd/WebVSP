@@ -63,6 +63,16 @@ class GeometryApiTest(unittest.TestCase):
             vsp.ChangeXSecShape('id', -1, 1)
         self.assertNotEqual(self.calls[-1][0], 'live_change_xsec_shape')
 
+    def test_xsec_by_id_forwarding(self):
+        self.reply['value'] = ['s1', 's2']
+        self.assertEqual(vsp.GetXSecIDVec('surf'), ['s1', 's2'])
+        self.assertEqual(self.calls[-1], ('live_xsec_ids', {'xsec_surf_id': 'surf'}))
+        self.reply['value'] = 'new'
+        self.assertEqual(vsp.InsertXSecByID('s1', vsp.XS_ELLIPSE), 'new')
+        self.assertEqual(self.calls[-1], ('live_insert_xsec_by_id', {'xsec_id': 's1', 'shape': vsp.XS_ELLIPSE}))
+        vsp.CutXSecByID('new')
+        self.assertEqual(self.calls[-1], ('live_delete_xsec_by_id', {'xsec_id': 'new'}))
+
     def test_rename(self):
         self.assertIsNone(vsp.SetGeomName('g', 'MainWing'))
         self.assertEqual(self.calls[-1], ('live_set_geom_name', {'geom_id': 'g', 'name': 'MainWing'}))

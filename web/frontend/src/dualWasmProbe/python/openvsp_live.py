@@ -363,8 +363,12 @@ def GetXSec(xsec_surf_id, index):
     return _indexed_id(_call('live_xsecs', xsec_surf_id=xsec_surf_id), index)
 
 
+def GetXSecIDVec(xsec_surf_id):
+    return _call('live_xsec_ids', xsec_surf_id=xsec_surf_id)
+
+
 def GetXSecIDs(xsec_surf_id):
-    return _call('live_xsecs', xsec_surf_id=xsec_surf_id)
+    return GetXSecIDVec(xsec_surf_id)
 
 
 def GetXSecShape(xsec_id):
@@ -379,8 +383,16 @@ def InsertXSec(geom_id, index, type):
     return _call('live_insert_xsec', geom_id=geom_id, index=index, shape=type)
 
 
+def InsertXSecByID(xsec_id, type):
+    return _call('live_insert_xsec_by_id', xsec_id=xsec_id, shape=type)
+
+
 def CutXSec(geom_id, index):
     return _call('live_delete_xsec', xsec_surf_id=geom_id, index=index)
+
+
+def CutXSecByID(xsec_id):
+    return _call('live_delete_xsec_by_id', xsec_id=xsec_id)
 
 
 def DeleteXSec(geom_id, index):

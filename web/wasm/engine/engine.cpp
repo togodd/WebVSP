@@ -3087,6 +3087,12 @@ void RunImpl( const Job &j )
         }
         return Result( j.id, "", LiveStringArray( out ) );
     }
+    if ( j.op == "liveXSecIDs" )
+    {
+        const auto ids = vsp::GetXSecIDVec( j.a );
+        const string err = TakeParmErrors( true );
+        return Result( j.id, err, LiveStringArray( ids ) );
+    }
     if ( j.op == "liveXSecShape" )
     {
         const int shape = vsp::GetXSecShape( j.a );
@@ -3117,6 +3123,20 @@ void RunImpl( const Job &j )
         int shape;
         if ( !live_int_value( j.value ) || !live_int_text( j.b, shape ) ) return Result( j.id, "Invalid XSec index or shape", "" );
         vsp::InsertXSec( j.a, static_cast< int >( j.value ), shape );
+        return Result( j.id, TakeParmErrors( true ), "null" );
+    }
+    if ( j.op == "liveInsertXSecByID" )
+    {
+        int shape;
+        if ( !live_int_text( j.b, shape ) ) return Result( j.id, "Invalid XSec shape", "" );
+        const string id = vsp::InsertXSecByID( j.a, shape );
+        const string err = TakeParmErrors( true );
+        if ( !err.empty() ) return Result( j.id, err, "" );
+        return Result( j.id, "", Quote( id ) );
+    }
+    if ( j.op == "liveDeleteXSecByID" )
+    {
+        vsp::CutXSecByID( j.a );
         return Result( j.id, TakeParmErrors( true ), "null" );
     }
     if ( j.op == "liveDeleteXSec" )
