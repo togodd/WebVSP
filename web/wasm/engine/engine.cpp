@@ -72,6 +72,8 @@
 #include "Vehicle.h"
 #include "VehicleMgr.h"
 #include "ParmMgr.h"
+#include "VSPAEROMgr.h"
+#include "MessageMgr.h"
 #include "WebProcess.h"
 #include <angelscript.h>
 #include "ScriptMgr.h"
@@ -430,6 +432,58 @@ bool TriangleSurface( const string &id, Surface &out )
         out.idx[i] = ( uint32_t ) i;
     }
     return true;
+}
+
+// The desktop solver prints through MessageMgr into the VSPAERO screen. Python
+// cannot see that screen, so keep a bounded tail of the same lines.
+class SolverLog : public MessageBase
+{
+public:
+    void MessageCallback( const MessageBase *, const MessageData &data ) override
+    {
+        if ( data.m_String != "VSPAEROSolverMessage" ) return;
+        for ( const string &line : data.m_StringVec ) Append( line );
+    }
+
+    // The page hands the program output straight to ProcessOutput, which is the
+    // reliable source; MessageMgr only carries the command line and "Done".
+    void Append( const string &text )
+    {
+        std::lock_guard< std::mutex > lock( m_Mutex );
+        m_Lines.push_back( text );
+        m_Bytes += text.size();
+        while ( m_Lines.size() > 400 || m_Bytes > 64 * 1024 )
+        {
+            m_Bytes -= m_Lines.front().size();
+            m_Lines.erase( m_Lines.begin() );
+        }
+    }
+
+    string Tail() const
+    {
+        std::lock_guard< std::mutex > lock( m_Mutex );
+        string out;
+        for ( const string &line : m_Lines ) out += line;
+        return out;
+    }
+
+    void Clear()
+    {
+        std::lock_guard< std::mutex > lock( m_Mutex );
+        m_Lines.clear();
+        m_Bytes = 0;
+    }
+
+private:
+    mutable std::mutex m_Mutex;
+    vector< string > m_Lines;
+    size_t m_Bytes = 0;
+};
+
+SolverLog &GetSolverLog()
+{
+    static SolverLog log;
+    return log;
 }
 
 // How the desktop draws a surface beyond its triangles: a colour of its own (Mesh / NGon Mesh
@@ -2862,10 +2916,10 @@ void RunImpl( const Job &j )
                 const vector< int > stop = vsp::GetIntAnalysisInput( j.a, "StopBeforeRun", 0 );
                 aeroStopBeforeRun = !stop.empty() && stop[0] != 0;
             }
-            // Launching the solver needs the long-call bridge; that is enabled in
-            // the next step. Writing the setup files is safe in a normal call.
-            if ( aero && !aeroStopBeforeRun )
-                return Result( j.id, "VSPAERO solver runs are not enabled yet; set StopBeforeRun=1 to write the setup files", "" );
+            // A solver run blocks this thread for its whole duration and needs the
+            // page to spawn vspaero.wasm; the Python bridge allows that with a
+            // per-op long timeout.
+            if ( aero && !aeroStopBeforeRun ) GetSolverLog().Clear();
         }
         else if ( mass )
         {
@@ -3762,6 +3816,17 @@ void RunImpl( const Job &j )
         if ( !err.empty() ) return Result( j.id, err, "" );
         return Result( j.id, "", "[" + LiveDoubleArray( us ) + "," + LiveDoubleArray( ws ) + "]" );
     }
+    if ( j.op == "liveVSPAEROOutput" )
+    {
+        return Result( j.id, "", Quote( GetSolverLog().Tail() ) );
+    }
+    if ( j.op == "liveVSPAEROKill" )
+    {
+        // Same flag the VSPAERO screen's Kill Solver button raises.
+        VSPAEROMgrSingleton::getInstance().KillSolverOrSlicer();
+        TakeErrors();
+        return Result( j.id, "", "null" );
+    }
     if ( j.op == "liveVSPAEROFiles" )
     {
         // The standard VSPAERO products for the current model name, with whether
@@ -4505,6 +4570,9 @@ int main()
         }
     }
     vsp::SetVSPAEROPath( "/bin" );
+    // Listen on the same channel the VSPAERO screen uses, without replacing it.
+    GetSolverLog().SetName( "ScreenMgr" );
+    GetSolverLog().Register();
 #ifdef VSP_WASM_GUI
     vsp::InitGUI();
     vsp::MirrorEnable();
@@ -4585,6 +4653,7 @@ string Take()
 // A program's output and exit, from the page (see WebProcess.h).
 void ProcessOutput( int id, const string &text )
 {
+    GetSolverLog().Append( text );
     WebProcess::Output( id, text );
 }
 

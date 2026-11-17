@@ -78,6 +78,7 @@ let modulePromise: Promise<VspModule> | null = null
 let nextId = 1
 const pending = new Map<number, Pending>()
 let fastDrainOutstanding = 0
+let fastDrainDelay = 0
 let fastDrainScheduled = false
 let fastDrainVsp: VspModule | null = null
 const listeners = new Set<(e: SocketMessage) => void>()
@@ -167,12 +168,16 @@ export async function syncProbeEngineCall(op: string, a = '', b = '', value = 0)
   const id = nextId++
   fastDrainVsp = vsp
   fastDrainOutstanding++
+  // A solver run lasts for minutes; poll it at the same cadence the engine uses
+  // to watch the process instead of spinning on zero-delay timers.
+  fastDrainDelay = op === 'live_analysis_run' ? 50 : 0
   try {
     const result = submitPending(pending, id, () => vsp.call(id, op, a, b, value))
     scheduleFastDrain()
     return await result
   } finally {
     fastDrainOutstanding--
+    if (!fastDrainOutstanding) fastDrainDelay = 0
   }
 }
 
@@ -187,7 +192,7 @@ function scheduleFastDrain(): void {
     if (!fastDrainOutstanding || !fastDrainVsp) return
     try { drain(fastDrainVsp) } catch (err) { console.error('WebVSP engine:', err) }
     scheduleFastDrain()
-  }, 0)
+  }, fastDrainDelay)
 }
 
 /** Internal discovery snapshot: no epoch required, but serializer errors are fatal. */

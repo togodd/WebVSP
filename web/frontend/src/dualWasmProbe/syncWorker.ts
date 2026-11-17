@@ -78,7 +78,10 @@ function request(op: string, args: string): string | Uint8Array {
   Atomics.store(control, 1, 0)
   scope.postMessage({ type: 'request', id: ++nextId, op, args, buffer, capacity })
   const started = performance.now()
-  const state = Atomics.wait(control, 0, 0, op === 'timeout_test' || op === 'timeout_real_test' ? 20 : 60_000)
+  // A VSPAERO solver run blocks OpenVSP's thread for as long as the model needs;
+  // the page stays responsive because it keeps draining the engine meanwhile.
+  const budget = op === 'timeout_test' || op === 'timeout_real_test' ? 20 : op === 'live_analysis_run' ? 30 * 60_000 : 60_000
+  const state = Atomics.wait(control, 0, 0, budget)
   const waitMs = performance.now() - started
   bridgeStats.calls += 1
   bridgeStats.waitMs += waitMs

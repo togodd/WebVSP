@@ -66,6 +66,7 @@ _LIVE_WRITES = frozenset({
     'live_geom_set_material',
     'live_parm_set_descript', 'live_parm_set_limits', 'live_clone_geom_vec', 'live_delete_geom_vec',
     'live_copy_paste_set',
+    'live_vspaero_kill',
 })
 
 
@@ -970,6 +971,16 @@ def GetVSPAEROFiles():
     Each entry is ``{'path', 'exists', 'size'}``; ``size`` is -1 when missing.
     """
     return _call('live_vspaero_files')
+
+
+def GetVSPAEROOutput():
+    """Tail of the running (or last) VSPAERO solver output."""
+    return _call('live_vspaero_output')
+
+
+def KillVSPAERO():
+    """Ask a running VSPAERO solver to stop, like the screen's Kill Solver."""
+    return _call('live_vspaero_kill')
 
 
 def ExecAnalysis(analysis):

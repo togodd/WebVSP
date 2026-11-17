@@ -51,6 +51,13 @@ class AnalysisApiTest(unittest.TestCase):
         self.assertEqual(vsp.GetVSPAEROFiles(), [{'path': '/work/case.vspgeom', 'exists': True, 'size': 10}])
         self.assertEqual(self.calls[-1], ('live_vspaero_files', {}))
 
+    def test_vspaero_control_forwarding(self):
+        self.reply['value'] = 'Done with setup...\n'
+        self.assertEqual(vsp.GetVSPAEROOutput(), 'Done with setup...\n')
+        self.assertEqual(self.calls[-1], ('live_vspaero_output', {}))
+        vsp.KillVSPAERO()
+        self.assertEqual(self.calls[-1], ('live_vspaero_kill', {}))
+
     def test_typed_inputs(self):
         for kind in ('Int', 'Double', 'String'):
             getattr(vsp, 'Get' + kind + 'AnalysisInput')('AnyAnalysis', 'Input', 2)

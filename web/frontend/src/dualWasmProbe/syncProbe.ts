@@ -21,6 +21,7 @@ const LIVE_WRITES = new Set([
   'live_geom_set_material',
   'live_parm_set_descript', 'live_parm_set_limits', 'live_clone_geom_vec', 'live_delete_geom_vec',
   'live_copy_paste_set',
+  'live_vspaero_kill',
 ])
 // File operations also mutate the session: ReadVSPFile replaces the model and
 // WriteVSPFile renames it, so both carry write-outcome semantics.
@@ -165,6 +166,8 @@ async function run(mode: 'script' | 'console', script?: string): Promise<unknown
         }
         if (op === 'live_geom_types') return live('geomTypes')
         if (op === 'live_vspaero_files') return live('liveVSPAEROFiles')
+        if (op === 'live_vspaero_output') return live('liveVSPAEROOutput')
+        if (op === 'live_vspaero_kill') return live('liveVSPAEROKill')
         if (op === 'live_comp_pnt01' || op === 'live_comp_norm01') {
           const id = text('geom_id'), index = args.surf_indx, u = args.u, w = args.w
           if (typeof index !== 'number' || !Number.isInteger(index) || index < -2147483648 || index > 2147483647) throw new WasmEngineError(400, 'Invalid surf_indx')

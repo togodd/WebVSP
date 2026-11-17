@@ -98,20 +98,49 @@ assert files['/work/setup.vspaero']['size'] > 100, files
 assert files['/work/setup.history']['exists'] is False, files
 assert files['/work/setup.polar']['exists'] is False, files
 `],
-    ['solver runs are still refused until the long-call bridge lands', `
+    ['full solver run produces history, polar and results', `
 import openvsp as vsp
 vsp.ClearVSPModel()
 vsp.AddGeom('WING')
 vsp.Update()
 vsp.SetVSP3FileName('/work/run.vsp3')
+
+vsp.SetAnalysisInputDefaults('VSPAEROComputeGeometry')
+vsp.ExecAnalysis('VSPAEROComputeGeometry')
+
 vsp.SetAnalysisInputDefaults('VSPAEROSweep')
-vsp.SetIntAnalysisInput('VSPAEROSweep', 'StopBeforeRun', [0])
-try:
-    vsp.ExecAnalysis('VSPAEROSweep')
-except vsp.OpenVSPError as exc:
-    assert 'StopBeforeRun' in str(exc), exc
-else:
-    raise AssertionError('a full VSPAERO run was accepted')
+for name, value in (('AlphaStart', 4.0), ('AlphaEnd', 4.0), ('BetaStart', 0.0),
+                    ('BetaEnd', 0.0), ('MachStart', 0.1), ('MachEnd', 0.1)):
+    vsp.SetDoubleAnalysisInput('VSPAEROSweep', name, [value])
+for name, value in (('AlphaNpts', 1), ('BetaNpts', 1), ('MachNpts', 1), ('ReCrefNpts', 1), ('NCPU', 1)):
+    vsp.SetIntAnalysisInput('VSPAEROSweep', name, [value])
+
+root = vsp.ExecAnalysis('VSPAEROSweep')
+assert root, 'VSPAEROSweep returned no result'
+
+files = {entry['path']: entry for entry in vsp.GetVSPAEROFiles()}
+for suffix in ('.vspgeom', '.vspaero', '.history', '.polar', '.lod'):
+    assert files['/work/run' + suffix]['exists'] is True, (suffix, files)
+assert files['/work/run.history']['size'] > 100, files
+
+history = vsp.FindResultsID('VSPAERO_History', 0)
+assert history, vsp.GetAllResultsNames()[-5:]
+names = vsp.GetAllDataNames(history)
+assert 'Alpha' in names and 'CDtot' in names, names
+alpha = vsp.GetDoubleResults(history, 'Alpha', 0)
+cdtot = vsp.GetDoubleResults(history, 'CDtot', 0)
+assert alpha and len(alpha) == len(cdtot), (alpha, cdtot)
+# The history holds one entry per solver case; the requested 4 degree alpha
+# reached VSPAERO, which is the part the Python inputs control.
+assert all(abs(a - 4.0) < 1e-9 for a in alpha), alpha
+assert all(c > 0.0 for c in cdtot), cdtot
+
+# The solver's own output is available to Python after the run.
+output = vsp.GetVSPAEROOutput()
+assert len(output) > 50, output[:200]
+assert 'Done' in output, output[:200]
+# The solver's own banner and setup lines are part of that tail.
+assert 'VSPAERO' in output or 'vortex' in output, output[:300]
 `],
   ]
   for (const [name, code] of cases) {

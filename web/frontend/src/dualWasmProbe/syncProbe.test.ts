@@ -80,6 +80,16 @@ describe('live write bridge', () => {
     expect(engine.call).not.toHaveBeenCalled()
     worker.onmessage({ data: { type: 'done', value: 'null' } } as MessageEvent)
   })
+  it('forwards VSPAERO output and the kill request', async () => {
+    void runSyncScript('')
+    const worker = FakeWorker.instance
+    engine.call.mockResolvedValue(null)
+    expect((await worker.request('live_vspaero_output', {})).ok).toBe(true)
+    expect(engine.call).toHaveBeenLastCalledWith('liveVSPAEROOutput', '', '', 0)
+    expect((await worker.request('live_vspaero_kill', {})).ok).toBe(true)
+    expect(engine.call).toHaveBeenLastCalledWith('liveVSPAEROKill', '', '', 0)
+    worker.onmessage({ data: { type: 'done', value: 'null' } } as MessageEvent)
+  })
   it('forwards the VSPAERO product listing', async () => {
     void runSyncScript('')
     const worker = FakeWorker.instance
