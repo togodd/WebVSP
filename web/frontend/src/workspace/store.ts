@@ -5,6 +5,7 @@
 // while the user is working, but a refresh must not erase a status message or
 // interrupt a download/delete operation.
 import { create } from 'zustand'
+import { markWorkspaceModelDeleted } from './modelAssociation'
 import {
   deleteWorkspaceFile,
   downloadWorkspaceFile,
@@ -147,6 +148,7 @@ export const useWorkspaceFiles = create<WorkspaceState>((set, get) => ({
     set({ busy: true })
     try {
       await deleteWorkspaceFile(file)
+      markWorkspaceModelDeleted(file.path)
       ++seq // Also invalidate listings started while deletion was pending.
       const files = await listSerial()
       if (owner === operation) set({ files, loaded: true, busy: false, message: `已删除 ${file.name}` })

@@ -16,6 +16,10 @@ const files = Object.fromEntries(await Promise.all(['vsp.js', 'vsp.wasm'].map(as
   const [body, info] = await Promise.all([readFile(path), stat(path)])
   return [name, { path, body, hash: createHash('sha256').update(body).digest('hex') }]
 })))
+// A real .vsp3 from the repository: opening it must replace the live model, which a
+// hand-written stub cannot prove.
+const fixture = resolve(dir, '../../../src/test/py/tests/wing.vsp3')
+
 const browser = await chromium.launch({ executablePath, headless: true, args: ['--no-sandbox', '--enable-unsafe-swiftshader'] })
 try {
   const page = await browser.newPage({ viewport: { width: 1400, height: 900 } })
@@ -34,13 +38,14 @@ try {
   await page.waitForSelector('[data-ready="1"]', { timeout: 120000 })
   console.log('WASM served from', files['vsp.wasm'].path, 'sha256', files['vsp.wasm'].hash)
 
-  await page.evaluate(async () => {
+  const modelBytes = await readFile(fixture).catch(() => { throw Error(`Missing model fixture: ${fixture}`) })
+  await page.evaluate(async (bytes) => {
     const { engineWriteFile } = await import('/src/api/wasmEngine.ts')
     const enc = new TextEncoder()
-    await engineWriteFile('/work/demo/model.vsp3', enc.encode('<vsp3/>'))
+    await engineWriteFile('/work/demo/model.vsp3', new Uint8Array(bytes))
     await engineWriteFile('/work/demo/sweep.csv', enc.encode('Alpha,CLtot\n-5,-0.41\n0,0.0\n'))
     await engineWriteFile('/work/demo/notes.txt', enc.encode('hello workspace\n'))
-  })
+  }, [...modelBytes])
 
   await page.click('[data-testid="workspace-open"]')
   await page.waitForSelector('[data-testid="workspace-panel"]', { timeout: 15000 })
@@ -77,10 +82,10 @@ try {
   const names = () => page.locator('.ws-row .ws-name').allTextContents()
   const sizeHeader = page.locator('.ws-head button.ws-size')
   await sizeHeader.click()
-  assert.deepEqual(await names(), ['demo/sweep.csv', 'demo/notes.txt', 'demo/model.vsp3'])
+  assert.deepEqual(await names(), ['demo/model.vsp3', 'demo/sweep.csv', 'demo/notes.txt'])
   assert.match(await sizeHeader.innerText(), /↓/)
   await sizeHeader.click()
-  assert.deepEqual(await names(), ['demo/model.vsp3', 'demo/notes.txt', 'demo/sweep.csv'])
+  assert.deepEqual(await names(), ['demo/notes.txt', 'demo/sweep.csv', 'demo/model.vsp3'])
   assert.match(await sizeHeader.innerText(), /↑/)
   const timeHeader = page.locator('.ws-head button.ws-time')
   await timeHeader.click()
@@ -154,6 +159,63 @@ try {
   await page.keyboard.press('Escape')
   await page.click('[data-testid="ws-search"]')
   console.log('PASS opens a context menu')
+
+  // Opening a real VSP3 must be confirmed and replace the live model; the 3D view
+  // shows the model in memory, so the panel marks which file it came from.
+  const modelRow = page.locator('.ws-row:has-text("model.vsp3")')
+  const confirmOpen = page.getByRole('dialog', { name: '打开模型确认' })
+  const opened = async () => {
+    await confirmOpen.getByRole('button', { name: '继续打开' }).click()
+    await confirmOpen.waitFor({ state: 'detached', timeout: 60000 })
+  }
+  await modelRow.locator('button[title="查看"]').click()
+  await confirmOpen.waitFor()
+  await confirmOpen.getByRole('button', { name: '取消' }).click()
+  assert.equal(await page.locator('.ws-current').count(), 0)
+  await modelRow.locator('button[title="查看"]').click()
+  await opened()
+  await page.waitForFunction(() => document.querySelector('.ws-current'))
+  const loaded = await page.evaluate(() => ({
+    model: null,
+    label: document.querySelector('.viewer-file')?.textContent ?? '',
+  }))
+  assert.match(loaded.label, /来自工作区/)
+  assert.ok(await page.locator('canvas').count(), '3D viewport canvas missing')
+  console.log('PASS confirms and opens a real VSP3 model')
+
+  // Double click uses the same confirmation; cancelling leaves the association unchanged.
+  await modelRow.dblclick()
+  await confirmOpen.waitFor()
+  await confirmOpen.getByRole('button', { name: '取消' }).click()
+  assert.match((await page.textContent('.viewer-file')) ?? '', /来自工作区/)
+  await modelRow.dblclick()
+  await opened()
+  assert.match((await page.textContent('.viewer-file')) ?? '', /来自工作区/)
+  console.log('PASS double click confirms or cancels the same way')
+
+  // Deleting the associated file warns, and the live model survives without it.
+  await modelRow.locator('button[title="删除"]').click()
+  const deleteModel = page.getByRole('dialog', { name: '删除文件' })
+  assert.match(await deleteModel.innerText(), /当前模型关联/)
+  await deleteModel.locator('.danger').click()
+  await modelRow.waitFor({ state: 'detached' })
+  await page.waitForFunction(() => /工作区文件已删除/.test(document.querySelector('.viewer-file')?.textContent ?? ''))
+  console.log('PASS deleting the associated file keeps the model and marks it missing')
+
+  // A file that is not a VSP3 reports the failure and keeps no association.
+  await page.evaluate(async () => {
+    const { engineWriteFile } = await import('/src/api/wasmEngine.ts')
+    await engineWriteFile('/work/demo/bad.vsp3', new TextEncoder().encode('not a VSP3'))
+  })
+  const badRow = page.locator('.ws-row:has-text("bad.vsp3")')
+  await badRow.waitFor()
+  await badRow.locator('button[title="查看"]').click()
+  await confirmOpen.getByRole('button', { name: '继续打开' }).click()
+  const failure = page.getByRole('alertdialog', { name: '打开模型失败' })
+  await failure.waitFor({ timeout: 60000 })
+  assert.equal(await page.locator('.ws-current').count(), 0)
+  await failure.getByRole('button', { name: '关闭' }).click()
+  console.log('PASS reports a failed model read')
 
   // Close, mutate the engine, then reopen: the initial listing must not be stale.
   await page.locator('[data-testid="workspace-panel"] button[title="关闭"]').click()

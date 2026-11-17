@@ -5,6 +5,8 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { formatSize, formatTime, type WorkspaceFile } from '../api/workspaceFiles'
 import { FilePreview } from './FilePreview'
 import { useWorkspaceFiles, visibleFiles } from './store'
+import { openWorkspaceModel } from '../api/openWorkspaceModel'
+import { useModelAssociation } from './modelAssociation'
 
 const MIN_W = 300
 const MAX_W = 720
@@ -22,6 +24,10 @@ export function WorkspacePanel() {
   const message = useWorkspaceFiles((s) => s.message)
   const download = useWorkspaceFiles((s) => s.download)
   const remove = useWorkspaceFiles((s) => s.remove)
+  const associatedPath = useModelAssociation((s) => s.path)
+  const [opening, setOpening] = useState(false)
+  const [openError, setOpenError] = useState('')
+  const [pendingOpen, setPendingOpen] = useState<WorkspaceFile | null>(null)
 
   const [width, setWidth] = useState(() => {
     try {
@@ -72,23 +78,27 @@ export function WorkspacePanel() {
 
   if (!open) return null
 
+  const viewFile = (file: WorkspaceFile) => {
+    if (file.kind === 'model') { setOpenError(''); setPendingOpen(file) }
+    else setPreview(file)
+  }
   const rows = (list: WorkspaceFile[]) => list.map((file) => (
     <div
       key={file.path}
       className="ws-row"
       data-testid={`ws-row-${file.name}`}
-      onDoubleClick={() => setPreview(file)}
+      onDoubleClick={(e) => { if (!(e.target as HTMLElement).closest('button')) viewFile(file) }}
       onContextMenu={(e) => {
         e.preventDefault()
         setMenu({ file, x: e.clientX, y: e.clientY })
       }}
     >
       <span className={`ws-icon ws-kind-${file.kind}`}>{glyph(file.kind)}</span>
-      <span className="ws-name" title={file.path}>{file.rel}</span>
+      <span className="ws-name" title={file.path}>{file.rel}{file.path === associatedPath && <span className="ws-current"> 当前模型</span>}</span>
       <span className="ws-size">{formatSize(file.size)}</span>
       <span className="ws-time">{formatTime(file.mtime)}</span>
       <span className="ws-ops">
-        <button className="ghost ws-action" aria-label={`查看 ${file.name}`} title="查看" onClick={() => setPreview(file)}><Icon name="view" /></button>
+        <button className="ghost ws-action" aria-label={`查看 ${file.name}`} title="查看" onClick={() => viewFile(file)}><Icon name="view" /></button>
         <button className="ghost ws-action" aria-label={`下载 ${file.name}`} title="下载" disabled={busy} onClick={() => void download(file)}><Icon name="download" /></button>
         <button className="ghost ws-action" aria-label={`删除 ${file.name}`} title="删除" disabled={busy} onClick={() => setPending(file)}><Icon name="delete" /></button>
       </span>
@@ -179,7 +189,7 @@ export function WorkspacePanel() {
 
       {menu && (
         <div className="ws-menu" style={{ left: menu.x, top: menu.y }} onPointerDown={(e) => e.stopPropagation()}>
-          <button onClick={() => { setPreview(menu.file); setMenu(null) }}>查看</button>
+          <button onClick={() => { viewFile(menu.file); setMenu(null) }}>查看</button>
           <button onClick={() => { void download(menu.file); setMenu(null) }}>下载</button>
           <button className="danger" onClick={() => { setPending(menu.file); setMenu(null) }}>删除</button>
         </div>
@@ -187,12 +197,39 @@ export function WorkspacePanel() {
 
       {preview && <FilePreview file={preview} onClose={() => setPreview(null)} />}
 
+      {openError && (
+        <div className="ws-modal-backdrop" onPointerDown={() => setOpenError('')}>
+          <div className="ws-modal" role="alertdialog" aria-label="打开模型失败" onPointerDown={(e) => e.stopPropagation()}>
+            <div className="ws-modal-title">打开模型失败</div>
+            <div className="ws-modal-body">{openError}<p>读取失败也可能已替换当前模型；请检查当前视图。</p></div>
+            <div className="ws-modal-foot"><button onClick={() => setOpenError('')}>关闭</button></div>
+          </div>
+        </div>
+      )}
+      {pendingOpen && (
+        <div className="ws-modal-backdrop">
+          <div className="ws-modal ws-confirm" role="dialog" aria-modal="true" aria-label="打开模型确认">
+            <div className="ws-modal-title">打开 {pendingOpen.name}？</div>
+            <div className="ws-modal-body">打开将替换当前模型，未保存的更改可能丢失。即使读取失败也可能无法恢复原模型，请先保存重要内容。</div>
+            <div className="ws-modal-foot">
+              <button className="ghost" disabled={opening} onClick={() => setPendingOpen(null)}>取消</button>
+              <button disabled={opening} onClick={async () => {
+                if (opening) return
+                setOpening(true)
+                try { await openWorkspaceModel(pendingOpen.path); setPendingOpen(null) }
+                catch (error) { setPendingOpen(null); setOpenError(error instanceof Error ? error.message : String(error)) }
+                finally { setOpening(false) }
+              }}>{opening ? '正在打开…' : '继续打开'}</button>
+            </div>
+          </div>
+        </div>
+      )}
       {pending && (
         <div className="ws-modal-backdrop" onPointerDown={() => setPending(null)}>
           <div className="ws-modal ws-confirm" onPointerDown={(e) => e.stopPropagation()} role="dialog" aria-label="删除文件">
             <div className="ws-modal-title"><span>删除 {pending.name}？</span></div>
             <div className="ws-modal-body">
-              <div className="ws-hint">文件会从 /work 删除，无法撤销。</div>
+              <div className="ws-hint">文件会从 /work 删除，无法撤销。{pending.path === associatedPath && ' 这是当前模型关联的文件；删除不会清空内存中的模型，请另存模型以保留更改。'}</div>
             </div>
             <div className="ws-modal-foot">
               <button className="ghost" onClick={() => setPending(null)}>取消</button>

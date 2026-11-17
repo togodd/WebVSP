@@ -274,7 +274,7 @@ export async function wasmRequest(method: string, path: string, body?: unknown):
     const tree = (await call('model')) as { fileName: string }
     // A model never saved has OpenVSP's bare default name: no file name at all. A file the user
     // opened or saved is in HOME, so one actually called Unnamed.vsp3 still shows.
-    return { ...tree, fileName: tree.fileName === 'Unnamed.vsp3' ? '' : displayName(tree.fileName) }
+    return { ...tree, rawFileName: tree.fileName, fileName: tree.fileName === 'Unnamed.vsp3' ? '' : displayName(tree.fileName) }
   }
   if ((m = route.match(/^GET \/geoms\/([^/]+)\/fuselage-length$/))) return call('fuselageLength', decodeURIComponent(m[1]))
   if ((m = route.match(/^GET \/geoms\/([^/]+)\/xsecs$/))) return call('geomXSecs', decodeURIComponent(m[1]))
@@ -778,6 +778,16 @@ export async function putEngineFile(name: string, bytes: Uint8Array): Promise<st
   const path = `${HOME}/${name}`
   vsp.FS.writeFile(path, new Uint8Array(bytes))
   return path
+}
+
+/** Open an existing regular engine file as a model. The engine clears the current model
+ * before reading; a failed read may leave it empty or partially loaded. */
+export async function openEngineModel(path: string): Promise<void> {
+  const vsp = await load()
+  if (!vsp.FS.analyzePath(path).exists || !vsp.FS.isFile(vsp.FS.stat(path).mode)) {
+    throw new Error('Model file not found in the engine file system')
+  }
+  await call('readFile', path)
 }
 
 /** Read a file the engine wrote, as an ordinary copy. */

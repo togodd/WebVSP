@@ -13,6 +13,7 @@ import { classify, formatSize, formatTime, listWorkspace } from '../api/workspac
 import { engineDeleteFile, engineListFiles } from '../api/wasmEngine'
 import { useWorkspaceFiles, visibleFiles, type FilterState } from './store'
 import type { WorkspaceFile } from '../api/workspaceFiles'
+import { useModelAssociation, associateWorkspaceModel, clearWorkspaceModelAssociation } from './modelAssociation'
 
 const file = (rel: string, size = 10, mtime = 1000): WorkspaceFile => ({
   path: `/work/${rel}`,
@@ -120,6 +121,7 @@ describe('listWorkspace', () => {
 describe('workspace store', () => {
   beforeEach(() => {
     useWorkspaceFiles.getState().close()
+    clearWorkspaceModelAssociation()
     vi.clearAllMocks()
   })
 
@@ -176,6 +178,22 @@ describe('workspace store', () => {
     expect(engineDeleteFile).toHaveBeenCalledWith('/work/gone.txt')
     expect(useWorkspaceFiles.getState().files.map((f) => f.rel)).toEqual(['keep.txt'])
     expect(useWorkspaceFiles.getState().message).toContain('已删除')
+  })
+
+  it('marks the associated model file as missing without touching the model', async () => {
+    vi.mocked(engineListFiles).mockResolvedValue([])
+    vi.mocked(engineDeleteFile).mockResolvedValue()
+    const model = file('model.vsp3')
+    useWorkspaceFiles.setState({ files: [model], loaded: true })
+    associateWorkspaceModel(model.path, {
+      geoms: [], active: [], vehicleId: 'vehicle', fileName: 'model.vsp3', rawFileName: model.path,
+      version: '', rev: 1, modelEpoch: '1', modelEpochValid: true, dirty: false,
+      undo: { canUndo: false, canRedo: false, undoLabel: null, redoLabel: null },
+    })
+
+    await useWorkspaceFiles.getState().remove(model)
+
+    expect(useModelAssociation.getState()).toMatchObject({ path: model.path, status: 'missing' })
   })
 
   it('reports a delete failure without dropping the list', async () => {

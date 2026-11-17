@@ -18,6 +18,7 @@ import { ResultsViewer } from './viewer/ResultsViewer'
 import { PythonConsole } from './console/PythonConsole'
 import { WorkspacePanel } from './workspace/WorkspacePanel'
 import { useWorkspaceFiles } from './workspace/store'
+import { useModelAssociation } from './workspace/modelAssociation'
 import { useConsole } from './console/consoleStore'
 import { WasmToolbar } from './WasmToolbar'
 
@@ -49,10 +50,26 @@ function TopBarStatus() {
   )
 }
 
-/** The model's file name, in the bottom-left corner of the 3D view. */
+/** The model's file name, in the bottom-left corner of the 3D view.
+ *
+ *  The view shows the model in memory, which is not the same thing as a file in the
+ *  workspace: geoms made with Python exist before anything is written, closing or deleting
+ *  a .vsp3 leaves the live model alone, and a file read replaces what is in memory. So the
+ *  label says which of those the shown model is, instead of only echoing a file name. */
 function FileName() {
-  const name = useStore((s) => s.tree?.fileName)
-  return name ? <div className="viewer-file" title={name}>{name}</div> : null
+  const tree = useStore((s) => s.tree)
+  const association = useModelAssociation((s) => s.path)
+  const status = useModelAssociation((s) => s.status)
+  if (!tree) return null
+  const name = tree.fileName || '未命名模型'
+  const origin = status === 'missing'
+    ? '工作区文件已删除'
+    : association
+      ? '来自工作区'
+      : tree.fileName ? '未关联工作区' : '尚未保存为文件'
+  const dirty = tree.dirty ? ' · 有未保存更改' : ''
+  const label = `${name} · ${origin}${dirty}`
+  return <div className="viewer-file" title={label}>{label}</div>
 }
 
 // The Geom Browser docks left and the geom editors right. Group Modifications (several geoms

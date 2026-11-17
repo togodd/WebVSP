@@ -24,6 +24,8 @@ export interface ModelTree {
   active: string[]
   vehicleId: string
   fileName: string
+  /** Unmodified engine filename; unlike fileName this is suitable for path identity. */
+  rawFileName?: string
   version: string
   rev: number
   /** Captured with this snapshot. Optional for compatibility with older adapters. */

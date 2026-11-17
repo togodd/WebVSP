@@ -1,6 +1,7 @@
 import { create } from 'zustand'
 import { api } from './api/client'
 import type { GeomNode, ModelTree, ServerEvent, UndoState } from './api/types'
+import { clearWorkspaceModelAssociation, reconcileModelAssociation, useModelAssociation } from './workspace/modelAssociation'
 
 /** Stable empty list: a selector returning a fresh [] each call re-renders forever. */
 export const NO_GEOMS: GeomNode[] = []
@@ -86,6 +87,7 @@ export const useStore = create<State>((set, get) => ({
 
   loadTree: async () => {
     const [tree, types] = await Promise.all([api.model(), get().geomTypes.length ? null : api.geomTypes()])
+    reconcileModelAssociation(tree)
     const geomsById = Object.fromEntries(tree.geoms.map((g) => [g.id, g]))
     const sel = get().selectedId
     const prev = get().tree
@@ -105,8 +107,10 @@ export const useStore = create<State>((set, get) => ({
 
   handleEvent: (e) => {
     if (e.type === 'saved') {
+      if (useModelAssociation.getState().path !== e.fileName) clearWorkspaceModelAssociation()
+      else useModelAssociation.setState({ status: 'present' })
       const tree = get().tree
-      if (tree) set({ tree: { ...tree, fileName: e.fileName, dirty: false } })
+      if (tree) set({ tree: { ...tree, fileName: e.fileName, rawFileName: e.fileName, dirty: false } })
       return
     }
     const meshRev = { ...get().meshRev }

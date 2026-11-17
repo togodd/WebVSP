@@ -644,6 +644,7 @@ input:focus, select:focus, textarea:focus, button:focus-visible {
 .ws-kind-image { color: #c98fd9; }
 .ws-kind-script { color: #7fd9c4; }
 .ws-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ws-current { color: #6fb3ff; font-size: 10px; }
 .ws-size { width: 62px; flex: none; text-align: right; color: var(--fg-3); }
 .ws-time { width: 70px; flex: none; text-align: right; color: var(--fg-3); }
 .ws-ops { width: 78px; min-width: 0; display: flex; gap: 2px; justify-content: flex-end; }
