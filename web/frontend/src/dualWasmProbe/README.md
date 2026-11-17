@@ -108,6 +108,9 @@ helper（[上游入口](../../../../src/python_api/packages/openvsp/openvsp/__in
 | `GetGeomTypes`、`GetNumMainSurfs`、`UpdateGeom`、`SetGeomParent`、`CopyGeomToClipboard`、`CutGeomToClipboard`、`PasteGeomClipboard` | ✅ | 已通过真实浏览器几何更新、父子关系和剪贴板回归 |
 | `GetGeomParmIDs` | ✅ | |
 | `CompPnt01`、`CompNorm01` | ✅ | 已通过机身与机翼真实浏览器回归，返回支持 `x()`/`y()`/`z()` 的 vec3d |
+| `GetGeomDrawType`、`SetGeomDrawType`、`GetGeomDisplayType`、`SetGeomDisplayType`、`GetGeomWireColor`、`SetGeomWireColor` | ✅ | 真实浏览器回归覆盖读写往返与恢复 |
+| `GetGeomBBoxMin`、`GetGeomBBoxMax` | ✅ | 支持主曲面序号与绝对/相对坐标系；绝对框随位置变化已验证 |
+| `GetGeomMaterialName`、`SetGeomMaterialName` | 🟨 | 读取可用；本构建未注册任何材质，原生会拒绝所有赋值 |
 | `GetParmVal`、`SetParmVal` | ✅ | `GetParmVal` 支持单参数重载；`SetParmVal` 支持两参数和四参数重载，均不触发更新 |
 | `GetParmInfo`、`GetParmInfoByName`、`GetParmValByID`、`SetParmValByID` | ✅ | `GetParmInfo` 另含 `active`、`lower`、`upper`、`groupName` |
 | `GetParmType`、`GetParmLowerLimit`/`UpperLimit`、`GetParmActiveFlag` | ✅ | 限制为 `None` 表示无界 |
