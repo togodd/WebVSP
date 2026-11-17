@@ -112,6 +112,25 @@ for call in (lambda: vsp.GetParmName(5), lambda: vsp.GetSubSurfType(5)):
     else:
         raise AssertionError('integer accepted for a string parameter')
 `],
+    ['no-argument, vector and vec3d returns', `
+import openvsp as vsp
+vsp.ClearVSPModel()
+pod = vsp.AddGeom('POD')
+vsp.Update()
+
+# int() / string() / vector<string>() / bool() signatures
+assert isinstance(vsp.GetVSPFileName(), str)
+ids = vsp.GetAllSubSurfIDs()
+assert isinstance(ids, list)
+containers = vsp.FindContainers()
+assert isinstance(containers, list) and pod in containers
+
+# vector<string>(string) and vector<double>(string)
+parms = vsp.GetGeomParmIDs(pod)
+assert isinstance(parms, list) and len(parms) > 10
+subs = vsp.GetSubSurfIDVec(pod)
+assert isinstance(subs, list)
+`],
   ]
   for (const [name, code] of cases) {
     try {

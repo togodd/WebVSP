@@ -41,6 +41,14 @@ SHAPES = {
     'sii': ['string', 'int', 'int'],
     'sis': ['string', 'int', 'string'],
     'sd': ['string', 'double'],
+    'sdd': ['string', 'double', 'double'],
+    'I0': [],
+    'S0': [],
+    'B0': [],
+    'V0': [],
+    'L': ['string'],
+    'Li': ['string', 'int'],
+    'E': ['string'],
     'S': ['string'],
     'I': ['string'],
     'D': ['string'],
@@ -56,10 +64,12 @@ SHAPES = {
 
 RETURNS = {'v': 'void', 's': 'void', 'i': 'void', 'n': 'void', 'ss': 'void', 'sb': 'void',
            'ns': 'void', 'nn': 'void', 'ib': 'void', 'sii': 'void',
-           'sis': 'void', 'sd': 'void',
-           'S': 'string', 'SS': 'string', 'Si': 'string', 'N': 'string',
-           'I': 'int', 'Ii': 'int', 'D': 'double', 'B': 'bool',
-           'V': 'vector<string>', 'Vs': 'vector<string>', 'Vi': 'vector<string>'}
+           'sis': 'void', 'sd': 'void', 'sdd': 'void',
+           'S': 'string', 'SS': 'string', 'Si': 'string', 'N': 'string', 'S0': 'string',
+           'I': 'int', 'Ii': 'int', 'D': 'double', 'B': 'bool', 'I0': 'int', 'B0': 'bool',
+           'L': 'vector<double>', 'Li': 'vector<double>', 'E': 'vec3d',
+           'V': 'vector<string>', 'Vs': 'vector<string>', 'Vi': 'vector<string>',
+           'V0': 'vector<string>'}
 
 # Coordinates out-parameters (`double &u_out`) are not representable here; those
 # APIs keep their hand-written bridges.
@@ -70,10 +80,18 @@ def is_output_param(raw):
     return not re.search(r'\bconst\b', raw)
 
 
+TEMPLATES = ('vector<string>', 'vector<double>', 'vector<int>', 'vector<vec3d>', 'vector<vec2d>',
+             'vector<vector<double>>', 'vector<vector<string>>')
+
+
 def simple_type(raw):
     text = re.sub(r'\bconst\b', '', raw).replace('&', '').strip()
     text = re.sub(r'\bstd::', '', text)
     text = re.sub(r'\s+', ' ', text)
+    flat = text.replace(' ', '')
+    for name in TEMPLATES:
+        if flat == name:
+            return name
     return text
 
 
@@ -150,13 +168,15 @@ def write_cpp(rows):
               'ss': 'const string &a, const string &b', 'sb': 'const string &a, bool b',
               'ns': 'int a, const string &b', 'nn': 'int a, int b', 'ib': 'int a, bool b',
               'sii': 'const string &a, int b, int c',
+              'sdd': 'const string &a, double b, double c',
               'sis': 'const string &a, int b, const string &c', 'sd': 'const string &a, double b'}
     call = {'v': '', 's': 'a', 'i': 'a', 'n': 'a, b', 'ss': 'a, b', 'sb': 'a, b',
             'ns': 'a, b', 'nn': 'a, b', 'ib': 'a, b', 'sii': 'a, b, c',
-            'sis': 'a, b, c', 'sd': 'a, b'}
+            'sis': 'a, b, c', 'sd': 'a, b', 'sdd': 'a, b, c'}
     # Shapes with the same parameters share one argument signature.
     alias = {'S': 's', 'I': 's', 'D': 's', 'B': 's', 'SS': 'ss', 'Si': 'n', 'Ii': 'n',
-             'N': 'i', 'Vi': 'i', 'V': 'v', 'Vs': 's'}
+             'N': 'i', 'Vi': 'i', 'V': 'v', 'Vs': 's', 'S0': 'v', 'I0': 'v', 'B0': 'v',
+             'V0': 'v', 'L': 's', 'Li': 'n', 'E': 's'}
     for shape in sorted(SHAPES):
         names = groups.get(shape, [])
         argshape = alias.get(shape, shape)

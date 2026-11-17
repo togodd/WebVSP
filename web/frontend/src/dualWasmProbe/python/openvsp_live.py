@@ -895,8 +895,8 @@ def _api_wrappers():
     from live_api_table import FUNCTIONS, SHAPES
 
     def make(name, shape):
-        types, _ = SHAPES[shape]
-        write = shape[0].islower()
+        types, returns = SHAPES[shape]
+        write = returns == 'void'
 
         def wrapper(*args):
             if len(args) != len(types):
@@ -915,8 +915,9 @@ def _api_wrappers():
                     values.append(bool(value))
                 else:
                     values.append(float(value))
-            return _call('live_api_write' if write else 'live_api',
-                         fn=name, shape=shape, args=values)
+            result = _call('live_api_write' if write else 'live_api',
+                           fn=name, shape=shape, args=values)
+            return _Vec3d(result) if returns == 'vec3d' else result
 
         wrapper.__name__ = name
         wrapper.__qualname__ = name

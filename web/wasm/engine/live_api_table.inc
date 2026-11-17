@@ -8,21 +8,35 @@
 
 // B: bool (string)  -- 11 functions
 
+// B0: bool ()  -- 4 functions
+
+// E: vec3d (string)  -- 2 functions
+
 // I: int (string)  -- 28 functions
 
+// I0: int ()  -- 26 functions
+
 // Ii: int (string, int)  -- 4 functions
+
+// L: vector<double> (string)  -- 9 functions
+
+// Li: vector<double> (string, int)  -- 2 functions
 
 // N: string (int)  -- 14 functions
 
 // S: string (string)  -- 73 functions
 
+// S0: string ()  -- 25 functions
+
 // SS: string (string, string)  -- 12 functions
 
 // Si: string (string, int)  -- 25 functions
 
-// V: vector<string> ()  -- 2 functions
+// V0: vector<string> ()  -- 32 functions
 
-// Vs: vector<string> (string)  -- 4 functions
+// Vi: vector<string> (int)  -- 7 functions
+
+// Vs: vector<string> (string)  -- 38 functions
 
 // i: void (int)  -- 19 functions
 
@@ -39,6 +53,8 @@
 // sb: void (string, bool)  -- 7 functions
 
 // sd: void (string, double)  -- 3 functions
+
+// sdd: void (string, double, double)  -- 2 functions
 
 // sii: void (string, int, int)  -- 4 functions
 
@@ -62,7 +78,19 @@ static const std::map< string, std::function< bool(const string &a) > > kApi_B =
     { "ValidParm", []( const string &a ) { return vsp::ValidParm(a); } },
 };
 
+static const std::map< string, std::function< bool() > > kApi_B0 = {
+    { "CanUndoFitModel", [](  ) { return vsp::CanUndoFitModel(); } },
+    { "IsEventLoopRunning", [](  ) { return vsp::IsEventLoopRunning(); } },
+    { "IsGUIBuild", [](  ) { return vsp::IsGUIBuild(); } },
+    { "UndoFitModel", [](  ) { return vsp::UndoFitModel(); } },
+};
+
 static const std::map< string, std::function< double(const string &a) > > kApi_D = {
+};
+
+static const std::map< string, std::function< vec3d(const string &a) > > kApi_E = {
+    { "GetMainRoutingPtCoord", []( const string &a ) { return vsp::GetMainRoutingPtCoord(a); } },
+    { "MirrorGeomOrigin", []( const string &a ) { return vsp::MirrorGeomOrigin(a); } },
 };
 
 static const std::map< string, std::function< int(const string &a) > > kApi_I = {
@@ -96,11 +124,57 @@ static const std::map< string, std::function< int(const string &a) > > kApi_I = 
     { "NumFeaSubSurfs", []( const string &a ) { return vsp::NumFeaSubSurfs(a); } },
 };
 
+static const std::map< string, std::function< int() > > kApi_I0 = {
+    { "CreateVSPAEROControlSurfaceGroup", [](  ) { return vsp::CreateVSPAEROControlSurfaceGroup(); } },
+    { "GetAndResetUpdateCount", [](  ) { return vsp::GetAndResetUpdateCount(); } },
+    { "GetFeaMeshStructIndex", [](  ) { return vsp::GetFeaMeshStructIndex(); } },
+    { "GetNumActuatorDisks", [](  ) { return vsp::GetNumActuatorDisks(); } },
+    { "GetNumAnalysis", [](  ) { return vsp::GetNumAnalysis(); } },
+    { "GetNumBackground3Ds", [](  ) { return vsp::GetNumBackground3Ds(); } },
+    { "GetNumControlSurfaceGroups", [](  ) { return vsp::GetNumControlSurfaceGroups(); } },
+    { "GetNumCpSlices", [](  ) { return vsp::GetNumCpSlices(); } },
+    { "GetNumDesignVars", [](  ) { return vsp::GetNumDesignVars(); } },
+    { "GetNumExcrescences", [](  ) { return vsp::GetNumExcrescences(); } },
+    { "GetNumFitModelOptVars", [](  ) { return vsp::GetNumFitModelOptVars(); } },
+    { "GetNumFitModelTargetPts", [](  ) { return vsp::GetNumFitModelTargetPts(); } },
+    { "GetNumFitModelVars", [](  ) { return vsp::GetNumFitModelVars(); } },
+    { "GetNumLights", [](  ) { return vsp::GetNumLights(); } },
+    { "GetNumModes", [](  ) { return vsp::GetNumModes(); } },
+    { "GetNumParmLinks", [](  ) { return vsp::GetNumParmLinks(); } },
+    { "GetNumPredefinedUserParms", [](  ) { return vsp::GetNumPredefinedUserParms(); } },
+    { "GetNumUnsteadyGroups", [](  ) { return vsp::GetNumUnsteadyGroups(); } },
+    { "GetNumUnsteadyRotorGroups", [](  ) { return vsp::GetNumUnsteadyRotorGroups(); } },
+    { "GetNumUserParms", [](  ) { return vsp::GetNumUserParms(); } },
+    { "GetVSPVersionChange", [](  ) { return vsp::GetVSPVersionChange(); } },
+    { "GetVSPVersionMajor", [](  ) { return vsp::GetVSPVersionMajor(); } },
+    { "GetVSPVersionMinor", [](  ) { return vsp::GetVSPVersionMinor(); } },
+    { "NumFeaAssemblies", [](  ) { return vsp::NumFeaAssemblies(); } },
+    { "NumFeaStructures", [](  ) { return vsp::NumFeaStructures(); } },
+    { "OptimizeFitModel", [](  ) { return vsp::OptimizeFitModel(); } },
+};
+
 static const std::map< string, std::function< int(const string &a, int b) > > kApi_Ii = {
     { "GetCFDSourceType", []( const string &a, int b ) { return vsp::GetCFDSourceType(a, b); } },
     { "GetGeomVSPSurfCfdType", []( const string &a, int b ) { return vsp::GetGeomVSPSurfCfdType(a, b); } },
     { "GetGeomVSPSurfType", []( const string &a, int b ) { return vsp::GetGeomVSPSurfType(a, b); } },
     { "PCurveGetType", []( const string &a, int b ) { return vsp::PCurveGetType(a, b); } },
+};
+
+static const std::map< string, std::function< vector<double>(const string &a) > > kApi_L = {
+    { "GetAttributeDoubleVal", []( const string &a ) { return vsp::GetAttributeDoubleVal(a); } },
+    { "GetAttributeParmVal", []( const string &a ) { return vsp::GetAttributeParmVal(a); } },
+    { "GetBORLowerCSTCoefs", []( const string &a ) { return vsp::GetBORLowerCSTCoefs(a); } },
+    { "GetBORUpperCSTCoefs", []( const string &a ) { return vsp::GetBORUpperCSTCoefs(a); } },
+    { "GetEditXSecUVec", []( const string &a ) { return vsp::GetEditXSecUVec(a); } },
+    { "GetLowerCSTCoefs", []( const string &a ) { return vsp::GetLowerCSTCoefs(a); } },
+    { "GetMeshGeomTriPnts", []( const string &a ) { return vsp::GetMeshGeomTriPnts(a); } },
+    { "GetUpperCSTCoefs", []( const string &a ) { return vsp::GetUpperCSTCoefs(a); } },
+    { "GetVarPresetParmVals", []( const string &a ) { return vsp::GetVarPresetParmVals(a); } },
+};
+
+static const std::map< string, std::function< vector<double>(const string &a, int b) > > kApi_Li = {
+    { "PCurveGetTVec", []( const string &a, int b ) { return vsp::PCurveGetTVec(a, b); } },
+    { "PCurveGetValVec", []( const string &a, int b ) { return vsp::PCurveGetValVec(a, b); } },
 };
 
 static const std::map< string, std::function< string(int a) > > kApi_N = {
@@ -196,6 +270,34 @@ static const std::map< string, std::function< string(const string &a) > > kApi_S
     { "SplitWingXSecByID", []( const string &a ) { return vsp::SplitWingXSecByID(a); } },
 };
 
+static const std::map< string, std::function< string() > > kApi_S0 = {
+    { "AddBackground3D", [](  ) { return vsp::AddBackground3D(); } },
+    { "AddFeaAssembly", [](  ) { return vsp::AddFeaAssembly(); } },
+    { "AddFeaMaterial", [](  ) { return vsp::AddFeaMaterial(); } },
+    { "AddGeometryAnalysis", [](  ) { return vsp::AddGeometryAnalysis(); } },
+    { "GetActiveGeometryAnalysis", [](  ) { return vsp::GetActiveGeometryAnalysis(); } },
+    { "GetAeroStructTargetID", [](  ) { return vsp::GetAeroStructTargetID(); } },
+    { "GetBEMPropID", [](  ) { return vsp::GetBEMPropID(); } },
+    { "GetCFDFarFieldGeomID", [](  ) { return vsp::GetCFDFarFieldGeomID(); } },
+    { "GetCFDMeshModeID", [](  ) { return vsp::GetCFDMeshModeID(); } },
+    { "GetFeaMeshStructID", [](  ) { return vsp::GetFeaMeshStructID(); } },
+    { "GetIGESStructureExportID", [](  ) { return vsp::GetIGESStructureExportID(); } },
+    { "GetIntersectModeID", [](  ) { return vsp::GetIntersectModeID(); } },
+    { "GetParasiteDragModeID", [](  ) { return vsp::GetParasiteDragModeID(); } },
+    { "GetParasiteDragRefWingID", [](  ) { return vsp::GetParasiteDragRefWingID(); } },
+    { "GetSTEPStructureExportID", [](  ) { return vsp::GetSTEPStructureExportID(); } },
+    { "GetUserParmContainer", [](  ) { return vsp::GetUserParmContainer(); } },
+    { "GetVSPExePath", [](  ) { return vsp::GetVSPExePath(); } },
+    { "GetVSPHelpPath", [](  ) { return vsp::GetVSPHelpPath(); } },
+    { "GetVSPVersion", [](  ) { return vsp::GetVSPVersion(); } },
+    { "GetVehicleID", [](  ) { return vsp::GetVehicleID(); } },
+    { "GetWaveDragModeID", [](  ) { return vsp::GetWaveDragModeID(); } },
+    { "GetWaveDragRefWingID", [](  ) { return vsp::GetWaveDragRefWingID(); } },
+    { "MirrorTakeOutput", [](  ) { return vsp::MirrorTakeOutput(); } },
+    { "SummarizeAttributes", [](  ) { return vsp::SummarizeAttributes(); } },
+    { "SummarizeAttributesAsTree", [](  ) { return vsp::SummarizeAttributesAsTree(); } },
+};
+
 static const std::map< string, std::function< string(const string &a, const string &b) > > kApi_SS = {
     { "AddAttributeGroup", []( const string &a, const string &b ) { return vsp::AddAttributeGroup(a, b); } },
     { "AddParmLink", []( const string &a, const string &b ) { return vsp::AddParmLink(a, b); } },
@@ -240,18 +342,92 @@ static const std::map< string, std::function< string(const string &a, int b) > >
 };
 
 static const std::map< string, std::function< vector<string>() > > kApi_V = {
+};
+
+static const std::map< string, std::function< vector<string>() > > kApi_V0 = {
+    { "FindAllAttributes", [](  ) { return vsp::FindAllAttributes(); } },
+    { "FindAttributedObjects", [](  ) { return vsp::FindAttributedObjects(); } },
     { "FindContainers", [](  ) { return vsp::FindContainers(); } },
     { "GetActiveGeoms", [](  ) { return vsp::GetActiveGeoms(); } },
+    { "GetActuatorDiskIDVec", [](  ) { return vsp::GetActuatorDiskIDVec(); } },
+    { "GetAdvLinkNames", [](  ) { return vsp::GetAdvLinkNames(); } },
+    { "GetAllBackground3DAbsolutePaths", [](  ) { return vsp::GetAllBackground3DAbsolutePaths(); } },
+    { "GetAllBackground3DRelativePaths", [](  ) { return vsp::GetAllBackground3DRelativePaths(); } },
+    { "GetAllBackground3Ds", [](  ) { return vsp::GetAllBackground3Ds(); } },
+    { "GetAllGeometryAnalysesIDVec", [](  ) { return vsp::GetAllGeometryAnalysesIDVec(); } },
+    { "GetAllModes", [](  ) { return vsp::GetAllModes(); } },
+    { "GetAllParmLinks", [](  ) { return vsp::GetAllParmLinks(); } },
+    { "GetAllProbes", [](  ) { return vsp::GetAllProbes(); } },
+    { "GetAllProtractors", [](  ) { return vsp::GetAllProtractors(); } },
+    { "GetAllRSTProbes", [](  ) { return vsp::GetAllRSTProbes(); } },
+    { "GetAllRulers", [](  ) { return vsp::GetAllRulers(); } },
+    { "GetAllUserParms", [](  ) { return vsp::GetAllUserParms(); } },
+    { "GetCompleteCSNameVec", [](  ) { return vsp::GetCompleteCSNameVec(); } },
+    { "GetCompleteCSSubSurfIDVec", [](  ) { return vsp::GetCompleteCSSubSurfIDVec(); } },
+    { "GetControlSurfaceGroupIDVec", [](  ) { return vsp::GetControlSurfaceGroupIDVec(); } },
+    { "GetCpSliceIDVec", [](  ) { return vsp::GetCpSliceIDVec(); } },
+    { "GetDesignVarVec", [](  ) { return vsp::GetDesignVarVec(); } },
+    { "GetFeaAssemblyIDVec", [](  ) { return vsp::GetFeaAssemblyIDVec(); } },
+    { "GetFeaMaterialIDVec", [](  ) { return vsp::GetFeaMaterialIDVec(); } },
+    { "GetFeaPropertyIDVec", [](  ) { return vsp::GetFeaPropertyIDVec(); } },
+    { "GetFeaStructIDVec", [](  ) { return vsp::GetFeaStructIDVec(); } },
+    { "GetFitModelVarVec", [](  ) { return vsp::GetFitModelVarVec(); } },
+    { "GetLightIDVec", [](  ) { return vsp::GetLightIDVec(); } },
+    { "GetMaterialNames", [](  ) { return vsp::GetMaterialNames(); } },
+    { "GetUnsteadyGroupIDVec", [](  ) { return vsp::GetUnsteadyGroupIDVec(); } },
+    { "GetVarPresetGroups", [](  ) { return vsp::GetVarPresetGroups(); } },
+    { "GetWaveDragFlowSubSurfVec", [](  ) { return vsp::GetWaveDragFlowSubSurfVec(); } },
 };
 
 static const std::map< string, std::function< vector<string>(int a) > > kApi_Vi = {
+    { "GetActiveCSNameVec", []( int a ) { return vsp::GetActiveCSNameVec(a); } },
+    { "GetAdvLinkInputNames", []( int a ) { return vsp::GetAdvLinkInputNames(a); } },
+    { "GetAdvLinkInputParms", []( int a ) { return vsp::GetAdvLinkInputParms(a); } },
+    { "GetAdvLinkOutputNames", []( int a ) { return vsp::GetAdvLinkOutputNames(a); } },
+    { "GetAdvLinkOutputParms", []( int a ) { return vsp::GetAdvLinkOutputParms(a); } },
+    { "GetAvailableCSNameVec", []( int a ) { return vsp::GetAvailableCSNameVec(a); } },
+    { "GetUnsteadyGroupCompIDs", []( int a ) { return vsp::GetUnsteadyGroupCompIDs(a); } },
 };
 
 static const std::map< string, std::function< vector<string>(const string &a) > > kApi_Vs = {
+    { "FindAttributeNamesInCollection", []( const string &a ) { return vsp::FindAttributeNamesInCollection(a); } },
+    { "FindAttributesByName", []( const string &a ) { return vsp::FindAttributesByName(a); } },
+    { "FindAttributesInCollection", []( const string &a ) { return vsp::FindAttributesInCollection(a); } },
     { "FindContainerGroupNames", []( const string &a ) { return vsp::FindContainerGroupNames(a); } },
     { "FindContainerParmIDs", []( const string &a ) { return vsp::FindContainerParmIDs(a); } },
     { "FindContainersWithName", []( const string &a ) { return vsp::FindContainersWithName(a); } },
     { "FindGeomsWithName", []( const string &a ) { return vsp::FindGeomsWithName(a); } },
+    { "FindResultsIDs", []( const string &a ) { return vsp::FindResultsIDs(a); } },
+    { "GetActiveCSNameVecByID", []( const string &a ) { return vsp::GetActiveCSNameVecByID(a); } },
+    { "GetActiveCSSubSurfIDVec", []( const string &a ) { return vsp::GetActiveCSSubSurfIDVec(a); } },
+    { "GetAllBogies", []( const string &a ) { return vsp::GetAllBogies(a); } },
+    { "GetAllFeaPolySparPtIDVec", []( const string &a ) { return vsp::GetAllFeaPolySparPtIDVec(a); } },
+    { "GetAllRoutingPtIds", []( const string &a ) { return vsp::GetAllRoutingPtIds(a); } },
+    { "GetAttributeParmID", []( const string &a ) { return vsp::GetAttributeParmID(a); } },
+    { "GetAttributeParmName", []( const string &a ) { return vsp::GetAttributeParmName(a); } },
+    { "GetAttributeStringVal", []( const string &a ) { return vsp::GetAttributeStringVal(a); } },
+    { "GetAvailableCSNameVecByID", []( const string &a ) { return vsp::GetAvailableCSNameVecByID(a); } },
+    { "GetAvailableCSSubSurfIDVec", []( const string &a ) { return vsp::GetAvailableCSSubSurfIDVec(a); } },
+    { "GetCFDSourceIDVec", []( const string &a ) { return vsp::GetCFDSourceIDVec(a); } },
+    { "GetFeaAssemblyConnectionIDVec", []( const string &a ) { return vsp::GetFeaAssemblyConnectionIDVec(a); } },
+    { "GetFeaAssemblyStructureIDVec", []( const string &a ) { return vsp::GetFeaAssemblyStructureIDVec(a); } },
+    { "GetFeaBCIDVec", []( const string &a ) { return vsp::GetFeaBCIDVec(a); } },
+    { "GetFeaLayerIDVec", []( const string &a ) { return vsp::GetFeaLayerIDVec(a); } },
+    { "GetFeaPartIDVec", []( const string &a ) { return vsp::GetFeaPartIDVec(a); } },
+    { "GetFeaStructIDVecByGeom", []( const string &a ) { return vsp::GetFeaStructIDVecByGeom(a); } },
+    { "GetFeaSubSurfIDVec", []( const string &a ) { return vsp::GetFeaSubSurfIDVec(a); } },
+    { "GetFeaTrimPartIDVec", []( const string &a ) { return vsp::GetFeaTrimPartIDVec(a); } },
+    { "GetGeomTextureIDVec", []( const string &a ) { return vsp::GetGeomTextureIDVec(a); } },
+    { "GetGeometryAnalysisAzimuthParmVec", []( const string &a ) { return vsp::GetGeometryAnalysisAzimuthParmVec(a); } },
+    { "GetGeometryAnalysisCutoutVec", []( const string &a ) { return vsp::GetGeometryAnalysisCutoutVec(a); } },
+    { "GetGeometryAnalysisElevationParmVec", []( const string &a ) { return vsp::GetGeometryAnalysisElevationParmVec(a); } },
+    { "GetSkinSpineIDVec", []( const string &a ) { return vsp::GetSkinSpineIDVec(a); } },
+    { "GetUnsteadyGroupCompIDsByID", []( const string &a ) { return vsp::GetUnsteadyGroupCompIDsByID(a); } },
+    { "GetVarPresetParmIDs", []( const string &a ) { return vsp::GetVarPresetParmIDs(a); } },
+    { "GetVarPresetSettings", []( const string &a ) { return vsp::GetVarPresetSettings(a); } },
+    { "ModeGetAllGroups", []( const string &a ) { return vsp::ModeGetAllGroups(a); } },
+    { "ModeGetAllSettings", []( const string &a ) { return vsp::ModeGetAllSettings(a); } },
+    { "PasteAttribute", []( const string &a ) { return vsp::PasteAttribute(a); } },
 };
 
 static const std::map< string, std::function< void(int a) > > kApi_i = {
@@ -442,6 +618,11 @@ static const std::map< string, std::function< void(const string &a, double b) > 
     { "SetAttributeDouble", []( const string &a, double b ) { vsp::SetAttributeDouble(a, b); } },
     { "SetParmLowerLimit", []( const string &a, double b ) { vsp::SetParmLowerLimit(a, b); } },
     { "SetParmUpperLimit", []( const string &a, double b ) { vsp::SetParmUpperLimit(a, b); } },
+};
+
+static const std::map< string, std::function< void(const string &a, double b, double c) > > kApi_sdd = {
+    { "ConvertEtatoU", []( const string &a, double b, double c ) { vsp::ConvertEtatoU(a, b, c); } },
+    { "ConvertUtoEta", []( const string &a, double b, double c ) { vsp::ConvertUtoEta(a, b, c); } },
 };
 
 static const std::map< string, std::function< void(const string &a, int b, int c) > > kApi_sii = {
