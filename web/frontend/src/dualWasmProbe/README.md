@@ -95,6 +95,19 @@ helper（[上游入口](../../../../src/python_api/packages/openvsp/openvsp/__in
 
 标记：**✅** 已实现且有相关自动测试（只覆盖所测场景）；**🟨** 已实现但未单独测试；**🚫** 存在但被桥接层禁用；**❌** 未实现或所需依赖未打包。测试命令见文末；不同测试的主机模拟与浏览器证据不可互换。
 
+### 可用的 Python 包
+
+| 包 | 大小 | 安装时机 |
+|---|---|---|
+| `numpy`、`six` | 3 MB | 每次会话预装 |
+| `scipy` | 14 MB | 代码里静态 `import scipy`（或 `utilities.atmosphere`、`utilities.simple_rotor_calcs`）时按需安装 |
+| `matplotlib`（含 contourpy/cycler/fonttools/kiwisolver/packaging/pillow/pyparsing/python-dateutil/pytz） | ~10 MB | 静态 `import matplotlib`/`mpl_toolkits` 时按需安装；`Agg` 后端可用，可存 PNG 字节 |
+| `pandas`（含 python-dateutil/pytz） | ~5 MB | 静态 `import pandas` 时按需安装 |
+
+- 全部 wheel 同源托管（`public/pyodide/`），离线可用，启动时校验 SHA-256 与依赖闭包。
+- 动态导入（`importlib`、`__import__`、`exec`）不会被静态扫描到：首次 import 失败时会**在后台开始安装**并提示重跑。
+- 未收录 `wx`、`charm`、`opencv`、`pyautogui` 等桌面专用或缺少 WASM wheel 的包。
+
 ### `openvsp` 门面（`python/openvsp_live.py`）
 
 ### 枚举与错误队列

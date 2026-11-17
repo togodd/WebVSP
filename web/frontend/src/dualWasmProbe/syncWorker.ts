@@ -139,15 +139,19 @@ async function setupLive(pyodide: PyodideInterface): Promise<void> {
   pyodide.runPython(liveImports)
 }
 
-// SciPy is a ~14 MB wheel, so it is installed on demand rather than in every
-// session. The trigger is a static scan of the submitted code for modules that
-// need it: ordinary `import`/`from ... import` statements are detected exactly;
-// a dynamic import (importlib, __import__, exec) is not, and reports guidance.
-const SCIPY_MODULES = ['scipy', 'utilities.atmosphere', 'utilities.simple_rotor_calcs']
-const SCIPY_PRELUDE = `
+// Optional scientific stack. The wheels are vendored and served same-origin but
+// installed on demand: SciPy is ~14 MB, Matplotlib ~10 MB with its dependencies,
+// pandas ~5 MB, and most sessions never touch them. The trigger is a static scan
+// of the submitted code for the modules each package provides.
+const OPTIONAL_PACKAGES = [
+  { pkg: 'scipy', size: '14 MB', modules: ['scipy', 'utilities.atmosphere', 'utilities.simple_rotor_calcs'] },
+  { pkg: 'matplotlib', size: '10 MB', modules: ['matplotlib', 'mpl_toolkits', 'openvsp.surface_patches', 'degen_geom.degen_geom'] },
+  { pkg: 'pandas', size: '5 MB', modules: ['pandas'] },
+]
+const MODULE_SCAN_PRELUDE = `
 import ast
 
-def _webvsp_scipy_roots(source):
+def _webvsp_import_roots(source):
     try:
         tree = ast.parse(source)
     except SyntaxError:
@@ -166,25 +170,47 @@ def _webvsp_scipy_roots(source):
                 roots.add(node.module + '.' + alias.name)
     return roots
 
-bool(_webvsp_scipy_roots(code) & set(${JSON.stringify(SCIPY_MODULES)}))
+_webvsp_import_roots(code)
 `
 
-let scipyInstall: Promise<void> | null = null
+const optionalInstalls = new Map<string, Promise<void>>()
 
-/** Install the vendored SciPy wheel once; both the console and script modes share it. */
-function ensureScipy(pyodide: PyodideInterface): Promise<void> {
-  if (!scipyInstall) scipyInstall = pyodide.loadPackage(['scipy'], { checkIntegrity: true }).then(() => undefined)
-  return scipyInstall
+/** Install one vendored optional package once; console and script modes share it. */
+function ensureOptional(pyodide: PyodideInterface, pkg: string): Promise<void> {
+  let install = optionalInstalls.get(pkg)
+  if (!install) {
+    install = pyodide.loadPackage([pkg], { checkIntegrity: true }).then(() => undefined)
+    optionalInstalls.set(pkg, install)
+  }
+  return install
 }
 
-async function codeNeedsScipy(pyodide: PyodideInterface, code: string): Promise<boolean> {
+async function importedRoots(pyodide: PyodideInterface, code: string): Promise<Set<string>> {
   const scope = pyodide.runPython('{}')
   try {
     scope.set('code', code)
-    return (await pyodide.runPythonAsync(SCIPY_PRELUDE, { globals: scope })) === true
+    const roots = await pyodide.runPythonAsync(MODULE_SCAN_PRELUDE, { globals: scope })
+    try { return new Set(roots.toJs() as string[]) } finally { roots.destroy?.() }
   } finally {
     scope.destroy()
   }
+}
+
+/** Install every optional package the submitted code imports. */
+async function ensureImportedPackages(pyodide: PyodideInterface, code: string): Promise<void> {
+  const roots = await importedRoots(pyodide, code)
+  const wanted = OPTIONAL_PACKAGES.filter(entry => entry.modules.some(name => roots.has(name)))
+  for (const entry of wanted) await ensureOptional(pyodide, entry.pkg)
+}
+
+/** Map an "No module named" message onto the optional package that provides it. */
+function missingOptionalPackage(text: string): { pkg: string, size: string } | null {
+  const match = /No module named '([^']+)'/.exec(text)
+  if (!match) return null
+  const moduleName = match[1]
+  const root = moduleName.split('.')[0]
+  const entry = OPTIONAL_PACKAGES.find(item => item.modules.some(name => name === moduleName || name.split('.')[0] === root))
+  return entry ? { pkg: entry.pkg, size: entry.size } : null
 }
 
 async function runConsole(pyodide: PyodideInterface, message: ConsoleMessage): Promise<void> {
@@ -193,7 +219,7 @@ async function runConsole(pyodide: PyodideInterface, message: ConsoleMessage): P
   const started = performance.now()
   if (message.profile) resetBridgeStats()
   try {
-    if (await codeNeedsScipy(pyodide, message.code ?? '')) await ensureScipy(pyodide)
+    await ensureImportedPackages(pyodide, message.code ?? '')
     pyodide.setStdout({ batched: (text) => out.push(text) })
     pyodide.setStderr({ batched: (text) => out.push(text) })
     const value = await pyodide.runPythonAsync(message.code ?? '')
@@ -205,12 +231,13 @@ async function runConsole(pyodide: PyodideInterface, message: ConsoleMessage): P
   } catch (error) {
     const profile: RunProfile | undefined = message.profile ? { ...getBridgeStats(), elapsedMs: performance.now() - started } : undefined
     let text = error instanceof Error ? error.message : String(error)
-    // A dynamic import bypassed the static scan: install SciPy now so a retry can succeed.
-    if (/No module named 'scipy'/.test(text)) {
-      void ensureScipy(pyodide).catch(() => undefined)
-      text += "\n(utilities.atmosphere and utilities.simple_rotor_calcs need SciPy. It is installed " +
-        'automatically for a static import; this dynamic import was not detected, so SciPy is now ' +
-        'loading in the background — rerun the command when it finishes.)'
+    // A dynamic import bypassed the static scan: install it now so a retry works.
+    const missing = missingOptionalPackage(text)
+    if (missing) {
+      void ensureOptional(pyodide, missing.pkg).catch(() => undefined)
+      text += `\n(${missing.pkg} (${missing.size}) is required here. It installs automatically for a ` +
+        'static import; this dynamic import was not detected, so it is now loading in the background — ' +
+        'rerun the command when it finishes.)'
     }
     scope.postMessage({ type: 'result', id, ok: false, error: text, stdout: out.join('\n'), profile })
   }
@@ -251,7 +278,7 @@ scope.onmessage = (event: MessageEvent<ConsoleMessage>) => {
     if (event.data.mode === 'script') {
       await setupLive(pyodide)
       const script = event.data.script ?? ''
-      if (await codeNeedsScipy(pyodide, script)) await ensureScipy(pyodide)
+      await ensureImportedPackages(pyodide, script)
       const value = await pyodide.runPythonAsync(script)
       let text: string
       try { text = JSON.stringify(value) } catch { text = String(value) }
