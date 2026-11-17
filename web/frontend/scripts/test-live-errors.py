@@ -89,5 +89,46 @@ class LiveErrorsTest(unittest.TestCase):
         self.assertEqual(caught.exception.outcome, 'not_written')
 
 
+class ErrorQueueTest(unittest.TestCase):
+    def setUp(self):
+        self.calls = []
+        vsp.request = self.request
+        vsp.ErrorMgrSingleton.getInstance().NoError()
+
+    def request(self, op, raw):
+        self.calls.append((op, json.loads(raw)))
+        return json.dumps({'ok': False, 'error': {'message': "GetParmName::Can't Find Parm bogus", 'outcome': 'not_written'}})
+
+    def test_errors_are_queued_like_the_desktop(self):
+        manager = vsp.ErrorMgrSingleton.getInstance()
+        with self.assertRaises(vsp.OpenVSPError):
+            vsp.GetParmName('bogus')
+        self.assertEqual(manager.GetNumTotalErrors(), 1)
+        error = manager.PopLastError()
+        self.assertEqual(manager.GetNumTotalErrors(), 0)
+        self.assertEqual(error.GetErrorCode(), vsp.VSP_CANT_FIND_PARM)
+        self.assertIn("Can't Find Parm", error.GetErrorString())
+
+    def test_no_error_clears_the_queue(self):
+        manager = vsp.ErrorMgrSingleton.getInstance()
+        for _ in range(2):
+            with self.assertRaises(vsp.OpenVSPError):
+                vsp.GetParmName('bogus')
+        self.assertEqual(manager.GetNumTotalErrors(), 2)
+        manager.NoError()
+        self.assertEqual(manager.GetNumTotalErrors(), 0)
+
+
+class EnumInjectionTest(unittest.TestCase):
+    def test_native_enums_are_exposed(self):
+        # Values come from APIDefines.h and must match the native order.
+        self.assertEqual((vsp.ABS, vsp.REL), (0, 1))
+        self.assertGreater(vsp.VSP_CANT_FIND_PARM, 0)
+        self.assertEqual(vsp.STABILITY_OFF, 0)
+        self.assertEqual(vsp.REORDER_MOVE_TOP, 2)
+        self.assertEqual(vsp.XS_ELLIPSE, 2)
+        self.assertTrue(vsp._ENUM_COUNT > 500)
+
+
 if __name__ == '__main__':
     unittest.main()

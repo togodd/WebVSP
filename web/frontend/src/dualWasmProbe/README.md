@@ -97,6 +97,15 @@ helper（[上游入口](../../../../src/python_api/packages/openvsp/openvsp/__in
 
 ### `openvsp` 门面（`python/openvsp_live.py`）
 
+### 枚举与错误队列
+
+- `web/wasm/engine/gen_enums.py` 从 `APIDefines.h` 生成 `enum_table.py`：**138 个枚举、1046 个枚举值**全部注入门面，手写常量优先，不会被覆盖。生成方式：
+  ```
+  python3 web/wasm/engine/gen_enums.py
+  ```
+- 桌面脚本里的 `vsp.ErrorMgrSingleton.getInstance()` 已实现：`GetNumTotalErrors()`、`PopLastError()`、`GetLastError()`、`NoError()`、`AddError()`、`SilenceErrors()`、`PrintOnErrors()`、`PopErrorAndPrint()`。每次调用失败都会先入队再抛 `OpenVSPError`，与桌面"先排队再取"的用法一致。
+- 限制：引擎只把错误**文本**传回，数值错误码靠消息关键字映射（默认 `VSP_UNKNOWN`）；`SilenceErrors()`/`PrintOnErrors()` 在此环境是空操作。
+
 ### 签名驱动批量桥接
 
 手工桥接只留给需要打包参数或解码结果的接口。其余“纯输入、标量/列表返回”的原生函数由

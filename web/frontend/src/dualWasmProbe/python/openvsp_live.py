@@ -42,6 +42,100 @@ XS_UNDEFINED = -1
 XSEC_BOTH_SIDES, XSEC_LEFT_SIDE, XSEC_RIGHT_SIDE = range(3)
 
 
+class ErrorObj:
+    """One queued error, as the desktop ``vsp.ErrorObj`` is used from Python."""
+
+    def __init__(self, code, message):
+        self._code = code
+        self._message = message
+
+    def GetErrorCode(self):
+        return self._code
+
+    def GetErrorString(self):
+        return self._message
+
+    def __repr__(self):
+        return 'ErrorObj(%d, %r)' % (self._code, self._message)
+
+
+def _error_code_for(message):
+    """Best effort mapping of a native message onto the ERROR_CODE enum.
+
+    The engine drains OpenVSP's error strings, so the numeric code is not on the
+    wire; the documented codes are recognised from the text instead.
+    """
+    text = message.lower()
+    if 'parm' in text or 'parameter' in text:
+        if 'limit' in text:
+            return -1
+        return 4  # VSP_CANT_FIND_PARM, unless it is a different parm complaint
+    if "can't find geom" in text or 'invalid geom' in text:
+        return 16  # VSP_INVALID_GEOM_ID
+    if 'xsec' in text and 'type' in text:
+        return 34  # VSP_WRONG_XSEC_TYPE
+    if 'xsec' in text:
+        return 23  # VSP_INVALID_XSEC_ID
+    if "can't find name" in text:
+        return 5  # VSP_CANT_FIND_NAME
+    if "can't find type" in text:
+        return 3  # VSP_CANT_FIND_TYPE
+    if 'index' in text and 'invalid' in text:
+        return 13  # VSP_INDEX_OUT_RANGE
+    return -1  # VSP_UNKNOWN
+
+
+class _ErrorMgr:
+    """The desktop error queue: raise-and-record, then pop like OpenVSP does."""
+
+    _instance = None
+
+    def __init__(self):
+        self._errors = []
+
+    @classmethod
+    def getInstance(cls):
+        if cls._instance is None:
+            cls._instance = cls()
+        return cls._instance
+
+    def _record(self, message):
+        self._errors.append(ErrorObj(_error_code_for(message), message))
+
+    def GetNumTotalErrors(self):
+        return len(self._errors)
+
+    def GetLastError(self):
+        return self._errors[-1] if self._errors else ErrorObj(0, '')
+
+    def PopLastError(self):
+        return self._errors.pop() if self._errors else ErrorObj(0, '')
+
+    def NoError(self):
+        self._errors.clear()
+
+    def AddError(self, code, description):
+        self._errors.append(ErrorObj(code, description))
+
+    def SilenceErrors(self):
+        return None
+
+    def PrintOnErrors(self):
+        return None
+
+    def PopErrorAndPrint(self, stream=None):
+        if not self._errors:
+            return False
+        error = self._errors.pop()
+        if stream is not None and hasattr(stream, 'write'):
+            stream.write(error.GetErrorString() + '\n')
+        return True
+
+
+ErrorMgrSingleton = _ErrorMgr
+ErrorMgr = _ErrorMgr.getInstance()
+
+
 class OpenVSPError(RuntimeError):
     def __init__(self, message, outcome=None, actual=None, code=None):
         super().__init__(message)
@@ -97,6 +191,7 @@ def _call(operation, **arguments):
         outcome = error.get('outcome')
         if outcome not in ('not_written', 'unknown', 'different'):
             outcome = 'unknown' if write else None
+        ErrorMgr._record(error['message'])
         raise OpenVSPError(error['message'], outcome, error.get('actual'), error.get('code'))
     if 'value' not in response:
         raise OpenVSPError('Successful synchronous response has no value', 'unknown' if write else None, code='INVALID_RESPONSE')
@@ -1278,6 +1373,21 @@ def _api_wrappers():
 
 
 globals().update(_api_wrappers())
+
+
+def _inject_enums():
+    """Add every APIDefines.h enumerator the hand-written facade does not set."""
+    from enum_table import ENUMS
+
+    injected = 0
+    for name, value in ENUMS.items():
+        if name not in globals():
+            globals()[name] = value
+            injected += 1
+    return injected
+
+
+_ENUM_COUNT = _inject_enums()
 
 
 # ---------------------------------------------------------------- analyses
