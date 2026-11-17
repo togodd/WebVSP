@@ -48,6 +48,23 @@ class AnalysisApiTest(unittest.TestCase):
         vsp.SetIntAnalysisInput('MassProp', 'NumMassSlices', [10])
         self.assertEqual(self.calls[-1], ('live_analysis_set_int', {'analysis': 'MassProp', 'name': 'NumMassSlices', 'value': 10}))
 
+    def test_typed_inputs(self):
+        for kind in ('Int', 'Double', 'String'):
+            getattr(vsp, 'Get' + kind + 'AnalysisInput')('AnyAnalysis', 'Input', 2)
+            self.assertEqual(self.calls[-1], ('live_analysis_get_' + kind.lower(), {'analysis': 'AnyAnalysis', 'name': 'Input', 'index': 2}))
+            with self.assertRaises(ValueError):
+                getattr(vsp, 'Get' + kind + 'AnalysisInput')('A', 'B', -1)
+        vsp.SetDoubleAnalysisInput('A', 'B', [1.25])
+        self.assertEqual(self.calls[-1], ('live_analysis_set_double', {'analysis': 'A', 'name': 'B', 'value': 1.25}))
+        for value in ('', '你好\n😀'):
+            vsp.SetStringAnalysisInput('A', 'B', [value])
+            self.assertEqual(self.calls[-1][1]['value'], value)
+        for fn, value in ((vsp.SetDoubleAnalysisInput, True), (vsp.SetStringAnalysisInput, 'a\0b'), (vsp.SetIntAnalysisInput, 2147483648)):
+            with self.assertRaises(ValueError):
+                fn('A', 'B', [value])
+        with self.assertRaises(ValueError):
+            vsp.SetDoubleAnalysisInput('A', 'B', [1.0], 1)
+
 
 if __name__ == '__main__':
     unittest.main()

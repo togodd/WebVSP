@@ -2712,30 +2712,70 @@ void RunImpl( const Job &j )
     if ( j.op == "liveAnalysisInputType" )
     {
         if ( j.a.empty() || j.b.empty() ) return Result( j.id, "Invalid analysis input", "" );
-        return Result( j.id, "", std::to_string( vsp::GetAnalysisInputType( j.a, j.b ) ) );
+        const int type = vsp::GetAnalysisInputType( j.a, j.b );
+        TakeParmErrors( true ); // INVALID_TYPE is the discovery API's unknown-name sentinel.
+        return Result( j.id, "", std::to_string( type ) );
     }
-    if ( j.op == "liveAnalysisDefaults" || j.op == "liveAnalysisSetInt" || j.op == "liveAnalysisRun" )
+    if ( j.op == "liveAnalysisGetInt" || j.op == "liveAnalysisGetDouble" || j.op == "liveAnalysisGetString" ||
+         j.op == "liveAnalysisSetInt" || j.op == "liveAnalysisSetDouble" || j.op == "liveAnalysisSetString" )
+    {
+        const bool set = j.op.find( "liveAnalysisSet" ) == 0;
+        string name = j.b, str;
+        if ( j.op == "liveAnalysisSetString" )
+        {
+            const size_t sep = j.b.find( '\n' );
+            if ( sep == string::npos ) return Result( j.id, "Invalid analysis input", "" );
+            name = j.b.substr( 0, sep ); str = j.b.substr( sep + 1 );
+        }
+        if ( j.a.empty() || name.empty() ) return Result( j.id, "Invalid analysis input", "" );
+        TakeParmErrors( true );
+        const int type = vsp::GetAnalysisInputType( j.a, name );
+        const string typeErr = TakeParmErrors( true );
+        const int expected = j.op.find( "Int" ) != string::npos ? vsp::INT_DATA :
+                             j.op.find( "Double" ) != string::npos ? vsp::DOUBLE_DATA : vsp::STRING_DATA;
+        if ( !typeErr.empty() || type != expected ) return Result( j.id, "Unsupported analysis input", "" );
+        if ( !set && ( !std::isfinite( j.value ) || j.value < 0 || j.value > 2147483647 || std::floor( j.value ) != j.value ) )
+            return Result( j.id, "Invalid analysis input index", "" );
+        const int index = set ? 0 : static_cast< int >( j.value );
+        const int count = vsp::GetNumAnalysisInputData( j.a, name );
+        const string countErr = TakeParmErrors( true );
+        if ( !countErr.empty() || index >= count ) return Result( j.id, "Invalid analysis input index", "" );
+        if ( set )
+        {
+            if ( expected == vsp::INT_DATA )
+            {
+                if ( !std::isfinite( j.value ) || j.value < -2147483648.0 || j.value > 2147483647.0 || std::floor( j.value ) != j.value ) return Result( j.id, "Invalid integer", "" );
+                vsp::SetIntAnalysisInput( j.a, name, { static_cast< int >( j.value ) }, index );
+            }
+            else if ( expected == vsp::DOUBLE_DATA )
+            {
+                if ( !std::isfinite( j.value ) ) return Result( j.id, "Invalid double", "" );
+                vsp::SetDoubleAnalysisInput( j.a, name, { j.value }, index );
+            }
+            else vsp::SetStringAnalysisInput( j.a, name, { str }, index );
+            return Result( j.id, TakeParmErrors( true ), "null" );
+        }
+        string out;
+        if ( expected == vsp::INT_DATA ) out = LiveIntArray( vsp::GetIntAnalysisInput( j.a, name, index ) );
+        else if ( expected == vsp::DOUBLE_DATA ) out = LiveDoubleArray( vsp::GetDoubleAnalysisInput( j.a, name, index ) );
+        else out = LiveStringArray( vsp::GetStringAnalysisInput( j.a, name, index ) );
+        const string err = TakeParmErrors( true );
+        if ( !err.empty() ) return Result( j.id, err, "" );
+        if ( out.empty() ) return Result( j.id, "Analysis input cannot be represented", "" );
+        return Result( j.id, "", out );
+    }
+    if ( j.op == "liveAnalysisDefaults" || j.op == "liveAnalysisRun" )
     {
         const bool degen = j.a == "DegenGeom", patches = j.a == "SurfacePatches", mass = j.a == "MassProp", comp = j.a == "CompGeom";
-        if ( !degen && !patches && !mass && !comp ) return Result( j.id, "Unknown analysis", "" );
         auto &errors = vsp::ErrorMgrSingleton::getInstance();
         if ( j.op == "liveAnalysisDefaults" )
         {
+            TakeParmErrors( true );
             vsp::SetAnalysisInputDefaults( j.a );
-            if ( errors.GetNumTotalErrors() ) return Result( j.id, errors.PopLastError().GetErrorString(), "" );
-            return Result( j.id, "", "null" );
+            return Result( j.id, TakeParmErrors( true ), "null" );
         }
-        if ( j.op == "liveAnalysisSetInt" )
-        {
-            // Accept any integer input this analysis actually declares. The type
-            // check replaces a name whitelist, so new whitelisted analyses work
-            // without changing the bridge.
-            if ( vsp::GetAnalysisInputType( j.a, j.b ) != vsp::INT_DATA )
-                return Result( j.id, "Unsupported analysis input", "" );
-            vsp::SetIntAnalysisInput( j.a, j.b, { static_cast< int >( j.value ) }, 0 );
-            if ( errors.GetNumTotalErrors() ) return Result( j.id, errors.PopLastError().GetErrorString(), "" );
-            return Result( j.id, "", "null" );
-        }
+        if ( !degen && !patches && !mass && !comp ) return Result( j.id, "Unknown analysis", "" );
+        TakeParmErrors( true );
         auto setIntIfPresent = [&]( const char *name, int value )
         {
             if ( vsp::GetAnalysisInputType( j.a, name ) == vsp::INT_DATA )

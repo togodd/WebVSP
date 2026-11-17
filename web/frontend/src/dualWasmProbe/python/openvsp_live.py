@@ -49,7 +49,7 @@ class OpenVSPError(RuntimeError):
 # Keep in step with LIVE_WRITES in syncProbe.ts.
 _LIVE_WRITES = frozenset({
     'live_add_geom', 'live_delete_geom', 'live_update', 'live_parm_set', 'live_parm_set_by_id',
-    'live_analysis_defaults', 'live_analysis_set_int', 'live_analysis_run', 'live_insert_xsec',
+    'live_analysis_defaults', 'live_analysis_set_int', 'live_analysis_set_double', 'live_analysis_set_string', 'live_analysis_run', 'live_insert_xsec',
     'live_delete_xsec', 'live_insert_xsec_by_id', 'live_delete_xsec_by_id',
     'live_xsec_set_width', 'live_xsec_set_height', 'live_xsec_set_width_height',
     'live_change_xsec_shape', 'live_add_sub_surf', 'live_delete_sub_surf',
@@ -653,10 +653,47 @@ def SetAnalysisInputDefaults(analysis):
     return _call('live_analysis_defaults', analysis=analysis)
 
 
+def _get_analysis_input(kind, analysis, name, index):
+    if type(index) is not int or not 0 <= index <= 2147483647:
+        raise ValueError('Analysis input index must be a non-negative 32-bit integer')
+    return _call('live_analysis_get_' + kind, analysis=analysis, name=name, index=index)
+
+
+def GetIntAnalysisInput(analysis, name, index=0):
+    return _get_analysis_input('int', analysis, name, index)
+
+
+def GetDoubleAnalysisInput(analysis, name, index=0):
+    return _get_analysis_input('double', analysis, name, index)
+
+
+def GetStringAnalysisInput(analysis, name, index=0):
+    return _get_analysis_input('string', analysis, name, index)
+
+
+def _set_analysis_input(kind, analysis, name, values, index):
+    if type(index) is not int or index != 0 or not isinstance(values, (list, tuple)) or len(values) != 1:
+        raise ValueError('Only one value and index=0 are supported for analysis setters')
+    value = values[0]
+    if kind == 'int' and (type(value) is not int or not -2147483648 <= value <= 2147483647):
+        raise ValueError('Expected a 32-bit integer analysis input')
+    if kind == 'double' and type(value) not in (int, float):
+        raise ValueError('Expected a numeric analysis input')
+    if kind == 'string' and (not isinstance(value, str) or '\0' in value):
+        raise ValueError('Expected a string analysis input without NUL')
+    return _call('live_analysis_set_' + kind, analysis=analysis, name=name, value=value)
+
+
 def SetIntAnalysisInput(analysis, name, values, index=0):
-    if index != 0 or not isinstance(values, (list, tuple)) or len(values) != 1 or type(values[0]) is not int:
-        raise ValueError('Only one integer value per analysis input is supported')
-    return _call('live_analysis_set_int', analysis=analysis, name=name, value=values[0])
+    return _set_analysis_input('int', analysis, name, values, index)
+
+
+def SetDoubleAnalysisInput(analysis, name, values, index=0):
+    return _set_analysis_input('double', analysis, name, values, index)
+
+
+def SetStringAnalysisInput(analysis, name, values, index=0):
+    return _set_analysis_input('string', analysis, name, values, index)
 
 
 def ExecAnalysis(analysis):

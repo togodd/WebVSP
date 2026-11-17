@@ -6,7 +6,7 @@ const RESPONSE_HEADER_BYTES = 8
 // Keep in step with openvsp_live.py: these calls can mutate model, analysis or results state.
 const LIVE_WRITES = new Set([
   'live_add_geom', 'live_delete_geom', 'live_update', 'live_parm_set', 'live_parm_set_by_id',
-  'live_analysis_defaults', 'live_analysis_set_int', 'live_analysis_run', 'live_insert_xsec',
+  'live_analysis_defaults', 'live_analysis_set_int', 'live_analysis_set_double', 'live_analysis_set_string', 'live_analysis_run', 'live_insert_xsec',
   'live_delete_xsec', 'live_insert_xsec_by_id', 'live_delete_xsec_by_id',
   'live_xsec_set_width', 'live_xsec_set_height', 'live_xsec_set_width_height',
   'live_copy_xsec', 'live_copy_xsec_by_id', 'live_paste_xsec', 'live_paste_xsec_by_id',
@@ -222,9 +222,21 @@ async function run(mode: 'script' | 'console', script?: string): Promise<unknown
         if (op === 'live_analysis_input_names') return live('liveAnalysisInputNames', text('analysis'))
         if (op === 'live_analysis_input_type') return live('liveAnalysisInputType', text('analysis'), text('name'))
         if (op === 'live_analysis_defaults') return live('liveAnalysisDefaults', text('analysis'))
-        if (op === 'live_analysis_set_int') {
-          if (typeof args.value !== 'number' || !Number.isSafeInteger(args.value)) throw new WasmEngineError(400, 'Invalid analysis input', 'not_written')
-          return live('liveAnalysisSetInt', text('analysis'), text('name'), args.value as number)
+        if (op === 'live_analysis_get_int' || op === 'live_analysis_get_double' || op === 'live_analysis_get_string') {
+          const index = args.index
+          if (typeof index !== 'number' || !Number.isInteger(index) || index < 0 || index > 2147483647) throw new WasmEngineError(400, 'Invalid analysis input index')
+          const engineOp = op === 'live_analysis_get_int' ? 'liveAnalysisGetInt' : op === 'live_analysis_get_double' ? 'liveAnalysisGetDouble' : 'liveAnalysisGetString'
+          return live(engineOp, text('analysis'), text('name'), index)
+        }
+        if (op === 'live_analysis_set_int' || op === 'live_analysis_set_double') {
+          const value = args.value
+          if (typeof value !== 'number' || !Number.isFinite(value) || (op === 'live_analysis_set_int' && (!Number.isInteger(value) || value < -2147483648 || value > 2147483647))) throw new WasmEngineError(400, 'Invalid analysis input', 'not_written')
+          return live(op === 'live_analysis_set_int' ? 'liveAnalysisSetInt' : 'liveAnalysisSetDouble', text('analysis'), text('name'), value)
+        }
+        if (op === 'live_analysis_set_string') {
+          const value = args.value, name = text('name')
+          if (typeof value !== 'string' || value.includes('\0') || name.includes('\n') || name.includes('\0')) throw new WasmEngineError(400, 'Invalid analysis input', 'not_written')
+          return live('liveAnalysisSetString', text('analysis'), name + '\n' + value)
         }
         if (op === 'live_analysis_run') return live('liveAnalysisRun', text('analysis'))
         if (op === 'live_parm_info') return live('liveParmInfo', text('parm_id'))

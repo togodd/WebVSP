@@ -53,6 +53,27 @@ describe('live write bridge', () => {
     expect((await worker.request('live_parm_set', { geom_id: 'g', key: 'k', value: 1 })).error).toMatchObject({ outcome: 'not_written', actual: 4, code: 'GUARD' })
     worker.onmessage({ data: { type: 'done', value: 'null' } } as MessageEvent)
   })
+  it('forwards typed analysis inputs and validates writes', async () => {
+    void runSyncScript('')
+    const worker = FakeWorker.instance
+    engine.call.mockResolvedValue(null)
+    for (const [kind, native] of [['int', 'Int'], ['double', 'Double'], ['string', 'String']] as const) {
+      expect((await worker.request('live_analysis_get_' + kind, { analysis: 'A', name: 'N', index: 2 })).ok).toBe(true)
+      expect(engine.call).toHaveBeenLastCalledWith('liveAnalysisGet' + native, 'A', 'N', 2)
+    }
+    for (const value of ['', '你好\n😀']) {
+      expect((await worker.request('live_analysis_set_string', { analysis: 'A', name: 'N', value })).ok).toBe(true)
+      expect(engine.call).toHaveBeenLastCalledWith('liveAnalysisSetString', 'A', 'N\n' + value, 0)
+    }
+    expect((await worker.request('live_analysis_set_double', { analysis: 'A', name: 'N', value: 1.5 })).ok).toBe(true)
+    expect(engine.call).toHaveBeenLastCalledWith('liveAnalysisSetDouble', 'A', 'N', 1.5)
+    engine.call.mockClear()
+    expect((await worker.request('live_analysis_set_string', { analysis: 'A', name: 'N', value: '\0' })).error.outcome).toBe('not_written')
+    expect((await worker.request('live_analysis_set_int', { analysis: 'A', name: 'N', value: 2147483648 })).error.outcome).toBe('not_written')
+    expect((await worker.request('live_analysis_get_int', { analysis: 'A', name: 'N', index: -1 })).ok).toBe(false)
+    expect(engine.call).not.toHaveBeenCalled()
+    worker.onmessage({ data: { type: 'done', value: 'null' } } as MessageEvent)
+  })
   it('forwards only valid clone deletion policies without dispatching invalid ones', async () => {
     void runSyncScript('')
     const worker = FakeWorker.instance
