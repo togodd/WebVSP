@@ -128,7 +128,8 @@ class GeometryApiTest(unittest.TestCase):
         vsp.SetGeomDisplayType('g', 3)
         self.assertEqual(self.calls[-1], ('live_geom_set_display_type', {'geom_id': 'g', 'type': 3}))
         self.reply['value'] = [10.0, 20.0, 30.0]
-        self.assertEqual(vsp.GetGeomWireColor('g'), [10.0, 20.0, 30.0])
+        colour = vsp.GetGeomWireColor('g')
+        self.assertEqual((colour.x(), colour.y(), colour.z()), (10.0, 20.0, 30.0))
         self.assertEqual(self.calls[-1], ('live_geom_wire_color', {'geom_id': 'g'}))
         vsp.SetGeomWireColor('g', (1, 2, 3))
         self.assertEqual(self.calls[-1], ('live_geom_set_wire_color', {'geom_id': 'g', 'rgb': [1, 2, 3]}))
@@ -138,7 +139,8 @@ class GeometryApiTest(unittest.TestCase):
         vsp.SetGeomMaterialName('g', 'Aluminum')
         self.assertEqual(self.calls[-1], ('live_geom_set_material', {'geom_id': 'g', 'name': 'Aluminum'}))
         self.reply['value'] = [-1.0, -2.0, -3.0]
-        self.assertEqual(vsp.GetGeomBBoxMin('g'), [-1.0, -2.0, -3.0])
+        low = vsp.GetGeomBBoxMin('g')
+        self.assertEqual((low.x(), low.y(), low.z()), (-1.0, -2.0, -3.0))
         self.assertEqual(self.calls[-1], ('live_geom_bbox_min', {'geom_id': 'g', 'surf': 0, 'absolute': True}))
         vsp.GetGeomBBoxMax('g', 1, False)
         self.assertEqual(self.calls[-1], ('live_geom_bbox_max', {'geom_id': 'g', 'surf': 1, 'absolute': False}))

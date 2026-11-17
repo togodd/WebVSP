@@ -53,7 +53,7 @@ geom = vsp.AddGeom('POD')
 vsp.Update()
 
 def xyz(v):
-    return (v[0], v[1], v[2]) if isinstance(v, (list, tuple)) else (v.x(), v.y(), v.z())
+    return (v.x(), v.y(), v.z())
 
 draw_before = vsp.GetGeomDrawType(geom)
 display_before = vsp.GetGeomDisplayType(geom)

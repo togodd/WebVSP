@@ -178,7 +178,7 @@ def SetGeomDisplayType(geom_id, display_type):
 
 
 def GetGeomWireColor(geom_id):
-    return _call('live_geom_wire_color', geom_id=geom_id)
+    return _Vec3d(_call('live_geom_wire_color', geom_id=geom_id))
 
 
 def SetGeomWireColor(geom_id, rgb):
@@ -202,13 +202,13 @@ def SetGeomMaterialName(geom_id, name):
 
 
 def GetGeomBBoxMin(geom_id, main_surf_ind=0, ref_frame_is_absolute=True):
-    return _call('live_geom_bbox_min', geom_id=geom_id, surf=main_surf_ind,
-                 absolute=bool(ref_frame_is_absolute))
+    return _Vec3d(_call('live_geom_bbox_min', geom_id=geom_id, surf=main_surf_ind,
+                        absolute=bool(ref_frame_is_absolute)))
 
 
 def GetGeomBBoxMax(geom_id, main_surf_ind=0, ref_frame_is_absolute=True):
-    return _call('live_geom_bbox_max', geom_id=geom_id, surf=main_surf_ind,
-                 absolute=bool(ref_frame_is_absolute))
+    return _Vec3d(_call('live_geom_bbox_max', geom_id=geom_id, surf=main_surf_ind,
+                        absolute=bool(ref_frame_is_absolute)))
 
 
 def CompPnt01(geom_id, surf_indx, u, w):
