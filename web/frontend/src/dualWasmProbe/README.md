@@ -107,7 +107,7 @@ python3 web/wasm/engine/gen_live_api.py
 ```
 
 它同时写出引擎侧的 `live_api_table.inc` 和门面侧的 `live_api_table.py`，两边形状不会漂移。
-当前覆盖 678 个原生函数（门面共 963 个公开名，占 `VSP_Geom_API.h` 1017 个不同函数名的 83%）。
+当前覆盖 894 个原生函数名（占 `VSP_Geom_API.h` 1017 个不同函数名的 88%）；其中 678 个由签名表自动桥接，其余按功能手写。
 
 通道路径：门面包装函数 → `live_api` / `live_api_write` → `liveApi` 引擎分发（按形状解析
 长度前缀参数包）→ 直接调用 `vsp::`。写操作按返回值是否为 `void` 自动分类。
@@ -136,6 +136,12 @@ VSPAERO 控制面、测量、可视化等）尚未桥接。
 | `GetParmDescript`、`SetParmDescript`、`GetParmContainer`、`SetParmValLimits` | ✅ | 真实浏览器回归覆盖描述、容器与限值钳制 |
 | `CloneGeomVec`、`DeleteGeomVec`、`CopyPasteSet`、`GetGeomSetCollection` | ✅ | 批量克隆/删除与集合复制已通过真实浏览器回归；克隆结果是原生 `Clone` 类型 |
 | `CompPnt01`、`CompNorm01` | ✅ | 已通过机身与机翼真实浏览器回归，返回支持 `x()`/`y()`/`z()` 的 vec3d |
+| `CompTanU01`、`CompTanW01`、`CompareGeomSurfaces`、`InsideSurf`、`CompPntRST`、`ConvertRSTtoLMN`/`ConvertLMNtoRST` | ✅ | 真实浏览器回归；切向量是曲面导数，不是单位向量 |
+| `ProjPnt01Guess`、`AxisProjPnt01`、`AxisProjPnt01Guess`、`ProjPnt01I`、`AxisProjPnt01I`、`FindRST`、`FindRSTGuess` | ✅ | 返回 `(距离, u, w)` 或 `(距离, r, s, t)` |
+| `AddAttribute*`、`GetAttribute*`、`SetAttribute*Matrix`、`FindAttribute*`、`GetChildCollection` | ✅ | 属性挂在对象的子集合上（`GetChildCollection`）；值 getter 返回向量 |
+| `AddProbe`、`AddRSTProbe`、`AddRuler`、`AddProtractor` | ✅ | 真实浏览器验证创建与无效锚点错误 |
+| `KeepPts*`/`RemovePts*`/`UniquePts`/`UnionPts`/`IntersectPts`/`SubtractPts`、`CreatePtCloudGeomFromPts` | ✅ | 点云过滤、布尔与建几何全部回归 |
+| `GetEditXSecCtrlVec`、`SetEditXSecPnts`、`MoveEditXSecPnt`、`EditXSecSplit01`、`Get/SetEditXSecFixedUVec` | ✅ | 仅对 `XS_EDIT_CURVE` 截面有效 |
 | `CompVecPnt01`、`CompVecNorm01`、`ProjPnt01`、`CompCurvature01`、`GetUWTess01` | ✅ | 真实浏览器回归覆盖批量点法线、投影距离与曲率；`GetUWTess01` 返回 `(us, ws)` 且两者长度可不同 |
 | `GetGeomDrawType`、`SetGeomDrawType`、`GetGeomDisplayType`、`SetGeomDisplayType`、`GetGeomWireColor`、`SetGeomWireColor` | ✅ | 真实浏览器回归覆盖读写往返与恢复 |
 | `GetGeomBBoxMin`、`GetGeomBBoxMax` | ✅ | 支持主曲面序号与绝对/相对坐标系；绝对框随位置变化已验证 |
