@@ -65,6 +65,8 @@ SHAPES = {
     'ssi': ['string', 'string', 'int'],
     'iss': ['int', 'string', 'string'],
     'sidd': ['string', 'int', 'double', 'double'],
+    'siii': ['string', 'int', 'int', 'int'],
+    'siiii': ['string', 'int', 'int', 'int', 'int'],
     'Ev': ['string'],
     'EvI': ['string', 'int'],
     'sv': ['string', 'vector<vec3d>'],
@@ -86,6 +88,7 @@ RETURNS = {'v': 'void', 's': 'void', 'i': 'void', 'n': 'void', 'ss': 'void', 'sb
            'ns': 'void', 'nn': 'void', 'ib': 'void', 'sii': 'void',
            'sis': 'void', 'sd': 'void', 'sdd': 'void', 'ssi': 'void', 'iss': 'void',
            'sidd': 'void', 'sv': 'void', 'sL': 'void', 'd': 'void',
+           'siii': 'void', 'siiii': 'void',
            'sbi': 'int', 'siiS': 'string',
            'S': 'string', 'SS': 'string', 'Si': 'string', 'N': 'string', 'S0': 'string',
            'I': 'int', 'Ii': 'int', 'D': 'double', 'B': 'bool', 'I0': 'int', 'B0': 'bool',
@@ -155,10 +158,19 @@ def parse():
         if name in have or len(variants) != 1:
             continue
         ret, params, defaults = next(iter(variants))
-        for shape, want in SHAPES.items():
-            if tuple(want) == params and RETURNS[shape] == ret:
-                rows.append((name, shape, defaults))
-                break
+        # Trailing parameters with defaults can be dropped: the C++ declaration
+        # supplies them, which is how SetDriverGroup(geom, section, driver0)
+        # reaches the (string,int,int) shape.
+        for length in range(len(params), -1, -1):
+            if any(default_value(text) is None for text in defaults[length:]):
+                continue
+            for shape, want in SHAPES.items():
+                if tuple(want) == params[:length] and RETURNS[shape] == ret:
+                    rows.append((name, shape, defaults))
+                    break
+            else:
+                continue
+            break
     rows.sort()
     return rows
 
@@ -229,6 +241,8 @@ def write_cpp(rows):
               'ssi': 'const string &a, const string &b, int c',
               'iss': 'int a, const string &b, const string &c',
               'sidd': 'const string &a, int b, double c, double d',
+              'siii': 'const string &a, int b, int c, int d',
+              'siiii': 'const string &a, int b, int c, int d, int e',
               'd': 'double a',
               'sv': 'const string &a, const vector<vec3d> &b',
               'sL': 'const string &a, int b, const vector<double> &c',
@@ -237,7 +251,8 @@ def write_cpp(rows):
             'ns': 'a, b', 'nn': 'a, b', 'ib': 'a, b', 'sii': 'a, b, c',
             'sis': 'a, b, c', 'sd': 'a, b', 'sdd': 'a, b, c', 'ssi': 'a, b, c',
             'dd': 'a, b', 'si': 'a, b', 'sbi': 'a, b, c', 'siiS': 'a, b, c',
-            'iss': 'a, b, c', 'sidd': 'a, b, c, d', 'd': 'a', 'sv': 'a, b', 'sL': 'a, b, c'}
+            'iss': 'a, b, c', 'sidd': 'a, b, c, d', 'd': 'a', 'sv': 'a, b', 'sL': 'a, b, c',
+            'siii': 'a, b, c, d', 'siiii': 'a, b, c, d, e'}
     # Shapes with the same parameters share one argument signature.
     alias = {'S': 's', 'I': 's', 'D': 's', 'B': 's', 'SS': 'ss', 'Si': 'n', 'Ii': 'n',
              'N': 'i', 'Vi': 'i', 'V': 'v', 'Vs': 's', 'S0': 'v', 'I0': 'v', 'B0': 'v',

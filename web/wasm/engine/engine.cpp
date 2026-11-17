@@ -2821,7 +2821,14 @@ void RunImpl( const Job &j )
         TakeParmErrors( true );
         const int type = vsp::GetAnalysisInputType( j.a, name );
         const string typeErr = TakeParmErrors( true );
-        if ( !typeErr.empty() || type != expected ) return Result( j.id, "Unsupported analysis input", "" );
+        if ( !typeErr.empty() ) return Result( j.id, "Unsupported analysis input", "" );
+        // Scripting languages pick the numeric setter loosely; the OpenVSP example
+        // scripts pass a double list to int inputs (MachNpts). Accept the other
+        // numeric type as long as the values still fit.
+        const bool int_as_double = type == vsp::INT_DATA && expected == vsp::DOUBLE_DATA;
+        const bool double_as_int = type == vsp::DOUBLE_DATA && expected == vsp::INT_DATA;
+        if ( type != expected && !int_as_double && !double_as_int )
+            return Result( j.id, "Unsupported analysis input", "" );
         if ( !std::isfinite( j.value ) || j.value < 0 || j.value > 2147483647 || std::floor( j.value ) != j.value )
             return Result( j.id, "Invalid analysis input index", "" );
         const int index = static_cast< int >( j.value );
@@ -2833,21 +2840,21 @@ void RunImpl( const Job &j )
             std::vector< int > ints;
             std::vector< double > doubles;
             std::vector< string > strings;
-            if ( expected == vsp::INT_DATA )
+            if ( type == vsp::INT_DATA )
             {
                 for ( size_t i = 1; i < items.size(); ++i )
                 {
                     const string &text = items[i];
                     char *end = nullptr;
-                    const long long value = std::strtoll( text.c_str(), &end, 10 );
-                    if ( text.empty() || end != text.c_str() + text.size() ||
-                         value < -2147483648LL || value > 2147483647LL )
+                    const double value = std::strtod( text.c_str(), &end );
+                    if ( text.empty() || end != text.c_str() + text.size() || !std::isfinite( value ) ||
+                         std::floor( value ) != value || value < -2147483648.0 || value > 2147483647.0 )
                         return Result( j.id, "Invalid integer analysis input", "" );
                     ints.push_back( static_cast< int >( value ) );
                 }
                 vsp::SetIntAnalysisInput( j.a, name, ints, index );
             }
-            else if ( expected == vsp::DOUBLE_DATA )
+            else if ( type == vsp::DOUBLE_DATA )
             {
                 for ( size_t i = 1; i < items.size(); ++i )
                 {
@@ -2928,8 +2935,9 @@ void RunImpl( const Job &j )
             // modes, so the thick set is the whole model and modes are always off.
             setIntIfPresent( "NCPU", 1 );
             setIntIfPresent( "UseModeFlag", 0 );
-            setIntIfPresent( "GeomSet", vsp::SET_ALL );
-            setIntIfPresent( "ThinGeomSet", vsp::SET_NONE );
+            // GeomSet / ThinGeomSet stay as the caller set them: VLM runs need the
+            // thin set even though the browser has no set-picking UI. The native
+            // "meshed twice" error covers the case where both name the same set.
             if ( aero && vsp::GetAnalysisInputType( j.a, "StopBeforeRun" ) == vsp::INT_DATA )
             {
                 const vector< int > stop = vsp::GetIntAnalysisInput( j.a, "StopBeforeRun", 0 );
@@ -3514,6 +3522,27 @@ void RunImpl( const Job &j )
             const string out = LiveVec3dArray( values );
             if ( out.empty() && !values.empty() ) return Result( j.id, "Non-finite vector result", "" );
             return Result( j.id, TakeErrors(), out );
+        }
+        if ( shape == "siii" || shape == "siiii" )
+        {
+            const size_t count = shape == "siii" ? 4u : 5u;
+            if ( !need( count ) ) return missing();
+            int numbers[4] = { 0, 0, 0, 0 };
+            for ( size_t i = 1; i < count; ++i )
+                if ( !as_int( i, numbers[i - 1] ) ) return Result( j.id, "Invalid integer argument", "" );
+            if ( shape == "siii" )
+            {
+                const auto it = kApi_siii.find( j.a );
+                if ( it == kApi_siii.end() ) return missing();
+                it->second( items[0], numbers[0], numbers[1], numbers[2] );
+            }
+            else
+            {
+                const auto it = kApi_siiii.find( j.a );
+                if ( it == kApi_siiii.end() ) return missing();
+                it->second( items[0], numbers[0], numbers[1], numbers[2], numbers[3] );
+            }
+            return Result( j.id, TakeErrors(), "null" );
         }
         if ( shape == "sbi" || shape == "siiS" )
         {
@@ -5608,6 +5637,24 @@ void RunImpl( const Job &j )
     }
     if ( j.op == "writeFile" )
     {
+        // A script may write into a folder it created on the Python side only;
+        // make the engine's parent folders first.
+        {
+            const size_t slash = j.a.find_last_of( '/' );
+            if ( slash != string::npos && slash > 0 )
+            {
+                string current;
+                size_t pos = 1;
+                while ( pos <= slash )
+                {
+                    const size_t next = j.a.find( '/', pos );
+                    if ( next == string::npos || next > slash ) break;
+                    current = j.a.substr( 0, next );
+                    mkdir( current.c_str(), 0755 );
+                    pos = next + 1;
+                }
+            }
+        }
         vsp::SetVSP3FileName( j.a );
         string err = TakeErrors();
         if ( !err.empty() ) return Result( j.id, err, "" );

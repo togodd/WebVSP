@@ -3,6 +3,7 @@ import type { PyodideInterface } from 'pyodide'
 import liveFacade from './python/openvsp_live.py?raw'
 import liveApiTable from './python/live_api_table.py?raw'
 import enumTable from './python/enum_table.py?raw'
+import exampleConstants from './python/Constants.py?raw'
 import liveImports from './python/live_imports.py?raw'
 import webvspFiles from './python/webvsp_files.py?raw'
 // Bundled upstream files keep the src/python_api package layout so gaps stay visible.
@@ -116,6 +117,8 @@ async function setupLive(pyodide: PyodideInterface): Promise<void> {
     'openvsp/__init__.py': liveFacade,
     'live_api_table.py': liveApiTable,
     'enum_table.py': enumTable,
+    // Example scripts do `import Constants`; keep it importable at top level.
+    'Constants.py': exampleConstants,
     'openvsp/utilities.py': openvspUtilities,
     'openvsp/degen_geom_parse.py': openvspDegenParser,
     'openvsp/surface_patches.py': openvspPatches,
@@ -145,7 +148,7 @@ async function setupLive(pyodide: PyodideInterface): Promise<void> {
 // of the submitted code for the modules each package provides.
 const OPTIONAL_PACKAGES = [
   { pkg: 'scipy', size: '14 MB', modules: ['scipy', 'utilities.atmosphere', 'utilities.simple_rotor_calcs'] },
-  { pkg: 'matplotlib', size: '10 MB', modules: ['matplotlib', 'mpl_toolkits', 'openvsp.surface_patches', 'degen_geom.degen_geom'] },
+  { pkg: 'matplotlib', size: '10 MB', modules: ['matplotlib', 'mpl_toolkits', 'openvsp.surface_patches', 'degen_geom.degen_geom', 'Constants'] },
   { pkg: 'pandas', size: '5 MB', modules: ['pandas'] },
 ]
 const MODULE_SCAN_PRELUDE = `
@@ -220,6 +223,10 @@ async function runConsole(pyodide: PyodideInterface, message: ConsoleMessage): P
   if (message.profile) resetBridgeStats()
   try {
     await ensureImportedPackages(pyodide, message.code ?? '')
+    // Scripts commonly derive paths from __file__; give console code one under
+    // the workspace and keep __name__ as __main__ so `if __name__ == ...` runs.
+    pyodide.globals.set('__file__', '/work/console.py')
+    pyodide.globals.set('__name__', '__main__')
     pyodide.setStdout({ batched: (text) => out.push(text) })
     pyodide.setStderr({ batched: (text) => out.push(text) })
     const value = await pyodide.runPythonAsync(message.code ?? '')
@@ -231,13 +238,23 @@ async function runConsole(pyodide: PyodideInterface, message: ConsoleMessage): P
   } catch (error) {
     const profile: RunProfile | undefined = message.profile ? { ...getBridgeStats(), elapsedMs: performance.now() - started } : undefined
     let text = error instanceof Error ? error.message : String(error)
-    // A dynamic import bypassed the static scan: install it now so a retry works.
+    // A dynamic or indirect import bypassed the static scan. Install the package
+    // and run the code once more, so the user does not have to retry by hand.
     const missing = missingOptionalPackage(text)
     if (missing) {
-      void ensureOptional(pyodide, missing.pkg).catch(() => undefined)
-      text += `\n(${missing.pkg} (${missing.size}) is required here. It installs automatically for a ` +
-        'static import; this dynamic import was not detected, so it is now loading in the background — ' +
-        'rerun the command when it finishes.)'
+      try {
+        await ensureOptional(pyodide, missing.pkg)
+        const retry = await pyodide.runPythonAsync(message.code ?? '')
+        let value = ''
+        try { value = retry === undefined || retry === null ? '' : String(retry) } catch { value = '' }
+        try { retry?.destroy?.() } catch { /* best effort */ }
+        const profile: RunProfile | undefined = message.profile ? { ...getBridgeStats(), elapsedMs: performance.now() - started } : undefined
+        scope.postMessage({ type: 'result', id, ok: true, value, stdout: out.join('\n'), profile })
+        return
+      } catch (retryError) {
+        text = retryError instanceof Error ? retryError.message : String(retryError)
+      }
+      text += `\n(${missing.pkg} (${missing.size}) was installed for this run.)`
     }
     scope.postMessage({ type: 'result', id, ok: false, error: text, stdout: out.join('\n'), profile })
   }

@@ -132,6 +132,25 @@ extern void SetDriverGroup( const std::string & geom_id, int section_index, int 
 4. **放开 `SurfaceIntersection` 分析**（1 天）：进程内、无外部依赖。
 5. **`CpSlicer` 链路**（2–3 天）：VSPAERO `.adb` → `vsploads` 切片，跨进程、风险最高。
 
+## 5.5 `examples/scripts/python_scripts/` 实测
+
+用户贴进来的 `BertinSmithTest.py` 起手就报 `ModuleNotFoundError: No module named 'Constants'`，逐项修完后**已能端到端跑通**（缩减到 3 个 alpha 点验证）：
+
+| 问题 | 处理 |
+|---|---|
+| `Constants` 模块缺失 | 已把 `examples/scripts/python_scripts/Constants.py` 打进控制台，并在 `check-native-modules.mjs` 里加了一致性校验 |
+| `Path(__file__)` 在控制台无定义 | 控制台会话现在提供 `__file__ = '/work/console.py'` 与 `__name__ = '__main__'` |
+| `Constants` 顶部 `import matplotlib` 未被静态扫描 | 静态扫描表加入 `Constants`；并且**任何** `No module named` 命中可选包时会装完自动重跑一次 |
+| `SetDriverGroup` 缺失 | 生成器现在支持"末尾默认参数截断匹配形状"，并新增 4/5 参形状；`siiii` 形状 + 默认值补齐 |
+| 5 个参数的通用调用被拒 | `live_api` 参数上限从 4 提到 8 |
+| `WriteVSPFile` 写不进新建子目录 | 引擎写文件前自建父目录 |
+| `SetDoubleAnalysisInput('MachNpts', ...)`（整型输入用 double setter） | 引擎对数值类型互转（要求值仍是整数） |
+| 引擎强制 `GeomSet/ThinGeomSet`，与脚本的薄表面 VLM 冲突 | 不再强制集合，只强制 `NCPU=1`、`UseModeFlag=0` |
+
+实测输出：写模型 → 读回 → `VSPAEROComputeGeometry`（薄表面）→ `VSPAEROSweep` → 拿到 `ResultsVec` → 计算 `Cl_alpha` → matplotlib 出图，全程无异常。
+
+仍存在的限制：图表写在 Pyodide 文件系统、CSV 写在引擎文件系统，两者都不直接落到用户磁盘；`mode == 2` 分支里上游把 `scriptpath` 拼错成 `cscriptpath`，是示例自身的 bug。
+
 ## 6. 复现
 
 ```bash

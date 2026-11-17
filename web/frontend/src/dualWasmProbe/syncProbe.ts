@@ -179,7 +179,7 @@ async function run(mode: 'script' | 'console', script?: string): Promise<unknown
         if (op === 'live_api' || op === 'live_api_write') {
           const fn = text('fn'), shape = text('shape')
           const values = args.args
-          if (!Array.isArray(values) || values.length > 4) throw new WasmEngineError(400, 'Invalid API arguments', 'not_written')
+          if (!Array.isArray(values) || values.length > 8) throw new WasmEngineError(400, 'Invalid API arguments', 'not_written')
           const encoder = new TextEncoder()
           const packed = values.map(value => {
             if (typeof value === 'string') return value

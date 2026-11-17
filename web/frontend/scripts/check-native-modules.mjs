@@ -26,6 +26,12 @@ for (const file of [
   const b = await readFile(resolve(bundled, file))
   if (!a.equals(b)) throw new Error(`Original Python module drift: ${file}`)
 }
+// Example scripts import Constants at the top level, so it ships with the console.
+const constantsSource = resolve(frontend, '../../examples/scripts/python_scripts/Constants.py')
+const constantsBundled = resolve(frontend, 'src/dualWasmProbe/python/Constants.py')
+if (!(await readFile(constantsSource)).equals(await readFile(constantsBundled))) {
+  throw new Error('Bundled example Constants.py drifted from examples/scripts/python_scripts/Constants.py')
+}
 const apiDir = process.env.VSP_API_DIR ?? resolve(frontend, '../../src/geom_api')
 const defines = await readFile(resolve(apiDir, 'APIDefines.h'), 'utf8')
 if (!/\bSET_ALL\s*=\s*0\s*,/.test(defines)) throw new Error('SET_ALL shim no longer matches native APIDefines.h')

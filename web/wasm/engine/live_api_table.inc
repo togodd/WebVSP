@@ -40,7 +40,7 @@
 
 // N: string (int)  -- 14 functions
 
-// S: string (string)  -- 73 functions
+// S: string (string)  -- 74 functions
 
 // S0: string ()  -- 25 functions
 
@@ -70,7 +70,7 @@
 
 // ns: void (int, string)  -- 8 functions
 
-// s: void (string)  -- 92 functions
+// s: void (string)  -- 91 functions
 
 // sL: void (string, int, vector<double>)  -- 4 functions
 
@@ -87,6 +87,10 @@
 // sii: void (string, int, int)  -- 4 functions
 
 // siiS: string (string, int, int)  -- 4 functions
+
+// siii: void (string, int, int, int)  -- 1 functions
+
+// siiii: void (string, int, int, int, int)  -- 1 functions
 
 // sis: void (string, int, string)  -- 10 functions
 
@@ -289,6 +293,7 @@ static const std::map< string, std::function< string(int a) > > kApi_N = {
 static const std::map< string, std::function< string(const string &a) > > kApi_S = {
     { "AddFeaLayer", []( const string &a ) { return vsp::AddFeaLayer(a); } },
     { "AddFeaPolySparPt", []( const string &a ) { return vsp::AddFeaPolySparPt(a); } },
+    { "AddFeaStructure", []( const string &a ) { return vsp::AddFeaStructure(a); } },
     { "AddVarPresetGroup", []( const string &a ) { return vsp::AddVarPresetGroup(a); } },
     { "ConvertFuselageToStack", []( const string &a ) { return vsp::ConvertFuselageToStack(a); } },
     { "CreateAndAddBogie", []( const string &a ) { return vsp::CreateAndAddBogie(a); } },
@@ -679,7 +684,6 @@ static const std::map< string, std::function< void(const string &a) > > kApi_s =
     { "PopupMsg", []( const string &a ) { vsp::PopupMsg(a); } },
     { "PrintAnalysisDocs", []( const string &a ) { vsp::PrintAnalysisDocs(a); } },
     { "PrintAnalysisInputs", []( const string &a ) { vsp::PrintAnalysisInputs(a); } },
-    { "PrintResults", []( const string &a ) { vsp::PrintResults(a); } },
     { "PrintResultsDocs", []( const string &a ) { vsp::PrintResultsDocs(a); } },
     { "PromoteBORCSTLower", []( const string &a ) { vsp::PromoteBORCSTLower(a); } },
     { "PromoteBORCSTUpper", []( const string &a ) { vsp::PromoteBORCSTUpper(a); } },
@@ -767,6 +771,14 @@ static const std::map< string, std::function< string(const string &a, int b, int
     { "AddFeaSubSurf", []( const string &a, int b, int c ) { return vsp::AddFeaSubSurf(a, b, c); } },
     { "CreateAndAddMode", []( const string &a, int b, int c ) { return vsp::CreateAndAddMode(a, b, c); } },
     { "GetFeaMeshFileName", []( const string &a, int b, int c ) { return vsp::GetFeaMeshFileName(a, b, c); } },
+};
+
+static const std::map< string, std::function< void(const string &a, int b, int c, int d) > > kApi_siii = {
+    { "SetDriverGroupByID", []( const string &a, int b, int c, int d ) { vsp::SetDriverGroupByID(a, b, c, d); } },
+};
+
+static const std::map< string, std::function< void(const string &a, int b, int c, int d, int e) > > kApi_siiii = {
+    { "SetDriverGroup", []( const string &a, int b, int c, int d, int e ) { vsp::SetDriverGroup(a, b, c, d, e); } },
 };
 
 static const std::map< string, std::function< void(const string &a, int b, const string &c) > > kApi_sis = {
